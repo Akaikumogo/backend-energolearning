@@ -45,7 +45,7 @@ import 'dotenv/config';
         UserQuestionAttempt,
         Certificate,
       ],
-      synchronize: false,
+      synchronize: true,
     }),
     UsersModule,
     AuthModule,
