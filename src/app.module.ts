@@ -23,7 +23,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { ProgressModule } from './progress/progress.module';
 import { StudentsModule } from './students/students.module';
 import { SeedModule } from './seed/seed.module';
-
+import 'dotenv/config';
 @Module({
   imports: [
     TypeOrmModule.forRoot({
