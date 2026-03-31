@@ -172,17 +172,17 @@ export class ProgressService {
 
         const answeredQuestions = await this.attemptRepo
           .createQueryBuilder('a')
-          .select('COUNT(DISTINCT a.question_id)', 'cnt')
-          .where('a.user_id = :userId', { userId })
-          .andWhere(
-            'a.question_id IN (' +
-              this.questionRepo
-                .createQueryBuilder('q')
-                .select('q.id')
-                .where('q.theory_id = :theoryId', { theoryId: theory.id })
-                .getQuery() +
-              ')',
-          )
+          .select('COUNT(DISTINCT a.questionId)', 'cnt')
+          .where('a.userId = :userId', { userId })
+          .andWhere((qb) => {
+            const subQuery = qb
+              .subQuery()
+              .select('q.id')
+              .from(Question, 'q')
+              .where('q.theoryId = :theoryId')
+              .getQuery();
+            return `a.questionId IN ${subQuery}`;
+          })
           .setParameters({ userId, theoryId: theory.id })
           .getRawOne<{ cnt: string }>();
 
@@ -219,8 +219,8 @@ export class ProgressService {
       .createQueryBuilder('a')
       .innerJoin('a.question', 'q')
       .select('COUNT(DISTINCT a.question_id)', 'cnt')
-      .where('a.user_id = :userId', { userId })
-      .andWhere('q.level_id = :levelId', { levelId })
+      .where('a.userId = :userId', { userId })
+      .andWhere('q.levelId = :levelId', { levelId })
       .setParameters({ userId, levelId })
       .getRawOne<{ cnt: string }>();
 
