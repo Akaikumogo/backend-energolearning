@@ -50,17 +50,33 @@ export class ContentService {
     return theory;
   }
 
+  /** Mobile: nazariya bo'yicha har safar tasodifiy 4 ta savol (kamida 4 ta bo'lsa hammasi qaytadi). */
+  private static readonly MOBILE_THEORY_QUESTION_SAMPLE = 4;
+
   async findQuestionsForMobileByTheoryId(
     theoryId: string,
   ): Promise<Question[]> {
-    return this.questionRepo
+    const idRows = await this.questionRepo
       .createQueryBuilder('q')
-      .leftJoinAndSelect('q.options', 'o')
+      .select('q.id')
       .where('q.theory_id = :theoryId', { theoryId })
       .andWhere('q.is_active = true')
-      .orderBy('q.order_index', 'ASC')
-      .addOrderBy('o.order_index', 'ASC')
+      .orderBy('RANDOM()')
+      .limit(ContentService.MOBILE_THEORY_QUESTION_SAMPLE)
+      .getRawMany();
+
+    const ids = idRows.map((row) => row.q_id as string);
+    if (ids.length === 0) return [];
+
+    const questions = await this.questionRepo
+      .createQueryBuilder('q')
+      .leftJoinAndSelect('q.options', 'o')
+      .where('q.id IN (:...ids)', { ids })
+      .orderBy('o.order_index', 'ASC')
       .getMany();
+
+    const byId = new Map(questions.map((q) => [q.id, q]));
+    return ids.map((id) => byId.get(id)).filter((q): q is Question => q != null);
   }
 
   // ─── Levels ──────────────────────────────────────────

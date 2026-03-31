@@ -46,6 +46,14 @@ export class OrganizationsService {
     return qb.getMany();
   }
 
+  async listPublicNames(): Promise<{ id: string; name: string }[]> {
+    const rows = await this.orgRepo.find({
+      select: ['id', 'name'],
+      order: { name: 'ASC' },
+    });
+    return rows.map((o) => ({ id: o.id, name: o.name }));
+  }
+
   async findById(id: string): Promise<Organization> {
     const org = await this.orgRepo.findOne({
       where: { id },

@@ -40,9 +40,16 @@ export class MobileContentController {
   }
 
   @Get('theories/:theoryId/questions')
-  @ApiOperation({ summary: 'Nazariya savollari (mobile uchun)' })
+  @ApiOperation({
+    summary: 'Nazariya savollari (mobile uchun)',
+    description:
+      'Nazariya ichidagi tasodifiy 4 ta savol (kamida 4 ta bo`lsa barchasi). Har safar yangi tanlov.',
+  })
   @ApiParam({ name: 'theoryId' })
-  @ApiOkResponse({ description: 'Savollar ro`yxati (variantlar bilan, isCorrectsiz)' })
+  @ApiOkResponse({
+    description:
+      'Tasodifiy 4 ta savol (variantlar bilan, isCorrectsiz); savollar soni 4 dan kam bo`lishi mumkin',
+  })
   async getQuestionsByTheoryId(
     @Param('theoryId', ParseUUIDPipe) theoryId: string,
   ) {

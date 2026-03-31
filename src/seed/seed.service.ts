@@ -36,75 +36,140 @@ export class SeedService {
   ) {}
 
   async seedAll() {
-    const existing = await this.levelRepo.count();
-    if (existing > 0) {
-      return {
-        success: false,
-        message: `Allaqachon ${existing} ta modul mavjud. Seed bekor qilindi.`,
-      };
-    }
-
     const modules = this.getData();
-    let totalTheories = 0;
-    let totalQuestions = 0;
+    let createdModules = 0;
+    let createdTheories = 0;
+    let createdQuestions = 0;
+    let createdOptions = 0;
+    let skippedModules = 0;
+    let skippedTheories = 0;
+    let skippedQuestions = 0;
+    let skippedOptions = 0;
 
     for (let mi = 0; mi < modules.length; mi++) {
       const mod = modules[mi];
-      const level = await this.levelRepo.save(
-        this.levelRepo.create({
-          title: mod.title,
-          orderIndex: mi,
-          isActive: true,
-        }),
-      );
+      let level = await this.levelRepo.findOne({
+        where: { title: mod.title },
+      });
+      if (!level) {
+        level = await this.levelRepo.save(
+          this.levelRepo.create({
+            title: mod.title,
+            orderIndex: mi,
+            isActive: true,
+          }),
+        );
+        createdModules++;
+      } else {
+        skippedModules++;
+        // Safety: do not overwrite existing content; only normalize minimal metadata.
+        const nextOrderIndex = level.orderIndex ?? mi;
+        const nextIsActive = level.isActive ?? true;
+        if (level.orderIndex !== nextOrderIndex || level.isActive !== nextIsActive) {
+          await this.levelRepo.update(
+            { id: level.id },
+            { orderIndex: nextOrderIndex, isActive: nextIsActive },
+          );
+          level = { ...level, orderIndex: nextOrderIndex, isActive: nextIsActive };
+        }
+      }
 
       for (let ti = 0; ti < mod.theories.length; ti++) {
         const th = mod.theories[ti];
-        const theory = await this.theoryRepo.save(
-          this.theoryRepo.create({
-            levelId: level.id,
-            title: th.title,
-            orderIndex: ti,
-            content: th.content,
-          }),
-        );
-        totalTheories++;
+        let theory = await this.theoryRepo.findOne({
+          where: { levelId: level.id, title: th.title },
+        });
+        if (!theory) {
+          theory = await this.theoryRepo.save(
+            this.theoryRepo.create({
+              levelId: level.id,
+              title: th.title,
+              orderIndex: ti,
+              content: th.content,
+            }),
+          );
+          createdTheories++;
+        } else {
+          skippedTheories++;
+          // Keep old content as-is; only fill if empty and normalize ordering.
+          const updates: Partial<Theory> = {};
+          if ((theory.content ?? '').trim().length === 0 && th.content.trim().length > 0) {
+            updates.content = th.content;
+          }
+          if (theory.orderIndex !== ti) updates.orderIndex = theory.orderIndex ?? ti;
+          if (Object.keys(updates).length > 0) {
+            await this.theoryRepo.update({ id: theory.id }, updates);
+            theory = { ...theory, ...updates };
+          }
+        }
 
         for (let qi = 0; qi < th.questions.length; qi++) {
           const q = th.questions[qi];
-          const question = await this.questionRepo.save(
-            this.questionRepo.create({
-              levelId: level.id,
-              theoryId: theory.id,
-              prompt: q.prompt,
-              type: q.type,
-              orderIndex: qi,
-              isActive: true,
-            }),
-          );
-          totalQuestions++;
+          let question = await this.questionRepo.findOne({
+            where: { theoryId: theory.id, prompt: q.prompt },
+          });
+          if (!question) {
+            question = await this.questionRepo.save(
+              this.questionRepo.create({
+                levelId: level.id,
+                theoryId: theory.id,
+                prompt: q.prompt,
+                type: q.type,
+                orderIndex: qi,
+                isActive: true,
+              }),
+            );
+            createdQuestions++;
+          } else {
+            skippedQuestions++;
+            // Do not rewrite prompts/options; only ensure active flag.
+            if (question.isActive !== true) {
+              await this.questionRepo.update({ id: question.id }, { isActive: true });
+              question = { ...question, isActive: true };
+            }
+          }
 
-          const opts = q.options.map((o, oi) =>
-            this.optionRepo.create({
-              questionId: question.id,
-              optionText: o.text,
-              isCorrect: o.correct,
-              matchText: o.match ?? null,
-              orderIndex: oi,
-            }),
-          );
-          await this.optionRepo.save(opts);
+          for (let oi = 0; oi < q.options.length; oi++) {
+            const o = q.options[oi];
+            const existingOpt = await this.optionRepo.findOne({
+              where: { questionId: question.id, optionText: o.text },
+            });
+            if (existingOpt) {
+              skippedOptions++;
+              continue;
+            }
+            await this.optionRepo.save(
+              this.optionRepo.create({
+                questionId: question.id,
+                optionText: o.text,
+                isCorrect: o.correct,
+                matchText: o.match ?? null,
+                orderIndex: oi,
+              }),
+            );
+            createdOptions++;
+          }
         }
       }
     }
 
     return {
       success: true,
-      message: 'Seed muvaffaqiyatli',
+      message: 'Seed/Update muvaffaqiyatli (idempotent)',
       stats: {
         modules: modules.length,
-        theories: totalTheories,
-        questions: totalQuestions,
+        created: {
+          modules: createdModules,
+          theories: createdTheories,
+          questions: createdQuestions,
+          options: createdOptions,
+        },
+        skipped: {
+          modules: skippedModules,
+          theories: skippedTheories,
+          questions: skippedQuestions,
+          options: skippedOptions,
+        },
       },
     };
   }

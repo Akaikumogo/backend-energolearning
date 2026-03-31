@@ -11,7 +11,7 @@ export class SeedController {
   @ApiOperation({
     summary: 'Barcha kurs kontentini DB ga seed qilish',
     description:
-      'Auth kerak emas. Mavjud darajalar bo`lsa, qayta seed qilmaydi.',
+      'Auth kerak emas. Idempotent: mavjud kontentni dublicate qilmaydi, faqat yetishmayotganini qo`shadi.',
   })
   async seedContent() {
     return this.seedService.seedAll();
