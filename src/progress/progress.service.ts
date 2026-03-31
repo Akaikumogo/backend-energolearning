@@ -27,10 +27,14 @@ export class ProgressService {
   constructor(
     @InjectRepository(Level) private readonly levelRepo: Repository<Level>,
     @InjectRepository(Theory) private readonly theoryRepo: Repository<Theory>,
-    @InjectRepository(Question) private readonly questionRepo: Repository<Question>,
-    @InjectRepository(QuestionOption) private readonly optionRepo: Repository<QuestionOption>,
-    @InjectRepository(UserLevelCompletion) private readonly completionRepo: Repository<UserLevelCompletion>,
-    @InjectRepository(UserQuestionAttempt) private readonly attemptRepo: Repository<UserQuestionAttempt>,
+    @InjectRepository(Question)
+    private readonly questionRepo: Repository<Question>,
+    @InjectRepository(QuestionOption)
+    private readonly optionRepo: Repository<QuestionOption>,
+    @InjectRepository(UserLevelCompletion)
+    private readonly completionRepo: Repository<UserLevelCompletion>,
+    @InjectRepository(UserQuestionAttempt)
+    private readonly attemptRepo: Repository<UserQuestionAttempt>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
   ) {}
 
@@ -171,15 +175,16 @@ export class ProgressService {
           .select('COUNT(DISTINCT a.question_id)', 'cnt')
           .where('a.user_id = :userId', { userId })
           .andWhere(
-            'a.question_id IN ' +
+            'a.question_id IN (' +
               this.questionRepo
                 .createQueryBuilder('q')
                 .select('q.id')
                 .where('q.theory_id = :theoryId', { theoryId: theory.id })
-                .getQuery(),
+                .getQuery() +
+              ')',
           )
           .setParameters({ userId, theoryId: theory.id })
-          .getRawOne();
+          .getRawOne<{ cnt: string }>();
 
         return {
           id: theory.id,
@@ -217,7 +222,7 @@ export class ProgressService {
       .where('a.user_id = :userId', { userId })
       .andWhere('q.level_id = :levelId', { levelId })
       .setParameters({ userId, levelId })
-      .getRawOne();
+      .getRawOne<{ cnt: string }>();
 
     const answered = parseInt(answeredResult?.cnt ?? '0', 10);
     const percent = Math.round((answered / totalQuestions) * 100);
