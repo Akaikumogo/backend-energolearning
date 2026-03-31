@@ -5,6 +5,29 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import 'dotenv/config';
+
+function maskSecret(value: string | undefined) {
+  if (!value) return '';
+  if (value.length <= 4) return '*'.repeat(value.length);
+  return `${value.slice(0, 2)}***${value.slice(-2)}`;
+}
+
+function parseDbInfo(databaseUrl: string | undefined) {
+  if (!databaseUrl) return null;
+  try {
+    const u = new URL(databaseUrl);
+    return {
+      driver: u.protocol.replace(':', ''),
+      host: u.hostname,
+      port: u.port || '',
+      database: u.pathname?.replace(/^\//, '') || '',
+      username: decodeURIComponent(u.username || ''),
+      password: decodeURIComponent(u.password || ''),
+    };
+  } catch {
+    return { raw: databaseUrl };
+  }
+}
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
@@ -76,6 +99,65 @@ async function bootstrap() {
     `,
   });
 
-  await app.listen(process.env.PORT ?? 3000, '0.0.0.0');
+  const port = Number(process.env.PORT ?? 3000);
+  await app.listen(port, '0.0.0.0');
+
+  const showBootInfo = (process.env.SHOW_BOOT_INFO ?? '').toLowerCase();
+  if (showBootInfo === 'true' || showBootInfo === 'full') {
+    const localBaseUrl = `http://localhost:${port}/api`;
+    const publicDomain = process.env.PUBLIC_DOMAIN?.trim();
+    const domainBaseUrl = publicDomain
+      ? `${publicDomain.replace(/\/$/, '')}/api`
+      : '';
+
+    const dbInfo = parseDbInfo(process.env.DATABASE_URL);
+    const adminEmail = process.env.SUPERADMIN_EMAIL;
+    const adminPassword = process.env.SUPERADMIN_PASSWORD;
+
+    const showFull = showBootInfo === 'full';
+
+    // eslint-disable-next-line no-console
+    console.log('\n================== ElektroLearn Backend ==================');
+    // eslint-disable-next-line no-console
+    console.log('Status: ishlayapti');
+    // eslint-disable-next-line no-console
+    console.log(`Local API:   ${localBaseUrl}`);
+    if (domainBaseUrl) {
+      // eslint-disable-next-line no-console
+      console.log(`Domain API:  ${domainBaseUrl}`);
+    }
+    // eslint-disable-next-line no-console
+    console.log(`Swagger:     ${localBaseUrl.replace(/\/api$/, '')}/docs`);
+
+    if (dbInfo) {
+      if ('raw' in dbInfo) {
+        // eslint-disable-next-line no-console
+        console.log(`DB:          ${dbInfo.raw}`);
+      } else {
+        const userPart = dbInfo.username
+          ? `${dbInfo.username}${dbInfo.password ? ':***' : ''}@`
+          : '';
+        const safeUrl = `${dbInfo.driver}://${userPart}${dbInfo.host}${dbInfo.port ? `:${dbInfo.port}` : ''}/${dbInfo.database}`;
+
+        // eslint-disable-next-line no-console
+        console.log(`DB host:     ${dbInfo.host}${dbInfo.port ? `:${dbInfo.port}` : ''}`);
+        // eslint-disable-next-line no-console
+        console.log(`DB name:     ${dbInfo.database || '-'}`);
+        // eslint-disable-next-line no-console
+        console.log(`DB url:      ${showFull ? process.env.DATABASE_URL : safeUrl}`);
+      }
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(`Admin email: ${adminEmail ?? '-'}`);
+    // eslint-disable-next-line no-console
+    console.log(
+      `Admin pass:  ${showFull ? adminPassword ?? '-' : maskSecret(adminPassword) || '-'}`,
+    );
+    // eslint-disable-next-line no-console
+    console.log('SHOW_BOOT_INFO: true (mask) | full (no mask)');
+    // eslint-disable-next-line no-console
+    console.log('==========================================================\n');
+  }
 }
 void bootstrap();
