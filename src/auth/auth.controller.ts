@@ -3,6 +3,7 @@ import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiBody,
+  ApiForbiddenResponse,
   ApiHeader,
   ApiOkResponse,
   ApiOperation,
@@ -20,6 +21,7 @@ import { LoginSuccessResponseDto } from './dto/login-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { JoinOrganizationDto } from './dto/join-organization.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -104,6 +106,35 @@ export class AuthController {
     @Body() body: UpdateProfileDto,
   ): Promise<UserProfileDto> {
     return this.authService.updateProfile(req.user.id, body);
+  }
+
+  @Post('me/organization')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({
+    summary: 'Tashkilotga biriktirish (o`quvchi)',
+    description:
+      'Faqat USER roli va hali tashkilotga biriktirilmagan foydalanuvchilar uchun.',
+  })
+  @ApiBody({ type: JoinOrganizationDto })
+  @ApiOkResponse({ description: 'Yangilangan profil', type: UserProfileDto })
+  @ApiBadRequestResponse({
+    description: 'Allaqachon tashkilot bor',
+    type: ApiErrorResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Rol mos emas',
+    type: ApiErrorResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Token yaroqsiz',
+    type: ApiErrorResponseDto,
+  })
+  joinOrganization(
+    @Req() req: Request & { user: { id: string } },
+    @Body() body: JoinOrganizationDto,
+  ): Promise<UserProfileDto> {
+    return this.authService.joinOrganization(req.user.id, body.organizationId);
   }
 
   @Post('change-password')

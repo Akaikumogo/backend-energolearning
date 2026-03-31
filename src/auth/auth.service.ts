@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -11,6 +12,8 @@ import { IsNull, Repository } from 'typeorm';
 import { UserProfileDto } from '../users/dto/user-profile.dto';
 import { UpdateProfileDto } from '../users/dto/update-profile.dto';
 import { UsersService } from '../users/users.service';
+import { OrganizationsService } from '../organizations/organizations.service';
+import { Role } from '../common/enums/role.enum';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { User } from '../database/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
@@ -23,6 +26,7 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
+    private readonly organizationsService: OrganizationsService,
     private readonly jwtService: JwtService,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
@@ -106,6 +110,29 @@ export class AuthService {
     }
 
     return this.toProfile(user);
+  }
+
+  async joinOrganization(
+    userId: string,
+    organizationId: string,
+  ): Promise<UserProfileDto> {
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new UnauthorizedException('Foydalanuvchi topilmadi');
+    }
+    if (user.role !== Role.USER) {
+      throw new ForbiddenException('Bu amal faqat o`quvchi uchun');
+    }
+    const existingCount = user.organizations?.length ?? 0;
+    if (existingCount > 0) {
+      throw new BadRequestException('Tashkilot allaqachon tanlangan');
+    }
+    await this.organizationsService.assignUser(organizationId, userId);
+    const full = await this.usersService.findById(userId);
+    if (!full) {
+      throw new UnauthorizedException('Foydalanuvchi topilmadi');
+    }
+    return this.toProfile(full);
   }
 
   private toProfile(user: User): UserProfileDto {
