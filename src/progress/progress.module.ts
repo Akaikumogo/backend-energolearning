@@ -7,8 +7,10 @@ import { QuestionOption } from '../database/entities/question-option.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { User } from '../database/entities/user.entity';
+import { UserProgress } from '../database/entities/user-progress.entity';
 import { ProgressController } from './progress.controller';
 import { ProgressService } from './progress.service';
+import { HeartsModule } from '../hearts/hearts.module';
 
 @Module({
   imports: [
@@ -20,7 +22,9 @@ import { ProgressService } from './progress.service';
       UserLevelCompletion,
       UserQuestionAttempt,
       User,
+      UserProgress,
     ]),
+    HeartsModule,
   ],
   controllers: [ProgressController],
   providers: [ProgressService],
