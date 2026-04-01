@@ -23,6 +23,7 @@ import { OrganizationsModule } from './organizations/organizations.module';
 import { ProgressModule } from './progress/progress.module';
 import { StudentsModule } from './students/students.module';
 import { SeedModule } from './seed/seed.module';
+import { HeartsModule } from './hearts/hearts.module';
 import 'dotenv/config';
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import 'dotenv/config';
     ProgressModule,
     StudentsModule,
     SeedModule,
+    HeartsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

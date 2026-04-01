@@ -13,6 +13,7 @@ import { UserLevelCompletion } from '../database/entities/user-level-completion.
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { User } from '../database/entities/user.entity';
 import { SubmitAnswerDto } from './dto/submit-answer.dto';
+import { HeartsService } from '../hearts/hearts.service';
 
 const BADGES = [
   { label: 'Yangi ishchi', bolts: 1 },
@@ -36,6 +37,7 @@ export class ProgressService {
     @InjectRepository(UserQuestionAttempt)
     private readonly attemptRepo: Repository<UserQuestionAttempt>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    private readonly heartsService: HeartsService,
   ) {}
 
   async getMyProgress(userId: string) {
@@ -44,6 +46,7 @@ export class ProgressService {
       relations: ['organizations', 'organizations.organization'],
     });
     if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
+    const orgId = user.organizations?.[0]?.organization?.id ?? null;
 
     const levels = await this.levelRepo.find({
       where: { isActive: true },
@@ -95,6 +98,7 @@ export class ProgressService {
       completedLevels,
       badge,
       levels: levelsList,
+      hearts: orgId ? await this.heartsService.getMyHearts(userId, orgId) : null,
     };
   }
 
@@ -130,6 +134,10 @@ export class ProgressService {
       isCorrect,
     });
     await this.attemptRepo.save(attempt);
+
+    if (!isCorrect && orgId) {
+      await this.heartsService.consumeHeart(userId, orgId, 1);
+    }
 
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
 
