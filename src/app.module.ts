@@ -29,6 +29,7 @@ import { ModeratorPermission } from './database/entities/moderator-permission.en
 import { ModeratorViolation } from './database/entities/moderator-violation.entity';
 import { ModeratorPermissionsModule } from './moderator-permissions/moderator-permissions.module';
 import { ModeratorPermissionsGuard } from './common/guards/moderator-permissions.guard';
+import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import 'dotenv/config';
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import 'dotenv/config';
     SeedModule,
     HeartsModule,
     ModeratorPermissionsModule,
+    LeaderboardModule,
   ],
   controllers: [AppController],
   providers: [
