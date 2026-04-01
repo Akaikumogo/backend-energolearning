@@ -11,10 +11,13 @@ import { UserProgress } from './entities/user-progress.entity';
 import { UserLevelCompletion } from './entities/user-level-completion.entity';
 import { UserQuestionAttempt } from './entities/user-question-attempt.entity';
 import { Certificate } from './entities/certificate.entity';
+import { ModeratorPermission } from './entities/moderator-permission.entity';
+import { ModeratorViolation } from './entities/moderator-violation.entity';
 import { Init1743074000000 } from './migrations/0001-init';
 import { AddUserAvatar1743076000000 } from './migrations/0002-add-user-avatar';
 import { AddContentTables1743078000000 } from './migrations/0003-add-content-tables';
 import { AddQuestionType1743080000000 } from './migrations/0004-add-question-type';
+import { AddModeratorPermissionsAndViolations1743600000000 } from './migrations/0005-add-moderator-permissions-and-violations';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -34,12 +37,15 @@ export const AppDataSource = new DataSource({
     UserLevelCompletion,
     UserQuestionAttempt,
     Certificate,
+    ModeratorPermission,
+    ModeratorViolation,
   ],
   migrations: [
     Init1743074000000,
     AddUserAvatar1743076000000,
     AddContentTables1743078000000,
     AddQuestionType1743080000000,
+    AddModeratorPermissionsAndViolations1743600000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

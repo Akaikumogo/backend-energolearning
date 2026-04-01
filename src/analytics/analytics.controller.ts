@@ -72,4 +72,29 @@ export class AnalyticsController {
   async questionErrors(@Query('orgId') orgId?: string) {
     return this.analyticsService.getQuestionErrors(orgId?.trim() || 'all');
   }
+
+  @Get('hearts-lost')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary: 'Yurak yo`qotish (noto`g`ri javoblar) statistikasi',
+    description: 'range=today|month|year, orgId=all faqat SUPERADMIN uchun.',
+  })
+  @ApiQuery({ name: 'range', required: true, enum: ['today', 'month', 'year'] })
+  @ApiQuery({ name: 'orgId', required: false, example: 'all' })
+  async heartsLost(
+    @Query('range') range: 'today' | 'month' | 'year',
+    @Query('orgId') orgId: string | undefined,
+    @Req()
+    req: Request & {
+      user: { role: Role; organizationIds?: string[] };
+    },
+  ) {
+    const safeRange = range || 'today';
+    const requestedOrgId = (orgId?.trim() || 'all') as string;
+    const effectiveOrgId =
+      req.user.role === Role.SUPERADMIN
+        ? requestedOrgId
+        : req.user.organizationIds?.[0] ?? 'all';
+    return this.analyticsService.getHeartsLost(effectiveOrgId, safeRange);
+  }
 }

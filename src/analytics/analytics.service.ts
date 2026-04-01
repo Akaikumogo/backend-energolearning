@@ -163,4 +163,120 @@ export class AnalyticsService {
           : 0,
     }));
   }
+
+  async getHeartsLost(
+    orgId: string,
+    range: 'today' | 'month' | 'year',
+  ): Promise<{
+    orgId: string;
+    range: { from: string; to: string };
+    byUser: Array<{
+      userId: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+      lostHearts: number;
+    }>;
+    byQuestion: Array<{
+      questionId: string;
+      prompt: string;
+      levelTitle: string;
+      theoryTitle: string;
+      lostHearts: number;
+    }>;
+  }> {
+    const isAll = orgId === 'all';
+    const now = new Date();
+    const from = new Date(now);
+    if (range === 'today') {
+      from.setHours(0, 0, 0, 0);
+    } else if (range === 'month') {
+      from.setDate(1);
+      from.setHours(0, 0, 0, 0);
+    } else {
+      from.setMonth(0, 1);
+      from.setHours(0, 0, 0, 0);
+    }
+    const to = new Date(now);
+
+    const byUserQb = this.uqaRepo
+      .createQueryBuilder('uqa')
+      .leftJoin('uqa.user', 'u')
+      .select('u.id', 'userId')
+      .addSelect('u.first_name', 'firstName')
+      .addSelect('u.last_name', 'lastName')
+      .addSelect('u.email', 'email')
+      .addSelect('COUNT(*)::int', 'lostHearts')
+      .where('uqa.answered_at >= :from AND uqa.answered_at <= :to', { from, to })
+      .andWhere('uqa.is_correct = false')
+      .groupBy('u.id')
+      .addGroupBy('u.first_name')
+      .addGroupBy('u.last_name')
+      .addGroupBy('u.email')
+      .orderBy('"lostHearts"', 'DESC')
+      .limit(50);
+
+    if (!isAll) {
+      byUserQb.andWhere('uqa.organization_id = :orgId', { orgId });
+    }
+
+    const byQuestionQb = this.uqaRepo
+      .createQueryBuilder('uqa')
+      .leftJoin('uqa.question', 'q')
+      .leftJoin('q.level', 'l')
+      .leftJoin('q.theory', 't')
+      .select('q.id', 'questionId')
+      .addSelect('q.prompt', 'prompt')
+      .addSelect('l.title', 'levelTitle')
+      .addSelect('t.title', 'theoryTitle')
+      .addSelect('COUNT(*)::int', 'lostHearts')
+      .where('uqa.answered_at >= :from AND uqa.answered_at <= :to', { from, to })
+      .andWhere('uqa.is_correct = false')
+      .groupBy('q.id')
+      .addGroupBy('q.prompt')
+      .addGroupBy('l.title')
+      .addGroupBy('t.title')
+      .orderBy('"lostHearts"', 'DESC')
+      .limit(50);
+
+    if (!isAll) {
+      byQuestionQb.andWhere('uqa.organization_id = :orgId', { orgId });
+    }
+
+    const [byUser, byQuestion] = await Promise.all([
+      byUserQb.getRawMany<{
+        userId: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+        lostHearts: number;
+      }>(),
+      byQuestionQb.getRawMany<{
+        questionId: string;
+        prompt: string;
+        levelTitle: string;
+        theoryTitle: string;
+        lostHearts: number;
+      }>(),
+    ]);
+
+    return {
+      orgId,
+      range: { from: from.toISOString(), to: to.toISOString() },
+      byUser: byUser.map((r) => ({
+        userId: r.userId,
+        firstName: r.firstName,
+        lastName: r.lastName,
+        email: r.email,
+        lostHearts: Number(r.lostHearts) || 0,
+      })),
+      byQuestion: byQuestion.map((r) => ({
+        questionId: r.questionId,
+        prompt: r.prompt,
+        levelTitle: r.levelTitle,
+        theoryTitle: r.theoryTitle,
+        lostHearts: Number(r.lostHearts) || 0,
+      })),
+    };
+  }
 }
