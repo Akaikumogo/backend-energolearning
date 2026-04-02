@@ -23,7 +23,9 @@ describe('AppController (e2e)', () => {
       .expect((res) => {
         const body = res.body as { service: string; docsUrl: string };
         expect(body.service).toBe('ElektroLearn Backend');
-        expect(body.docsUrl).toBe('/docs');
+        expect(body.docsUrl).toBe(
+          '/api/docs/development/sarvarbek/swagger',
+        );
       });
   });
 });

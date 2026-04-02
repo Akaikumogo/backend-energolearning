@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { webcrypto } from 'crypto';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { SWAGGER_RELATIVE_PATH } from './swagger.constants';
 import 'dotenv/config';
 
 // Workaround for environments where globalThis.crypto is missing.
@@ -75,7 +76,7 @@ async function bootstrap() {
 
   const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
 
-  SwaggerModule.setup('docs', app, swaggerDocument, {
+  SwaggerModule.setup(SWAGGER_RELATIVE_PATH, app, swaggerDocument, {
     customSiteTitle: 'ElektroLearn API Docs',
     swaggerOptions: {
       persistAuthorization: true,
@@ -128,7 +129,7 @@ async function bootstrap() {
     if (domainBaseUrl) {
       console.log(`Domain API:  ${domainBaseUrl}`);
     }
-    console.log(`Swagger:     ${localBaseUrl.replace(/\/api$/, '')}/docs`);
+    console.log(`Swagger:     ${localBaseUrl}/${SWAGGER_RELATIVE_PATH}`);
 
     if (dbInfo) {
       if ('raw' in dbInfo) {
