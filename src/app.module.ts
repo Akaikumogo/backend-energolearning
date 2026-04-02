@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -33,6 +33,7 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { AdminAuditLog } from './database/entities/admin-audit-log.entity';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { AdminAuditLogMiddleware } from './common/middleware/admin-audit-log.middleware';
+import { AdminRoleForbiddenViolationFilter } from './common/filters/admin-role-forbidden-violation.filter';
 import 'dotenv/config';
 @Module({
   imports: [
@@ -81,6 +82,11 @@ import 'dotenv/config';
       provide: APP_GUARD,
       useClass: ModeratorPermissionsGuard,
     },
+    {
+      provide: APP_FILTER,
+      useClass: AdminRoleForbiddenViolationFilter,
+    },
+    AdminAuditLogMiddleware,
   ],
 })
 export class AppModule implements NestModule {
