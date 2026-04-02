@@ -2,9 +2,15 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { webcrypto } from 'crypto';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import 'dotenv/config';
+
+// Workaround for environments where globalThis.crypto is missing.
+// Required by @nestjs/schedule on some Node versions.
+const g = globalThis as unknown as { crypto?: unknown };
+if (!g.crypto) g.crypto = webcrypto as unknown;
 
 function maskSecret(value: string | undefined) {
   if (!value) return '';
