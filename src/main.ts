@@ -116,22 +116,16 @@ async function bootstrap() {
 
     const showFull = showBootInfo === 'full';
 
-    // eslint-disable-next-line no-console
     console.log('\n================== ElektroLearn Backend ==================');
-    // eslint-disable-next-line no-console
     console.log('Status: ishlayapti');
-    // eslint-disable-next-line no-console
     console.log(`Local API:   ${localBaseUrl}`);
     if (domainBaseUrl) {
-      // eslint-disable-next-line no-console
       console.log(`Domain API:  ${domainBaseUrl}`);
     }
-    // eslint-disable-next-line no-console
     console.log(`Swagger:     ${localBaseUrl.replace(/\/api$/, '')}/docs`);
 
     if (dbInfo) {
       if ('raw' in dbInfo) {
-        // eslint-disable-next-line no-console
         console.log(`DB:          ${dbInfo.raw}`);
       } else {
         const userPart = dbInfo.username
@@ -139,28 +133,21 @@ async function bootstrap() {
           : '';
         const safeUrl = `${dbInfo.driver}://${userPart}${dbInfo.host}${dbInfo.port ? `:${dbInfo.port}` : ''}/${dbInfo.database}`;
 
-        // eslint-disable-next-line no-console
         console.log(
           `DB host:     ${dbInfo.host}${dbInfo.port ? `:${dbInfo.port}` : ''}`,
         );
-        // eslint-disable-next-line no-console
         console.log(`DB name:     ${dbInfo.database || '-'}`);
-        // eslint-disable-next-line no-console
         console.log(
           `DB url:      ${showFull ? process.env.DATABASE_URL : safeUrl}`,
         );
       }
     }
 
-    // eslint-disable-next-line no-console
     console.log(`Admin email: ${adminEmail ?? '-'}`);
-    // eslint-disable-next-line no-console
     console.log(
       `Admin pass:  ${showFull ? (adminPassword ?? '-') : maskSecret(adminPassword) || '-'}`,
     );
-    // eslint-disable-next-line no-console
     console.log('SHOW_BOOT_INFO: true (mask) | full (no mask)');
-    // eslint-disable-next-line no-console
     console.log('==========================================================\n');
   }
 }

@@ -29,6 +29,19 @@ function getBearerToken(req: Request) {
   return m?.[1] ?? null;
 }
 
+function getClientIp(req: Request): string | null {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp.trim()) return cfIp.trim();
+
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+
+  return req.ip ?? null;
+}
+
 @Injectable()
 export class AdminAuditLogMiddleware {
   constructor(
@@ -81,7 +94,7 @@ export class AdminAuditLogMiddleware {
           statusCode,
           errorMessage,
           requestBodyPreview: safeBodyPreview((req as any).body),
-          ip: (req as any).ip ?? null,
+          ip: getClientIp(req),
           userAgent: (req.headers['user-agent'] as string) ?? null,
           durationMs,
         })
