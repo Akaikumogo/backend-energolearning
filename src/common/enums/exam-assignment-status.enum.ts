@@ -1,0 +1,8 @@
+export enum ExamAssignmentStatus {
+  PENDING = 'PENDING',
+  SCHEDULED = 'SCHEDULED',
+  STARTED = 'STARTED',
+  SUBMITTED = 'SUBMITTED',
+  CANCELLED = 'CANCELLED',
+}
+

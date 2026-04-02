@@ -34,9 +34,23 @@ import { AdminAuditLog } from './database/entities/admin-audit-log.entity';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { AdminAuditLogMiddleware } from './common/middleware/admin-audit-log.middleware';
 import { AdminRoleForbiddenViolationFilter } from './common/filters/admin-role-forbidden-violation.filter';
+import { Position } from './database/entities/position.entity';
+import { UserPosition } from './database/entities/user-position.entity';
+import { Exam } from './database/entities/exam.entity';
+import { ExamQuestion } from './database/entities/exam-question.entity';
+import { ExamQuestionOption } from './database/entities/exam-question-option.entity';
+import { ExamQuestionPosition } from './database/entities/exam-question-position.entity';
+import { ExamAssignment } from './database/entities/exam-assignment.entity';
+import { ExamAttempt } from './database/entities/exam-attempt.entity';
+import { ExamsModule } from './exams/exams.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { NotificationsModule } from './notifications/notifications.module';
+import { Notification } from './database/entities/notification.entity';
+import { DbAdminModule } from './db-admin/db-admin.module';
 import 'dotenv/config';
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
       type: 'postgres',
       url:
@@ -58,6 +72,15 @@ import 'dotenv/config';
         ModeratorPermission,
         ModeratorViolation,
         AdminAuditLog,
+        Position,
+        UserPosition,
+        Exam,
+        ExamQuestion,
+        ExamQuestionOption,
+        ExamQuestionPosition,
+        ExamAssignment,
+        ExamAttempt,
+        Notification,
       ],
       synchronize: true,
     }),
@@ -74,6 +97,9 @@ import 'dotenv/config';
     ModeratorPermissionsModule,
     LeaderboardModule,
     AuditLogsModule,
+    ExamsModule,
+    NotificationsModule,
+    DbAdminModule,
   ],
   controllers: [AppController],
   providers: [
