@@ -68,6 +68,19 @@ function safeBodyPreview(body: unknown) {
   }
 }
 
+function getClientIp(request: Request): string | null {
+  const cfIp = request.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp.trim()) return cfIp.trim();
+
+  const xff = request.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+
+  return request.ip ?? null;
+}
+
 @Injectable()
 export class ModeratorPermissionsGuard implements CanActivate {
   constructor(
@@ -99,7 +112,7 @@ export class ModeratorPermissionsGuard implements CanActivate {
       method: request.method,
       path,
       requestBodyPreview: safeBodyPreview((request as any).body),
-      ip: request.ip ?? null,
+      ip: getClientIp(request),
       userAgent: request.headers['user-agent'] ?? null,
     });
 

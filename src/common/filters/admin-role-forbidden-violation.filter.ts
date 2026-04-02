@@ -27,6 +27,19 @@ function safeBodyPreview(body: unknown) {
   }
 }
 
+function getClientIp(req: Request): string | null {
+  const cfIp = req.headers['cf-connecting-ip'];
+  if (typeof cfIp === 'string' && cfIp.trim()) return cfIp.trim();
+
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+
+  return req.ip ?? null;
+}
+
 @Catch(ForbiddenException)
 export class AdminRoleForbiddenViolationFilter implements ExceptionFilter {
   constructor(
@@ -63,7 +76,7 @@ export class AdminRoleForbiddenViolationFilter implements ExceptionFilter {
           method,
           path,
           requestBodyPreview: safeBodyPreview((req as any).body),
-          ip: req.ip ?? null,
+          ip: getClientIp(req),
           userAgent: req.headers['user-agent'] ?? null,
         });
       }
