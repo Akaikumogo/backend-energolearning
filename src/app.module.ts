@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
@@ -30,6 +30,9 @@ import { ModeratorViolation } from './database/entities/moderator-violation.enti
 import { ModeratorPermissionsModule } from './moderator-permissions/moderator-permissions.module';
 import { ModeratorPermissionsGuard } from './common/guards/moderator-permissions.guard';
 import { LeaderboardModule } from './leaderboard/leaderboard.module';
+import { AdminAuditLog } from './database/entities/admin-audit-log.entity';
+import { AuditLogsModule } from './audit-logs/audit-logs.module';
+import { AdminAuditLogMiddleware } from './common/middleware/admin-audit-log.middleware';
 import 'dotenv/config';
 @Module({
   imports: [
@@ -53,6 +56,7 @@ import 'dotenv/config';
         Certificate,
         ModeratorPermission,
         ModeratorViolation,
+        AdminAuditLog,
       ],
       synchronize: true,
     }),
@@ -68,6 +72,7 @@ import 'dotenv/config';
     HeartsModule,
     ModeratorPermissionsModule,
     LeaderboardModule,
+    AuditLogsModule,
   ],
   controllers: [AppController],
   providers: [
@@ -78,4 +83,8 @@ import 'dotenv/config';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(AdminAuditLogMiddleware).forRoutes('admin');
+  }
+}
