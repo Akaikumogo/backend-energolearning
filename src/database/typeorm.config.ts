@@ -13,6 +13,16 @@ import { UserQuestionAttempt } from './entities/user-question-attempt.entity';
 import { Certificate } from './entities/certificate.entity';
 import { ModeratorPermission } from './entities/moderator-permission.entity';
 import { ModeratorViolation } from './entities/moderator-violation.entity';
+import { AdminAuditLog } from './entities/admin-audit-log.entity';
+import { Position } from './entities/position.entity';
+import { UserPosition } from './entities/user-position.entity';
+import { Exam } from './entities/exam.entity';
+import { ExamQuestion } from './entities/exam-question.entity';
+import { ExamQuestionOption } from './entities/exam-question-option.entity';
+import { ExamQuestionPosition } from './entities/exam-question-position.entity';
+import { ExamAssignment } from './entities/exam-assignment.entity';
+import { ExamAttempt } from './entities/exam-attempt.entity';
+import { Notification } from './entities/notification.entity';
 import { Init1743074000000 } from './migrations/0001-init';
 import { AddUserAvatar1743076000000 } from './migrations/0002-add-user-avatar';
 import { AddContentTables1743078000000 } from './migrations/0003-add-content-tables';
@@ -39,6 +49,16 @@ export const AppDataSource = new DataSource({
     Certificate,
     ModeratorPermission,
     ModeratorViolation,
+    AdminAuditLog,
+    Position,
+    UserPosition,
+    Exam,
+    ExamQuestion,
+    ExamQuestionOption,
+    ExamQuestionPosition,
+    ExamAssignment,
+    ExamAttempt,
+    Notification,
   ],
   migrations: [
     Init1743074000000,

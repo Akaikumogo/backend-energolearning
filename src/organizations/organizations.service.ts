@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { User } from '../database/entities/user.entity';
@@ -22,19 +22,73 @@ export class OrganizationsService {
     private readonly userRepo: Repository<User>,
   ) {}
 
+  async isDefaultModerator(organizationIds: string[]): Promise<boolean> {
+    if (organizationIds.length === 0) return false;
+    const count = await this.orgRepo.count({
+      where: { id: In(organizationIds), isDefault: true },
+    });
+    return count > 0;
+  }
+
+  /**
+   * Returns orgIds + all descendants (recursive) based on parentOrganizationId.
+   * If input is empty returns [].
+   */
+  async expandOrgScope(organizationIds: string[]): Promise<string[]> {
+    if (organizationIds.length === 0) return [];
+
+    // Using recursive CTE for Postgres
+    const rows = await this.orgRepo.query(
+      `
+      WITH RECURSIVE org_tree AS (
+        SELECT id
+        FROM organizations
+        WHERE id = ANY($1::uuid[])
+        UNION
+        SELECT o.id
+        FROM organizations o
+        INNER JOIN org_tree t ON o.parent_organization_id = t.id
+      )
+      SELECT id FROM org_tree;
+      `,
+      [organizationIds],
+    );
+
+    const ids = (rows ?? [])
+      .map((r: any) => r.id)
+      .filter((v: any): v is string => typeof v === 'string' && v.length > 0);
+    return Array.from(new Set(ids));
+  }
+
+  /**
+   * For moderators:
+   * - if assigned to default org => undefined (no filtering)
+   * - else => orgIds expanded with descendants
+   */
+  async resolveModeratorScope(organizationIds: string[] | undefined) {
+    if (!organizationIds) return undefined;
+    if (organizationIds.length === 0) return [];
+    const isDefault = await this.isDefaultModerator(organizationIds);
+    if (isDefault) return undefined;
+    return this.expandOrgScope(organizationIds);
+  }
+
   async findAll(
     filters?: { search?: string },
     organizationIds?: string[],
   ): Promise<Organization[]> {
+    const scopedOrgIds = await this.resolveModeratorScope(organizationIds);
     const qb = this.orgRepo
       .createQueryBuilder('o')
       .leftJoinAndSelect('o.users', 'uo')
       .leftJoinAndSelect('uo.user', 'u')
       .orderBy('o.createdAt', 'DESC');
 
-    if (organizationIds) {
-      if (organizationIds.length === 0) return [];
-      qb.andWhere('o.id IN (:...organizationIds)', { organizationIds });
+    if (scopedOrgIds) {
+      if (scopedOrgIds.length === 0) return [];
+      qb.andWhere('o.id IN (:...organizationIds)', {
+        organizationIds: scopedOrgIds,
+      });
     }
 
     if (filters?.search) {
@@ -66,13 +120,47 @@ export class OrganizationsService {
   async create(dto: CreateOrganizationDto): Promise<Organization> {
     const exists = await this.orgRepo.findOne({ where: { name: dto.name } });
     if (exists) throw new BadRequestException('Bu nomli tashkilot mavjud');
-    const org = this.orgRepo.create({ name: dto.name });
+    const parentId = dto.parentOrganizationId ?? null;
+    if (parentId) {
+      const parent = await this.orgRepo.findOne({ where: { id: parentId } });
+      if (!parent) throw new BadRequestException('Parent tashkilot topilmadi');
+    }
+
+    if (dto.isDefault === true) {
+      // Ensure only one default org
+      await this.orgRepo.update({ isDefault: true }, { isDefault: false });
+    }
+
+    const org = this.orgRepo.create({
+      name: dto.name,
+      parentOrganizationId: parentId,
+      isDefault: dto.isDefault === true,
+    });
     return this.orgRepo.save(org);
   }
 
   async update(id: string, dto: UpdateOrganizationDto): Promise<Organization> {
     const org = await this.findById(id);
     if (dto.name) org.name = dto.name;
+    if (dto.parentOrganizationId !== undefined) {
+      const parentId = dto.parentOrganizationId ?? null;
+      if (parentId === id) {
+        throw new BadRequestException('Tashkilot o`zini parent qila olmaydi');
+      }
+      if (parentId) {
+        const parent = await this.orgRepo.findOne({ where: { id: parentId } });
+        if (!parent) throw new BadRequestException('Parent tashkilot topilmadi');
+      }
+      org.parentOrganizationId = parentId;
+    }
+    if (dto.isDefault !== undefined) {
+      if (dto.isDefault === true) {
+        await this.orgRepo.update({ isDefault: true }, { isDefault: false });
+        org.isDefault = true;
+      } else {
+        org.isDefault = false;
+      }
+    }
     return this.orgRepo.save(org);
   }
 
