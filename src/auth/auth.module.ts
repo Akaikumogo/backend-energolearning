@@ -28,6 +28,6 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
