@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { webcrypto } from 'crypto';
@@ -35,8 +36,62 @@ function parseDbInfo(databaseUrl: string | undefined) {
     return { raw: databaseUrl };
   }
 }
+
+function buildCorsConfig(): CorsOptions {
+  const raw = process.env.CORS_ORIGINS?.trim();
+  const configured = raw
+    ? raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  const allowCapacitorOrigins = (origin: string) =>
+    origin === 'https://localhost' ||
+    /^https:\/\/localhost:\d+$/.test(origin) ||
+    origin.startsWith('capacitor://') ||
+    origin.startsWith('ionic://');
+
+  const originOption: CorsOptions['origin'] =
+    configured.length === 0
+      ? true
+      : (requestOrigin, callback) => {
+          if (!requestOrigin) {
+            callback(null, true);
+            return;
+          }
+          if (configured.includes(requestOrigin)) {
+            callback(null, true);
+            return;
+          }
+          if (allowCapacitorOrigins(requestOrigin)) {
+            callback(null, true);
+            return;
+          }
+          callback(null, false);
+        };
+
+  return {
+    origin: originOption,
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+      'Cache-Control',
+    ],
+    exposedHeaders: ['Content-Disposition'],
+    maxAge: 86400,
+  };
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  app.enableCors(buildCorsConfig());
 
   // /uploads/** static fayllarni serve qiladi (avatarlar uchun)
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
@@ -44,10 +99,6 @@ async function bootstrap() {
   });
   app.set('trust proxy', true);
   app.setGlobalPrefix('api');
-  app.enableCors({
-    origin: true,
-    credentials: true,
-  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
