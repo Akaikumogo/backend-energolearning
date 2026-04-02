@@ -35,7 +35,7 @@ async function bootstrap() {
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads',
   });
-
+  app.set('trust proxy', true);
   app.setGlobalPrefix('api');
   app.enableCors({
     origin: true,
@@ -140,11 +140,15 @@ async function bootstrap() {
         const safeUrl = `${dbInfo.driver}://${userPart}${dbInfo.host}${dbInfo.port ? `:${dbInfo.port}` : ''}/${dbInfo.database}`;
 
         // eslint-disable-next-line no-console
-        console.log(`DB host:     ${dbInfo.host}${dbInfo.port ? `:${dbInfo.port}` : ''}`);
+        console.log(
+          `DB host:     ${dbInfo.host}${dbInfo.port ? `:${dbInfo.port}` : ''}`,
+        );
         // eslint-disable-next-line no-console
         console.log(`DB name:     ${dbInfo.database || '-'}`);
         // eslint-disable-next-line no-console
-        console.log(`DB url:      ${showFull ? process.env.DATABASE_URL : safeUrl}`);
+        console.log(
+          `DB url:      ${showFull ? process.env.DATABASE_URL : safeUrl}`,
+        );
       }
     }
 
@@ -152,7 +156,7 @@ async function bootstrap() {
     console.log(`Admin email: ${adminEmail ?? '-'}`);
     // eslint-disable-next-line no-console
     console.log(
-      `Admin pass:  ${showFull ? adminPassword ?? '-' : maskSecret(adminPassword) || '-'}`,
+      `Admin pass:  ${showFull ? (adminPassword ?? '-') : maskSecret(adminPassword) || '-'}`,
     );
     // eslint-disable-next-line no-console
     console.log('SHOW_BOOT_INFO: true (mask) | full (no mask)');
