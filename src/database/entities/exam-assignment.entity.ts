@@ -55,6 +55,22 @@ export class ExamAssignment {
   @Column({ type: 'text', default: ExamAssignmentStatus.PENDING })
   status: ExamAssignmentStatus;
 
+  @Column({ type: 'boolean', name: 'includes_pt', default: true })
+  includesPt: boolean;
+
+  @Column({ type: 'boolean', name: 'includes_tb', default: true })
+  includesTb: boolean;
+
+  /** QR payload: unique token (mobile scans JSON/url containing this) */
+  @Column({ type: 'text', name: 'qr_token', nullable: true, unique: true })
+  qrToken: string | null;
+
+  @Column({ type: 'timestamptz', name: 'qr_expires_at', nullable: true })
+  qrExpiresAt: Date | null;
+
+  @Column({ type: 'text', name: 'extra_reason', nullable: true })
+  extraReason: string | null;
+
   @OneToMany(() => ExamAttempt, (a) => a.assignment)
   attempts: ExamAttempt[];
 
