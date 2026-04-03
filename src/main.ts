@@ -39,51 +39,10 @@ function parseDbInfo(databaseUrl: string | undefined) {
 }
 
 function buildCorsConfig(): CorsOptions {
-  const raw = process.env.CORS_ORIGINS?.trim();
-  const configured = raw
-    ? raw
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
-
-  const allowCapacitorOrigins = (origin: string) =>
-    origin === 'https://localhost' ||
-    /^https:\/\/localhost:\d+$/.test(origin) ||
-    origin.startsWith('capacitor://') ||
-    origin.startsWith('ionic://');
-
-  const originOption: CorsOptions['origin'] =
-    configured.length === 0
-      ? true
-      : (requestOrigin, callback) => {
-          if (!requestOrigin) {
-            callback(null, true);
-            return;
-          }
-          if (configured.includes(requestOrigin)) {
-            callback(null, true);
-            return;
-          }
-          if (allowCapacitorOrigins(requestOrigin)) {
-            callback(null, true);
-            return;
-          }
-          callback(null, false);
-        };
-
   return {
-    origin: originOption,
+    origin: true,
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: [
-      'Content-Type',
-      'Authorization',
-      'Accept',
-      'Origin',
-      'X-Requested-With',
-      'Cache-Control',
-    ],
     exposedHeaders: ['Content-Disposition'],
     maxAge: 86400,
   };
