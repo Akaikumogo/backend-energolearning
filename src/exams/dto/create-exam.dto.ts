@@ -21,5 +21,15 @@ export class CreateExamDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Praktik test' })
+  @IsOptional()
+  @IsBoolean()
+  includesPt?: boolean;
+
+  @ApiPropertyOptional({ example: true, description: 'Nazariy bilim' })
+  @IsOptional()
+  @IsBoolean()
+  includesTb?: boolean;
 }
 

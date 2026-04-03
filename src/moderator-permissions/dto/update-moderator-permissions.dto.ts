@@ -64,6 +64,12 @@ export class ModeratorPermissionsDto {
   @ValidateNested()
   @Type(() => CrudDto)
   profile: CrudDto;
+
+  @ApiProperty({ type: CrudDto })
+  @IsObject()
+  @ValidateNested()
+  @Type(() => CrudDto)
+  exams: CrudDto;
 }
 
 export class UpdateModeratorPermissionsDto {

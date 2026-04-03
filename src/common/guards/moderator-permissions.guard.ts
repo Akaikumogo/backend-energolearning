@@ -39,6 +39,40 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   if (path === '/admin/organizations' && m === 'POST') return { module: 'organizations', action: 'create' };
   if (/^\/admin\/organizations\/[^/]+$/.test(path) && m === 'PUT') return { module: 'organizations', action: 'update' };
   if (/^\/admin\/organizations\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'organizations', action: 'delete' };
+  if (/^\/admin\/organizations\/[^/]+\/users$/.test(path) && m === 'POST') {
+    return { module: 'organizations', action: 'update' };
+  }
+  if (/^\/admin\/organizations\/[^/]+\/users\/[^/]+$/.test(path) && m === 'DELETE') {
+    return { module: 'organizations', action: 'update' };
+  }
+
+  // Exams (lavozimlar, imtihonlar, imtihon savollari, jadval, korzinka)
+  if (path === '/admin/positions' && m === 'POST') return { module: 'exams', action: 'create' };
+  if (/^\/admin\/positions\/[^/]+$/.test(path) && m === 'PUT') return { module: 'exams', action: 'update' };
+  if (/^\/admin\/positions\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'exams', action: 'delete' };
+
+  if (path === '/admin/exams' && m === 'POST') return { module: 'exams', action: 'create' };
+  if (/^\/admin\/exams\/[^/]+$/.test(path) && m === 'PUT') return { module: 'exams', action: 'update' };
+  if (/^\/admin\/exams\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'exams', action: 'delete' };
+
+  if (path === '/admin/exam-questions' && m === 'POST') return { module: 'exams', action: 'create' };
+  if (/^\/admin\/exam-questions\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'exams', action: 'delete' };
+
+  if (/^\/admin\/exam-assignments\/[^/]+\/schedule$/.test(path) && m === 'POST') {
+    return { module: 'exams', action: 'update' };
+  }
+
+  if (/^\/admin\/basket\/(positions|exams|exam-questions)\/[^/]+\/restore$/.test(path) && m === 'POST') {
+    return { module: 'exams', action: 'update' };
+  }
+  if (/^\/admin\/basket\/(positions|exams|exam-questions)\/[^/]+\/purge$/.test(path) && m === 'DELETE') {
+    return { module: 'exams', action: 'delete' };
+  }
+
+  // Admin: boshqa foydalanuvchi avatari (UploadController)
+  if (m === 'POST' && /^\/users\/[0-9a-f-]{36}\/avatar$/i.test(path)) {
+    return { module: 'users', action: 'update' };
+  }
 
   // Students: currently read-only endpoints, but keep mapping for future write endpoints
   if (path === '/admin/students' && m === 'POST') return { module: 'students', action: 'create' };
@@ -52,6 +86,14 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   // Profile actions from admin-panel
   if (path === '/auth/me' && (m === 'PATCH' || m === 'PUT')) return { module: 'profile', action: 'update' };
   if (path === '/auth/change-password' && m === 'POST') return { module: 'profile', action: 'update' };
+
+  // Exam live (moderator / superadmin)
+  if (path.startsWith('/exams/live/moderator') && m === 'POST') {
+    return { module: 'exams', action: 'update' };
+  }
+  if (path === '/exams/live/admin/extra-assignment' && m === 'POST') {
+    return { module: 'exams', action: 'create' };
+  }
 
   return null;
 }

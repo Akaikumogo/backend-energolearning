@@ -8,6 +8,8 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { QuestionType } from '../../common/enums/question-type.enum';
+import { ExamQuestionSection } from '../../common/enums/exam-question-section.enum';
+import { ExamQuestionDifficulty } from '../../common/enums/exam-question-difficulty.enum';
 import { ExamQuestionOption } from './exam-question-option.entity';
 import { ExamQuestionPosition } from './exam-question-position.entity';
 
@@ -27,6 +29,12 @@ export class ExamQuestion {
 
   @Column({ type: 'text', array: true, nullable: true })
   tags: string[] | null;
+
+  @Column({ type: 'text', name: 'section', default: ExamQuestionSection.PT })
+  section: ExamQuestionSection;
+
+  @Column({ type: 'text', name: 'difficulty', default: ExamQuestionDifficulty.MEDIUM })
+  difficulty: ExamQuestionDifficulty;
 
   @OneToMany(() => ExamQuestionOption, (o) => o.question, { cascade: true })
   options: ExamQuestionOption[];

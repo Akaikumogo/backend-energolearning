@@ -1,0 +1,4 @@
+export enum OralResult {
+  SATISFACTORY = 'SATISFACTORY',
+  UNSATISFACTORY = 'UNSATISFACTORY',
+}

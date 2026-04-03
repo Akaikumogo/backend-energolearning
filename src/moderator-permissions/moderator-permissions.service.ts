@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
   DEFAULT_MODERATOR_PERMISSIONS,
+  mergeModeratorPermissions,
   type ModeratorPermissions,
   ModeratorPermission,
 } from '../database/entities/moderator-permission.entity';
@@ -19,7 +20,15 @@ export class ModeratorPermissionsService {
 
   async getOrCreate(moderatorUserId: string): Promise<ModeratorPermission> {
     const existing = await this.permRepo.findOne({ where: { moderatorUserId } });
-    if (existing) return existing;
+    if (existing) {
+      const merged = mergeModeratorPermissions(existing.permissions);
+      if (JSON.stringify(merged) !== JSON.stringify(existing.permissions)) {
+        existing.permissions = merged;
+        return this.permRepo.save(existing);
+      }
+      existing.permissions = merged;
+      return existing;
+    }
 
     const created = this.permRepo.create({
       moderatorUserId,
@@ -33,7 +42,7 @@ export class ModeratorPermissionsService {
     permissions: ModeratorPermissions,
   ): Promise<ModeratorPermission> {
     const existing = await this.getOrCreate(moderatorUserId);
-    existing.permissions = permissions;
+    existing.permissions = mergeModeratorPermissions(permissions);
     return this.permRepo.save(existing);
   }
 

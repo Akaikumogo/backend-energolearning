@@ -2,6 +2,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MinLength, ValidateNested } from 'class-validator';
 import { QuestionType } from '../../common/enums/question-type.enum';
+import { ExamQuestionSection } from '../../common/enums/exam-question-section.enum';
+import { ExamQuestionDifficulty } from '../../common/enums/exam-question-difficulty.enum';
 
 export class CreateExamQuestionOptionDto {
   @ApiProperty({ example: 'Ha' })
@@ -45,6 +47,16 @@ export class CreateExamQuestionDto {
   @ArrayMaxSize(20)
   @IsString({ each: true })
   tags?: string[] | null;
+
+  @ApiPropertyOptional({ enum: ExamQuestionSection, default: ExamQuestionSection.PT })
+  @IsOptional()
+  @IsEnum(ExamQuestionSection)
+  section?: ExamQuestionSection;
+
+  @ApiPropertyOptional({ enum: ExamQuestionDifficulty, default: ExamQuestionDifficulty.MEDIUM })
+  @IsOptional()
+  @IsEnum(ExamQuestionDifficulty)
+  difficulty?: ExamQuestionDifficulty;
 
   @ApiPropertyOptional({ description: 'Which positions this question applies to', isArray: true })
   @IsOptional()

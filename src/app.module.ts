@@ -42,7 +42,10 @@ import { ExamQuestionOption } from './database/entities/exam-question-option.ent
 import { ExamQuestionPosition } from './database/entities/exam-question-position.entity';
 import { ExamAssignment } from './database/entities/exam-assignment.entity';
 import { ExamAttempt } from './database/entities/exam-attempt.entity';
+import { ExamSession } from './database/entities/exam-session.entity';
+import { ExamAttemptAnswer } from './database/entities/exam-attempt-answer.entity';
 import { ExamsModule } from './exams/exams.module';
+import { ExamLiveModule } from './exam-live/exam-live.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsModule } from './notifications/notifications.module';
 import { Notification } from './database/entities/notification.entity';
@@ -80,6 +83,8 @@ import 'dotenv/config';
         ExamQuestionPosition,
         ExamAssignment,
         ExamAttempt,
+        ExamSession,
+        ExamAttemptAnswer,
         Notification,
       ],
       synchronize: true,
@@ -98,6 +103,7 @@ import 'dotenv/config';
     LeaderboardModule,
     AuditLogsModule,
     ExamsModule,
+    ExamLiveModule,
     NotificationsModule,
     DbAdminModule,
   ],

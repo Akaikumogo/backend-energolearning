@@ -30,6 +30,12 @@ export class Exam {
   @Column({ type: 'boolean', name: 'is_active', default: true })
   isActive: boolean;
 
+  @Column({ type: 'boolean', name: 'includes_pt', default: true })
+  includesPt: boolean;
+
+  @Column({ type: 'boolean', name: 'includes_tb', default: true })
+  includesTb: boolean;
+
   @ManyToOne(() => Organization, { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'created_by_org_id' })
   createdByOrg: Organization | null;

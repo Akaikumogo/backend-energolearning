@@ -4,6 +4,8 @@ import { In, IsNull, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { ExamAssignmentStatus } from '../common/enums/exam-assignment-status.enum';
 import { ExamType } from '../common/enums/exam-type.enum';
+import { ExamQuestionSection } from '../common/enums/exam-question-section.enum';
+import { ExamQuestionDifficulty } from '../common/enums/exam-question-difficulty.enum';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { Exam } from '../database/entities/exam.entity';
 import { ExamAssignment } from '../database/entities/exam-assignment.entity';
@@ -71,24 +73,46 @@ export class ExamsService {
     return this.examRepo.find({ where: { deletedAt: IsNull() }, order: { createdAt: 'DESC' } });
   }
 
-  async createExam(dto: { title: string; description?: string; examType: ExamType; isActive?: boolean; createdByOrgId?: string | null }) {
+  async createExam(dto: {
+    title: string;
+    description?: string;
+    examType: ExamType;
+    isActive?: boolean;
+    includesPt?: boolean;
+    includesTb?: boolean;
+    createdByOrgId?: string | null;
+  }) {
     const row = this.examRepo.create({
       title: dto.title,
       description: dto.description ?? null,
       examType: dto.examType,
       isActive: dto.isActive ?? true,
+      includesPt: dto.includesPt ?? true,
+      includesTb: dto.includesTb ?? true,
       createdByOrgId: dto.createdByOrgId ?? null,
     });
     return this.examRepo.save(row);
   }
 
-  async updateExam(id: string, dto: Partial<{ title: string; description: string | null; examType: ExamType; isActive: boolean }>) {
+  async updateExam(
+    id: string,
+    dto: Partial<{
+      title: string;
+      description: string | null;
+      examType: ExamType;
+      isActive: boolean;
+      includesPt: boolean;
+      includesTb: boolean;
+    }>,
+  ) {
     const row = await this.examRepo.findOne({ where: { id } });
     if (!row) throw new NotFoundException('Imtihon topilmadi');
     if (dto.title !== undefined) row.title = dto.title;
     if (dto.description !== undefined) row.description = dto.description;
     if (dto.examType !== undefined) row.examType = dto.examType;
     if (dto.isActive !== undefined) row.isActive = dto.isActive;
+    if (dto.includesPt !== undefined) row.includesPt = dto.includesPt;
+    if (dto.includesTb !== undefined) row.includesTb = dto.includesTb;
     return this.examRepo.save(row);
   }
 
@@ -113,6 +137,8 @@ export class ExamsService {
     type: any;
     isActive?: boolean;
     tags?: string[] | null;
+    section?: ExamQuestionSection;
+    difficulty?: ExamQuestionDifficulty;
     options: Array<{ optionText: string; orderIndex?: number; isCorrect?: boolean; matchText?: string | null }>;
     positionIds?: string[];
   }) {
@@ -122,6 +148,8 @@ export class ExamsService {
         type: dto.type,
         isActive: dto.isActive ?? true,
         tags: dto.tags ?? null,
+        section: dto.section ?? ExamQuestionSection.PT,
+        difficulty: dto.difficulty ?? ExamQuestionDifficulty.MEDIUM,
         options: (dto.options ?? []).map((o, idx) =>
           this.examQuestionOptionRepo.create({
             optionText: o.optionText,
