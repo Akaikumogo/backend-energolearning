@@ -11,6 +11,7 @@ import {
 import { Level } from './level.entity';
 import { User } from './user.entity';
 import { Question } from './question.entity';
+import type { TheorySlide } from '../../common/types/theory-slide';
 
 @Entity({ name: 'theories' })
 export class Theory {
@@ -45,6 +46,9 @@ export class Theory {
 
   @Column({ type: 'text', default: '' })
   content: string;
+
+  @Column({ type: 'jsonb', nullable: true, name: 'slides' })
+  slides: TheorySlide[] | null;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'created_by' })

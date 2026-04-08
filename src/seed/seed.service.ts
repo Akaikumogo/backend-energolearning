@@ -6,6 +6,8 @@ import { Theory } from '../database/entities/theory.entity';
 import { Question } from '../database/entities/question.entity';
 import { QuestionOption } from '../database/entities/question-option.entity';
 import { MODULE_SEED_DATA, type QSeed } from './seed-curriculum';
+import { LESSON_SLIDES } from './seed-lesson-slides';
+import type { TheorySlide } from '../common/types/theory-slide';
 
 @Injectable()
 export class SeedService {
@@ -66,15 +68,24 @@ export class SeedService {
           content: lesson.parentContent,
           orderIndex: ti,
           parentTheoryId: null,
+          slides: null,
         });
         if (parent._created) createdTheories++;
         else skippedTheories++;
 
+        const lessonKey = lesson.title.match(/^(\d+\.\d+)-dars/)?.[1];
+        const fromMap =
+          lessonKey && LESSON_SLIDES[lessonKey]?.length
+            ? LESSON_SLIDES[lessonKey]
+            : null;
+        const slides: TheorySlide[] | null =
+          fromMap ?? (lesson.slides?.length ? lesson.slides : null);
         const naz = await this.upsertTheory(level.id, {
           title: nazTitle,
-          content: lesson.nazariya,
+          content: slides?.length ? '' : lesson.nazariya,
           orderIndex: 0,
           parentTheoryId: parent.id,
+          slides,
         });
         if (naz._created) createdTheories++;
         else skippedTheories++;
@@ -84,6 +95,7 @@ export class SeedService {
           content: '',
           orderIndex: 1,
           parentTheoryId: parent.id,
+          slides: null,
         });
         if (mash._created) createdTheories++;
         else skippedTheories++;
@@ -127,6 +139,7 @@ export class SeedService {
       content: string;
       orderIndex: number;
       parentTheoryId: string | null;
+      slides: TheorySlide[] | null;
     },
   ): Promise<Theory & { _created: boolean }> {
     let theory = await this.theoryRepo.findOne({
@@ -140,6 +153,7 @@ export class SeedService {
           content: args.content,
           orderIndex: args.orderIndex,
           parentTheoryId: args.parentTheoryId,
+          slides: args.slides,
         }),
       );
       return Object.assign(theory, { _created: true });
@@ -150,6 +164,7 @@ export class SeedService {
         content: args.content,
         orderIndex: args.orderIndex,
         parentTheoryId: args.parentTheoryId,
+        slides: args.slides,
       },
     );
     return Object.assign({ ...theory, ...args }, { _created: false });

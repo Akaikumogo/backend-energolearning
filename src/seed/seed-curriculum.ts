@@ -1,4 +1,5 @@
 import { QuestionType } from '../common/enums/question-type.enum';
+import type { TheorySlide } from '../common/types/theory-slide';
 
 export type QSeed = {
   prompt: string;
@@ -10,6 +11,8 @@ export type LessonSeed = {
   title: string;
   parentContent: string;
   nazariya: string;
+  /** Seed.service: asosan LESSON_SLIDES[lessonKey] ishlatiladi */
+  slides?: TheorySlide[];
   mashq: QSeed[];
 };
 
