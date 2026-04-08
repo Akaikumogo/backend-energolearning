@@ -3,6 +3,8 @@ import {
   CreateDateColumn,
   DeleteDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -12,6 +14,7 @@ import { ExamQuestionSection } from '../../common/enums/exam-question-section.en
 import { ExamQuestionDifficulty } from '../../common/enums/exam-question-difficulty.enum';
 import { ExamQuestionOption } from './exam-question-option.entity';
 import { ExamQuestionPosition } from './exam-question-position.entity';
+import { ExamQuestionCatalog } from './exam-question-catalog.entity';
 
 @Entity({ name: 'exam_questions' })
 export class ExamQuestion {
@@ -35,6 +38,13 @@ export class ExamQuestion {
 
   @Column({ type: 'text', name: 'difficulty', default: ExamQuestionDifficulty.MEDIUM })
   difficulty: ExamQuestionDifficulty;
+
+  @ManyToOne(() => ExamQuestionCatalog, (c) => c.questions, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'catalog_id' })
+  catalog: ExamQuestionCatalog | null;
+
+  @Column({ type: 'uuid', name: 'catalog_id', nullable: true })
+  catalogId: string | null;
 
   @OneToMany(() => ExamQuestionOption, (o) => o.question, { cascade: true })
   options: ExamQuestionOption[];

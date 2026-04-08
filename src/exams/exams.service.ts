@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
+import { FindOptionsWhere, IsNull, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { ExamAssignmentStatus } from '../common/enums/exam-assignment-status.enum';
 import { ExamType } from '../common/enums/exam-type.enum';
@@ -13,7 +14,9 @@ import { ExamAttempt } from '../database/entities/exam-attempt.entity';
 import { ExamQuestion } from '../database/entities/exam-question.entity';
 import { ExamQuestionOption } from '../database/entities/exam-question-option.entity';
 import { ExamQuestionPosition } from '../database/entities/exam-question-position.entity';
+import { ExamQuestionCatalog } from '../database/entities/exam-question-catalog.entity';
 import { Position } from '../database/entities/position.entity';
+import { UserOrganization } from '../database/entities/user-organization.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
@@ -28,7 +31,86 @@ export class ExamsService {
     @InjectRepository(ExamQuestionPosition) private readonly examQuestionPositionRepo: Repository<ExamQuestionPosition>,
     @InjectRepository(ExamAssignment) private readonly assignmentRepo: Repository<ExamAssignment>,
     @InjectRepository(ExamAttempt) private readonly attemptRepo: Repository<ExamAttempt>,
+    @InjectRepository(ExamQuestionCatalog) private readonly examQuestionCatalogRepo: Repository<ExamQuestionCatalog>,
+    @InjectRepository(UserOrganization) private readonly userOrgRepo: Repository<UserOrganization>,
   ) {}
+
+  private async ensureDefaultCatalogs() {
+    const n = await this.examQuestionCatalogRepo.count();
+    if (n > 0) return;
+    await this.examQuestionCatalogRepo.save([
+      this.examQuestionCatalogRepo.create({
+        title: 'PT',
+        section: ExamQuestionSection.PT,
+        sortOrder: 0,
+      }),
+      this.examQuestionCatalogRepo.create({
+        title: 'TB',
+        section: ExamQuestionSection.TB,
+        sortOrder: 1,
+      }),
+    ]);
+  }
+
+  private async createAssignmentForNewExam(
+    exam: Exam,
+    userId: string,
+    organizationId: string,
+    requestingUser: { role: Role; organizationIds: string[] },
+  ) {
+    if (requestingUser.role === Role.MODERATOR) {
+      const scoped = await this.getScopedOrgIds(requestingUser);
+      if (scoped && !scoped.includes(organizationId)) {
+        throw new ForbiddenException('Sizda ushbu tashkilot uchun ruxsat yo`q');
+      }
+    }
+    const uo = await this.userOrgRepo.findOne({
+      where: {
+        user: { id: userId },
+        organization: { id: organizationId },
+      },
+    });
+    if (!uo) throw new BadRequestException('Xodim ushbu tashkilotda ro`yxatdan o`tmagan');
+
+    const now = new Date();
+    let suggestedAt: Date;
+    let windowStart: Date;
+    let windowEnd: Date;
+    if (exam.examType === ExamType.EXTRA) {
+      suggestedAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      suggestedAt.setUTCHours(10, 0, 0, 0);
+      windowStart = now;
+      windowEnd = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    } else {
+      suggestedAt = new Date(now);
+      suggestedAt.setUTCDate(suggestedAt.getUTCDate() + 1);
+      suggestedAt.setUTCHours(10, 0, 0, 0);
+      windowStart = new Date(suggestedAt);
+      windowStart.setUTCDate(windowStart.getUTCDate() - 1);
+      windowStart.setUTCHours(0, 0, 0, 0);
+      windowEnd = new Date(suggestedAt);
+      windowEnd.setUTCDate(windowEnd.getUTCDate() + 1);
+      windowEnd.setUTCHours(23, 59, 59, 999);
+    }
+    const qrToken = `${randomUUID().replace(/-/g, '')}${randomUUID().replace(/-/g, '').slice(0, 8)}`;
+    await this.assignmentRepo.save(
+      this.assignmentRepo.create({
+        examId: exam.id,
+        userId,
+        organizationId,
+        suggestedAt,
+        windowStart,
+        windowEnd,
+        scheduledAt: null,
+        status: ExamAssignmentStatus.PENDING,
+        includesPt: exam.includesPt ?? true,
+        includesTb: exam.includesTb ?? true,
+        qrToken,
+        qrExpiresAt: windowEnd,
+        extraReason: exam.examType === ExamType.EXTRA ? 'Admin: yangi imtihon' : null,
+      }),
+    );
+  }
 
   private async assertDefaultOrgModerator(user: { role: Role; organizationIds: string[] }) {
     if (user.role === Role.SUPERADMIN) return;
@@ -73,25 +155,39 @@ export class ExamsService {
     return this.examRepo.find({ where: { deletedAt: IsNull() }, order: { createdAt: 'DESC' } });
   }
 
-  async createExam(dto: {
-    title: string;
-    description?: string;
-    examType: ExamType;
-    isActive?: boolean;
-    includesPt?: boolean;
-    includesTb?: boolean;
-    createdByOrgId?: string | null;
-  }) {
-    const row = this.examRepo.create({
-      title: dto.title,
-      description: dto.description ?? null,
-      examType: dto.examType,
-      isActive: dto.isActive ?? true,
-      includesPt: dto.includesPt ?? true,
-      includesTb: dto.includesTb ?? true,
-      createdByOrgId: dto.createdByOrgId ?? null,
-    });
-    return this.examRepo.save(row);
+  async createExam(
+    dto: {
+      title: string;
+      description?: string;
+      examType: ExamType;
+      isActive?: boolean;
+      includesPt?: boolean;
+      includesTb?: boolean;
+      createdByOrgId?: string | null;
+      assigneeUserId?: string;
+      assigneeOrganizationId?: string;
+    },
+    requestingUser: { role: Role; organizationIds: string[] },
+  ) {
+    const { assigneeUserId, assigneeOrganizationId, ...examDto } = dto;
+    if ((assigneeUserId && !assigneeOrganizationId) || (!assigneeUserId && assigneeOrganizationId)) {
+      throw new BadRequestException('Xodim va tashkilot ikkalasi ham kerak');
+    }
+    const row = await this.examRepo.save(
+      this.examRepo.create({
+        title: examDto.title,
+        description: examDto.description ?? null,
+        examType: examDto.examType,
+        isActive: examDto.isActive ?? true,
+        includesPt: examDto.includesPt ?? true,
+        includesTb: examDto.includesTb ?? true,
+        createdByOrgId: examDto.createdByOrgId ?? null,
+      }),
+    );
+    if (assigneeUserId && assigneeOrganizationId) {
+      await this.createAssignmentForNewExam(row, assigneeUserId, assigneeOrganizationId, requestingUser);
+    }
+    return row;
   }
 
   async updateExam(
@@ -123,11 +219,54 @@ export class ExamsService {
     return { success: true };
   }
 
+  // ─── Exam question catalogs ────────────────────────────────────────────────
+  async listExamQuestionCatalogs() {
+    await this.ensureDefaultCatalogs();
+    return this.examQuestionCatalogRepo.find({ order: { sortOrder: 'ASC', createdAt: 'ASC' } });
+  }
+
+  async createExamQuestionCatalog(dto: { title: string; section: ExamQuestionSection; sortOrder?: number }) {
+    await this.ensureDefaultCatalogs();
+    return this.examQuestionCatalogRepo.save(
+      this.examQuestionCatalogRepo.create({
+        title: dto.title,
+        section: dto.section,
+        sortOrder: dto.sortOrder ?? 0,
+      }),
+    );
+  }
+
+  async updateExamQuestionCatalog(
+    id: string,
+    dto: Partial<{ title: string; section: ExamQuestionSection; sortOrder: number }>,
+  ) {
+    const row = await this.examQuestionCatalogRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Katalog topilmadi');
+    if (dto.title !== undefined) row.title = dto.title;
+    if (dto.section !== undefined) row.section = dto.section;
+    if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
+    return this.examQuestionCatalogRepo.save(row);
+  }
+
+  async deleteExamQuestionCatalog(id: string) {
+    const row = await this.examQuestionCatalogRepo.findOne({ where: { id } });
+    if (!row) throw new NotFoundException('Katalog topilmadi');
+    const cnt = await this.examQuestionRepo.count({
+      where: { catalogId: id, deletedAt: IsNull() },
+    });
+    if (cnt > 0) throw new BadRequestException('Katalogda savollar bor');
+    await this.examQuestionCatalogRepo.remove(row);
+    return { success: true };
+  }
+
   // ─── Exam questions (default org mods) ─────────────────────────────────────
-  async listExamQuestions() {
+  async listExamQuestions(catalogId?: string) {
+    await this.ensureDefaultCatalogs();
+    const where: FindOptionsWhere<ExamQuestion> = { deletedAt: IsNull() };
+    if (catalogId) where.catalogId = catalogId;
     return this.examQuestionRepo.find({
-      relations: ['options'],
-      where: { deletedAt: IsNull() },
+      relations: ['options', 'catalog'],
+      where,
       order: { createdAt: 'DESC' },
     });
   }
@@ -139,17 +278,29 @@ export class ExamsService {
     tags?: string[] | null;
     section?: ExamQuestionSection;
     difficulty?: ExamQuestionDifficulty;
+    catalogId?: string;
     options: Array<{ optionText: string; orderIndex?: number; isCorrect?: boolean; matchText?: string | null }>;
     positionIds?: string[];
   }) {
+    await this.ensureDefaultCatalogs();
+    let section = dto.section ?? ExamQuestionSection.PT;
+    let catalogId: string | null = null;
+    if (dto.catalogId) {
+      const cat = await this.examQuestionCatalogRepo.findOne({ where: { id: dto.catalogId } });
+      if (!cat) throw new NotFoundException('Katalog topilmadi');
+      catalogId = cat.id;
+      section = cat.section;
+    }
+
     const question = await this.examQuestionRepo.save(
       this.examQuestionRepo.create({
         prompt: dto.prompt,
         type: dto.type,
         isActive: dto.isActive ?? true,
         tags: dto.tags ?? null,
-        section: dto.section ?? ExamQuestionSection.PT,
+        section,
         difficulty: dto.difficulty ?? ExamQuestionDifficulty.MEDIUM,
+        catalogId,
         options: (dto.options ?? []).map((o, idx) =>
           this.examQuestionOptionRepo.create({
             optionText: o.optionText,
@@ -175,7 +326,7 @@ export class ExamsService {
 
     return this.examQuestionRepo.findOne({
       where: { id: question.id },
-      relations: ['options'],
+      relations: ['options', 'catalog'],
     });
   }
 

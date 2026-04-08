@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MinLength, ValidateNested } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
 import { QuestionType } from '../../common/enums/question-type.enum';
 import { ExamQuestionSection } from '../../common/enums/exam-question-section.enum';
 import { ExamQuestionDifficulty } from '../../common/enums/exam-question-difficulty.enum';
@@ -52,6 +62,11 @@ export class CreateExamQuestionDto {
   @IsOptional()
   @IsEnum(ExamQuestionSection)
   section?: ExamQuestionSection;
+
+  @ApiPropertyOptional({ description: 'Savol katalogi' })
+  @IsOptional()
+  @IsUUID('4')
+  catalogId?: string;
 
   @ApiPropertyOptional({ enum: ExamQuestionDifficulty, default: ExamQuestionDifficulty.MEDIUM })
   @IsOptional()

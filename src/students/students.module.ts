@@ -7,10 +7,19 @@ import { Level } from '../database/entities/level.entity';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
+import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
+import { EmployeeCheck } from '../database/entities/employee-check.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, UserLevelCompletion, UserQuestionAttempt, Level]),
+    TypeOrmModule.forFeature([
+      User,
+      UserLevelCompletion,
+      UserQuestionAttempt,
+      Level,
+      EmployeeCertificate,
+      EmployeeCheck,
+    ]),
     OrganizationsModule,
   ],
   controllers: [StudentsController],
