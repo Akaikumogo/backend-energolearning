@@ -13,8 +13,10 @@ import { UserLevelCompletion } from '../database/entities/user-level-completion.
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { User } from '../database/entities/user.entity';
 import { SubmitAnswerDto } from './dto/submit-answer.dto';
+import { SubmitMatchingDto } from './dto/submit-matching.dto';
 import { HeartsService } from '../hearts/hearts.service';
 import { TheoryRole } from '../common/enums/theory-role.enum';
+import { QuestionType } from '../common/enums/question-type.enum';
 
 const BADGES = [
   { label: 'Yangi ishchi', bolts: 1 },
@@ -147,6 +149,68 @@ export class ProgressService {
       correctOptionId: correctOption?.id ?? null,
       xpEarned: isCorrect ? 10 : 0,
     };
+  }
+
+  async submitMatching(userId: string, dto: SubmitMatchingDto) {
+    const question = await this.questionRepo.findOne({
+      where: { id: dto.questionId },
+      relations: ['level', 'theory'],
+    });
+    if (!question) throw new NotFoundException('Savol topilmadi');
+    if (question.type !== QuestionType.MATCHING) {
+      throw new ForbiddenException('Bu savol MATCHING emas');
+    }
+
+    const options = await this.optionRepo.find({
+      where: { questionId: dto.questionId },
+    });
+    if (!options.length) throw new NotFoundException('Variantlar topilmadi');
+
+    const byId = new Map(options.map((o) => [o.id, o]));
+    const n = options.length;
+
+    if (!Array.isArray(dto.pairs) || dto.pairs.length !== n) {
+      throw new ForbiddenException('Juftliklar soni noto‘g‘ri');
+    }
+
+    const usedLeft = new Set<string>();
+    const usedRight = new Set<string>();
+    let isCorrect = true;
+
+    for (const p of dto.pairs) {
+      const left = byId.get(p.leftOptionId);
+      const right = byId.get(p.rightOptionId);
+      if (!left || !right) throw new NotFoundException('Variant topilmadi');
+      if (usedLeft.has(left.id) || usedRight.has(right.id)) {
+        throw new ForbiddenException('Takrorlangan juftlik');
+      }
+      usedLeft.add(left.id);
+      usedRight.add(right.id);
+      if (left.id !== right.id) isCorrect = false;
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['organizations', 'organizations.organization'],
+    });
+    const orgId = user?.organizations?.[0]?.organization?.id ?? '';
+
+    const attempt = this.attemptRepo.create({
+      userId,
+      organizationId: orgId,
+      questionId: dto.questionId,
+      selectedOptionId: dto.pairs[0]?.leftOptionId ?? options[0].id,
+      isCorrect,
+    });
+    await this.attemptRepo.save(attempt);
+
+    if (!isCorrect && orgId) {
+      await this.heartsService.consumeHeart(userId, orgId, 1);
+    }
+
+    await this.recalcLevelCompletion(userId, question.levelId, orgId);
+
+    return { isCorrect, xpEarned: isCorrect ? 10 : 0 };
   }
 
   async getLevelDetail(userId: string, levelId: string) {
