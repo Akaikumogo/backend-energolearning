@@ -11,6 +11,7 @@ import { CreateTheoryDto } from './dto/create-theory.dto';
 import { UpdateTheoryDto } from './dto/update-theory.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
+import type { TheorySlide } from '../common/types/theory-slide';
 
 @Injectable()
 export class ContentService {
@@ -72,6 +73,7 @@ export class ContentService {
     levelId: string;
     title: string;
     content: string;
+    slides: TheorySlide[] | null;
     orderIndex: number;
     quizTheoryId: string;
   }> {
@@ -85,13 +87,21 @@ export class ContentService {
     });
     const naz = children.find((c) => c.title.endsWith(' · Nazariya'));
     const mash = children.find((c) => c.title.endsWith(' · Mashq'));
-    const parts = [theory.content?.trim(), naz?.content?.trim()].filter(Boolean);
-    const content = parts.join('\n\n') || '';
+    const slideList =
+      naz?.slides && naz.slides.length > 0 ? naz.slides : null;
+    let content: string;
+    if (slideList?.length) {
+      content = (theory.content?.trim() ?? '') || '';
+    } else {
+      const parts = [theory.content?.trim(), naz?.content?.trim()].filter(Boolean);
+      content = parts.join('\n\n') || '';
+    }
     return {
       id: theory.id,
       levelId: theory.levelId,
       title: theory.title,
       content,
+      slides: slideList,
       orderIndex: theory.orderIndex,
       quizTheoryId: mash?.id ?? theory.id,
     };
@@ -285,6 +295,7 @@ export class ContentService {
       title: dto.title,
       orderIndex: nextOrder,
       content: dto.content ?? '',
+      slides: dto.slides ?? null,
       parentTheoryId,
       createdById: userId,
     });
@@ -310,6 +321,7 @@ export class ContentService {
     if (dto.title !== undefined) theory.title = dto.title;
     if (dto.orderIndex !== undefined) theory.orderIndex = dto.orderIndex;
     if (dto.content !== undefined) theory.content = dto.content ?? '';
+    if (dto.slides !== undefined) theory.slides = dto.slides ?? null;
     return this.theoryRepo.save(theory);
   }
 

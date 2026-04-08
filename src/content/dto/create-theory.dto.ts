@@ -1,5 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, IsUUID, Min, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  MinLength,
+  ValidateNested,
+} from 'class-validator';
+import { TheorySlideDto } from './theory-slide.dto';
 
 export class CreateTheoryDto {
   @ApiProperty({ example: 'uuid-of-level' })
@@ -26,4 +37,11 @@ export class CreateTheoryDto {
   @IsOptional()
   @IsString()
   content?: string;
+
+  @ApiPropertyOptional({ type: [TheorySlideDto], description: 'Slaydlar (Nazariya)' })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TheorySlideDto)
+  slides?: TheorySlideDto[] | null;
 }
