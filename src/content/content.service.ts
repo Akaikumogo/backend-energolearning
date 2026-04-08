@@ -66,7 +66,7 @@ export class ContentService {
   }
 
   /**
-   * Dars root ID yoki bolalar ID: o‘qish uchun parent intro + « · Nazariya» slaydlari,
+   * Dars root ID yoki bolalar ID: o‘qish uchun dars intro + nazariya bo‘limlari (slayd/matn),
    * savollar dars ildizi (parent theory_id) da.
    */
   async findTheoryForMobileLessonView(id: string): Promise<{
@@ -75,6 +75,12 @@ export class ContentService {
     title: string;
     content: string;
     slides: TheorySlide[] | null;
+    nazariyaSections: Array<{
+      id: string;
+      title: string;
+      slides: TheorySlide[] | null;
+      content: string;
+    }>;
     orderIndex: number;
     quizTheoryId: string;
   }> {
@@ -86,24 +92,78 @@ export class ContentService {
       where: { parentTheoryId: theory.id },
       order: { orderIndex: 'ASC' },
     });
-    const naz =
-      children.find((c) => c.theoryRole === TheoryRole.NAZARIYA) ??
-      children.find((c) => c.title.endsWith(' · Nazariya'));
-    const slideList =
-      naz?.slides && naz.slides.length > 0 ? naz.slides : null;
-    let content: string;
-    if (slideList?.length) {
-      content = (theory.content?.trim() ?? '') || '';
+
+    const stripNazariyaSuffix = (s: string) =>
+      s.replace(/\s*·\s*Nazariya\s*$/i, '').trim() || s;
+
+    const nazChildren = children.filter(
+      (c) =>
+        c.theoryRole === TheoryRole.NAZARIYA ||
+        c.title.endsWith(' · Nazariya'),
+    );
+
+    const mapSection = (c: Theory) => ({
+      id: c.id,
+      title: stripNazariyaSuffix(c.title),
+      slides: c.slides && c.slides.length > 0 ? c.slides : null,
+      content:
+        c.slides && c.slides.length > 0 ? '' : (c.content?.trim() ?? ''),
+    });
+
+    let nazariyaSections: Array<{
+      id: string;
+      title: string;
+      slides: TheorySlide[] | null;
+      content: string;
+    }>;
+
+    if (nazChildren.length > 0) {
+      nazariyaSections = nazChildren.map(mapSection);
     } else {
-      const parts = [theory.content?.trim(), naz?.content?.trim()].filter(Boolean);
-      content = parts.join('\n\n') || '';
+      const naz =
+        children.find((c) => c.theoryRole === TheoryRole.NAZARIYA) ??
+        children.find((c) => c.title.endsWith(' · Nazariya'));
+      if (naz) {
+        const slideList = naz.slides && naz.slides.length > 0 ? naz.slides : null;
+        nazariyaSections = [
+          {
+            id: naz.id,
+            title: stripNazariyaSuffix(naz.title),
+            slides: slideList,
+            content: slideList?.length ? '' : (naz.content?.trim() ?? ''),
+          },
+        ];
+      } else {
+        nazariyaSections = [
+          {
+            id: theory.id,
+            title: theory.title,
+            slides: null,
+            content: theory.content?.trim() ?? '',
+          },
+        ];
+      }
     }
+
+    const allSlidesFlat: TheorySlide[] = [];
+    for (const s of nazariyaSections) {
+      if (s.slides?.length) allSlidesFlat.push(...s.slides);
+    }
+
+    const introLesson =
+      !nazChildren.length &&
+      nazariyaSections.length === 1 &&
+      nazariyaSections[0].id === theory.id
+        ? ''
+        : (theory.content?.trim() ?? '');
+
     return {
       id: theory.id,
       levelId: theory.levelId,
       title: theory.title,
-      content,
-      slides: slideList,
+      content: introLesson,
+      slides: allSlidesFlat.length > 0 ? allSlidesFlat : null,
+      nazariyaSections,
       orderIndex: theory.orderIndex,
       quizTheoryId: theory.id,
     };
