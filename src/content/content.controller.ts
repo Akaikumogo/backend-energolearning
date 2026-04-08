@@ -91,17 +91,24 @@ export class ContentController {
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Barcha nazariyalar (search + filter + pagination)' })
   @ApiQuery({ name: 'levelId', required: false })
+  @ApiQuery({
+    name: 'parentTheoryId',
+    required: false,
+    description: 'Dars (lesson) theory id — faqat shu dars ostidagi nazariyalar',
+  })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   findAllTheories(
     @Query('levelId') levelId?: string,
+    @Query('parentTheoryId') parentTheoryId?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.contentService.findAllTheories({
       levelId,
+      parentTheoryId,
       search,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -118,19 +125,8 @@ export class ContentController {
   @Get('levels/:levelId/theories-tree')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Daraja nazariyalari (tree)' })
-  async findTheoryTreeByLevel(@Param('levelId', ParseUUIDPipe) levelId: string) {
-    const rows = await this.contentService.findTheoryTreeByLevel(levelId);
-    const byId = new Map(rows.map((t) => [t.id, { ...t, children: [] as any[] }]));
-    const roots: any[] = [];
-    for (const t of rows) {
-      const node = byId.get(t.id)!;
-      if (t.parentTheoryId && byId.has(t.parentTheoryId)) {
-        byId.get(t.parentTheoryId)!.children.push(node);
-      } else {
-        roots.push(node);
-      }
-    }
-    return roots;
+  findTheoryTreeByLevel(@Param('levelId', ParseUUIDPipe) levelId: string) {
+    return this.contentService.findTheoryTreeByLevel(levelId);
   }
 
   @Get('theories/:id')

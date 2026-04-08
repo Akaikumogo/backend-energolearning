@@ -259,6 +259,7 @@ export class ContentService {
 
   async findAllTheories(filters?: {
     levelId?: string;
+    parentTheoryId?: string;
     search?: string;
     page?: number;
     limit?: number;
@@ -269,6 +270,11 @@ export class ContentService {
     const countQb = this.theoryRepo.createQueryBuilder('t');
     if (filters?.levelId) {
       countQb.andWhere('t.level_id = :levelId', { levelId: filters.levelId });
+    }
+    if (filters?.parentTheoryId) {
+      countQb.andWhere('t.parent_theory_id = :pid', {
+        pid: filters.parentTheoryId,
+      });
     }
     if (filters?.search) {
       countQb.andWhere(
@@ -289,6 +295,11 @@ export class ContentService {
 
     if (filters?.levelId) {
       idsQb.andWhere('t.level_id = :levelId', { levelId: filters.levelId });
+    }
+    if (filters?.parentTheoryId) {
+      idsQb.andWhere('t.parent_theory_id = :pid', {
+        pid: filters.parentTheoryId,
+      });
     }
     if (filters?.search) {
       idsQb.andWhere(
