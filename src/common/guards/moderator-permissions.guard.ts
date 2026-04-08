@@ -81,6 +81,8 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
 
   // Users / Moderators management
   if (path === '/admin/users/moderators' && m === 'POST') return { module: 'moderators', action: 'create' };
+  if (path === '/admin/users' && m === 'POST') return { module: 'users', action: 'create' };
+  if (/^\/admin\/users\/[^/]+$/.test(path) && m === 'PUT') return { module: 'users', action: 'update' };
   if (/^\/admin\/users\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'users', action: 'delete' };
 
   // Profile actions from admin-panel
