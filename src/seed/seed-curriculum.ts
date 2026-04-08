@@ -25,8 +25,10 @@ const SC = QuestionType.SINGLE_CHOICE;
 const YN = QuestionType.YES_NO;
 const MA = QuestionType.MATCHING;
 
-const INTRO =
-  "ElektroLearn — Elektr xavfsizligi bo'yicha o'quv kursi (Duolingo uslubi). Avval «Nazariya»ni o'qing, keyin «Mashq»ni bajaring.";
+const INTRO = `ElektroLearn
+
+Elektr xavfsizligi bo'yicha o'quv kursi
+Duolingo uslubidagi interaktiv o'quv qo'llanma`;
 
 export const MODULE_SEED_DATA: ModuleSeed[] = [
   {
@@ -46,17 +48,19 @@ Elektr qurilmalarida ishlayotganda xodimni uchta asosiy xavfdan himoya qilish ke
 
 2. Asosiy SHHV ro'yxati va texnik talablar
 
-Vosita nomi — Vazifasi va xususiyati — Tekshirish usuli
-Himoya kaskasi — Boshni mexanik zarba va tokdan himoya qiladi — Ichki tasmalarining mustahkamligi va yorilishlar yo'qligi
-Dielektrik qo'lqop — 1000 V gacha asosiy, 1000 V dan yuqori qo'shimcha himoya — Havo haydash: qo'lqopni o'rab, havo chiqmayotganiga ishonch
-Maxsus kiyim (Kombinezon) — Faqat paxtali (X/B), elektr yoyiga chidamli — Yenglar tugmalangan, shim poyabzal ustidan
-Himoya ko'zoynagi — Elektr yoyi chaqnashidan ko'zni asraydi — Chizilmagan va tiniq
-Dielektrik botinka/gilamcha — "Qadam kuchlanishi"dan saqlaydi — Teshiklar va namlik yo'qligi
+Vosita nomi | Vazifasi va xususiyati | Tekshirish usuli
+Himoya kaskasi | Boshni mexanik zarba va tokdan himoya qiladi. | Ichki tasmalarining mustahkamligi va yorilishlar yo'qligi tekshiriladi.
+Dielektrik qo'lqop | 1000 V gacha asosiy, 1000 V dan yuqori qo'shimcha himoya. | Havo haydash usuli: Qo'lqopni o'rab, havo chiqmayotganiga ishonch hosil qiling.
+Maxsus kiyim (Kombinezon) | Faqat paxtali (X/B) matodan, elektr yoyiga chidamli bo'lishi shart. | Yenglar tugmalangan va shim poyabzal ustidan tushgan bo'lishi kerak.
+Himoya ko'zoynagi | Elektr yoyi chaqnashidan ko'zni asraydi. | Chizilmagan va tiniq bo'lishi shart.
+Dielektrik botinka/gilamcha | "Qadam kuchlanishi"dan saqlaydi. | Teshiklar va namlik yo'qligi tekshiriladi.
 
-Muhim: Dielektrik qo'lqoplarning sinov muddati — 6 oyda bir marta. Shtamp bo'lmasa yoki muddati o'tgan bo'lsa — foydalanish xavfli!`,
+🧐 Muhim
+Dielektrik qo'lqoplarning sinov muddati — 6 oyda bir marta. Agar qo'lqopda "Shtamp" (muhr) bo'lmasa yoki muddati o'tgan bo'lsa, undan foydalanish o'lim bilan barobar!`,
         mashq: [
           {
-            prompt: "110 kVli podstansiyada ishlash uchun qaysi qo'lqop mos keladi?",
+            prompt:
+              "1-savol: 110 kVli podstansiyada ishlash uchun 3 xil qo'lqopdan qaysi biri mos keladi?",
             type: SC,
             options: [
               { text: "Oddiy qurilish qo'lqopi", correct: false },
@@ -65,20 +69,25 @@ Muhim: Dielektrik qo'lqoplarning sinov muddati — 6 oyda bir marta. Shtamp bo'l
             ],
           },
           {
-            prompt: "Dielektrik qo'lqopda igna kabi teshik topsangiz nima qilasiz?",
+            prompt: "2-savol: Dielektrik qo'lqopda igna uchidek teshik topsangiz nima qilasiz?",
             type: SC,
             options: [
-              { text: 'Izolyatsiya tasmasi bilan yopishtiraman', correct: false },
-              { text: "Teshik kichkina, xavf yo'q", correct: false },
+              { text: 'Izolyatsiya tasmasi bilan yopishtirib ishlayman', correct: false },
+              { text: "Teshik kichkina, xavfi yo'q deb hisoblayman", correct: false },
               { text: "Foydalanishni darhol to'xtataman va yaroqsizga chiqaraman", correct: true },
             ],
           },
           {
-            prompt: 'Sintetik (neylon, poliester) kiyimda podstansiyaga kirish taqiqlanadi',
-            type: YN,
+            prompt:
+              "3-savol: Nima uchun sintetik (neylon, poliester) kiyimda podstansiyaga kirish taqiqlanadi?",
+            type: SC,
             options: [
-              { text: 'Ha', correct: true },
-              { text: "Yo'q", correct: false },
+              {
+                text: "Chunki elektr yoyi paydo bo'lganda sintetika erib, badanga yopishib qoladi va og'ir kuyishga olib keladi.",
+                correct: true,
+              },
+              { text: 'Ruxsat etiladi', correct: false },
+              { text: "Faqat yozda taqiqlanadi", correct: false },
             ],
           },
         ],
@@ -86,32 +95,37 @@ Muhim: Dielektrik qo'lqoplarning sinov muddati — 6 oyda bir marta. Shtamp bo'l
       {
         title: "1.2-dars: Himoya vositalarini sinovdan o'tkazish muddatlari va me'yorlari",
         parentContent: INTRO,
-        nazariya: `Bu darsda har bir uskuna qachon laboratoriyaga topshirilishini va ishlatishdan oldin nimalarga qarashni o'rganasiz.
+        nazariya: `Bu darsda biz xodimga har bir uskunani qachon laboratoriyaga topshirish kerakligini va ishlatishdan oldin nimalarga qarashni o'rgatamiz.
 
 1. Elektr xavfsizligi vositalari tasnifi
-• Asosiy himoya vositalari: izolyatsiyasi ishchi kuchlanishga uzoq vaqt bardosh beradi (operativ shtangalar, kuchlanish ko'rsatkichlari).
-• Qo'shimcha himoya vositalari: asosiy vositaga qo'shimcha; yakka o'zi to'liq tokdan himoya qilmaydi (dielektrik botinkalar, gilamchalar).
 
-2. Sinov muddatlari jadvali
-Dielektrik qo'lqoplar — 6 oyda 1 marta — suvli vannada yuqori kuchlanish
-Operativ shtangalar — 24 oyda 1 marta — elektr mustahkamlik
-Kuchlanish ko'rsatkichlari — 12 oyda 1 marta — ishga tushish kuchlanishi
-Izolyatsiyalovchi qisqichlar — 24 oyda 1 marta — izolyatsiya qatlami
-Dielektrik botinkalar — 36 oyda 1 marta — elektr sinovi
+• Asosiy himoya vositalari: Izolyatsiyasi ishchi kuchlanishga uzoq vaqt bardosh bera oladigan vositalar (masalan, operativ shtangalar, kuchlanish ko'rsatkichlari).
+• Qo'shimcha himoya vositalari: Asosiy vositaga qo'shimcha ravishda ishlatiladi, lekin yakka o'zi tokdan to'liq himoya qilolmaydi (masalan, dielektrik botinkalar, gilamchalar).
 
-Ekspert: Agar vosita yerga tushgan, shikastlangan yoki nam bo'lsa — muddati tugamagan bo'lsa ham navbatdan tashqari sinov shart!`,
+2. Sinov muddatlari jadvali (Yodda saqlash shart!)
+
+Himoya vositasi nomi | Davriy sinov muddati | Tekshirish usuli
+Dielektrik qo'lqoplar | 6 oyda 1 marta | Suvli vannada yuqori kuchlanish bilan
+Operativ shtangalar | 24 oyda 1 marta | Elektr mustahkamligiga sinov
+Kuchlanish ko'rsatkichlari (Indikator) | 12 oyda 1 marta | Ishga tushish kuchlanishini tekshirish
+Izolyatsiyalovchi qisqichlar (Kleshi) | 24 oyda 1 marta | Izolyatsiya qatlamini tekshirish
+Dielektrik botinkalar | 36 oyda 1 marta | Elektr sinovi
+
+⚠️ Ekspert
+Agar himoya vositasi yerga tushib ketgan, mexanik shikastlangan yoki nam bo'lsa — sinov muddati tugamagan bo'lsa ham, navbatdan tashqari sinovdan o'tkazilishi shart!`,
         mashq: [
           {
-            prompt: "Qaysi qo'lqopning sinov muddati o'tgan? A: sinov 2025 yanvar (bugun 2026 mart). B: sinov 2025 noyabr. C: shtampsiz.",
+            prompt:
+              "1-mashq (Muddati o'tganini toping): A qo'lqop: Sinov sanasi 2025-yil yanvar (Bugun: 2026-yil mart). B qo'lqop: Sinov sanasi 2025-yil noyabr. C qo'lqop: Shtampi yo'q.",
             type: SC,
             options: [
+              { text: "A va C (muddati o'tgan yoki ishlatib bo'lmaydi)", correct: true },
+              { text: 'Faqat B (hali 6 oy o‘tmagan)', correct: false },
               { text: 'Faqat A', correct: false },
-              { text: 'A va C', correct: true },
-              { text: 'Faqat B', correct: false },
             ],
           },
           {
-            prompt: 'Sinov muddatlarini moslang',
+            prompt: "2-mashq (Raqamlarni moslang): Qo'lqop ↔ 6 oy | Indikator ↔ 12 oy | Shtanga ↔ 24 oy | Botinka ↔ 36 oy",
             type: MA,
             options: [
               { text: "Qo'lqop", correct: true, match: '6 oy' },
@@ -121,19 +135,12 @@ Ekspert: Agar vosita yerga tushgan, shikastlangan yoki nam bo'lsa — muddati tu
             ],
           },
           {
-            prompt: "Dielektrik gilamchalar har 6 oyda laboratoriya sinovidan o'tkazilishi shart",
+            prompt:
+              "3-mashq (Ha yoki Yo'q): 'Dielektrik gilamchalar har 6 oyda laboratoriya sinovidan o'tkazilishi shart.'",
             type: YN,
             options: [
               { text: 'Ha', correct: false },
               { text: "Yo'q", correct: true },
-            ],
-          },
-          {
-            prompt: 'Himoya vositasi yerga tushib ketsa, sinov muddati tugamagan bo\'lsa ham navbatdan tashqari sinov shart',
-            type: YN,
-            options: [
-              { text: 'Ha', correct: true },
-              { text: "Yo'q", correct: false },
             ],
           },
         ],
@@ -141,20 +148,27 @@ Ekspert: Agar vosita yerga tushgan, shikastlangan yoki nam bo'lsa — muddati tu
       {
         title: '1.3-dars: Xavfsizlik plakatlari va belgilari (Signallar tili)',
         parentContent: INTRO,
-        nazariya: `MET tizimida plakatlar 4 ta asosiy guruhga bo'linadi.
+        nazariya: `MET tizimida plakatlar 4 ta asosiy guruhga bo'linadi. Ularni adashtirish — ruxsat berilmagan hududga kirish yoki kuchlanish ostidagi uskunaga tegib ketishga sabab bo'lishi mumkin.
 
-Guruh — Rangi — Ma'nosi — Misol
-Taqiqlovchi — Qizil/Oq — Amallarni taqiqlaydi — YOQMANG! Odamlar ishlayapti
-Ogohlantiruvchi — Sariq/Qora — Xavf haqida ogohlantiradi — TO'XTANG! Kuchlanish
-Buyuruvchi — Ko'k/Oq — Ruxsat etilgan joy — SHU YERDA ISHLANG
-Ko'rsatuvchi — Yashil/Oq — Xavfsiz holat — YERLATILGAN
+1. Plakatlar tasnifi va vazifalari
 
-Oltin qoidalar: vaqtinchalik plakatlar faqat ish vaqtida; ko'rinish balandligi qulay; metall PS da plakatlar dielektrik materialdan.
+Guruh | Rangi | Ma'nosi | Misol
+Taqiqlovchi | Qizil/Oq | Amallarni taqiqlaydi | YOQMANG! Odamlar ishlayapti
+Ogohlantiruvchi | Sariq/Qora | Xavf haqida ogohlantiradi | TO'XTANG! Kuchlanish
+Buyuruvchi | Ko'k/Oq | Ruxsat etilgan joyni ko'rsatadi | SHU YERDA ISHLANG
+Ko'rsatuvchi | Yashil/Oq | Xavfsiz holatni bildiradi | YERLATILGAN
 
-Eng muhim: "YOQMANG! Odamlar ishlayapti" ilingan klyuchni hech kim (hatto bosh muhandis) burashga haqli emas — faqat ilgan xodim oladi.`,
+2. Plakatlarni ilish qoidalari (Oltin qoidalar)
+
+• Vaqtinchalik plakatlar: Faqat ish bajarilayotgan vaqtda ilinadi va ish tugagach darhol olinadi.
+• Ko'rinish darajasi: Plakatlar ishchi va navbatchi ko'zi tushadigan eng qulay balandlikda bo'lishi shart.
+• Material: Metall podstansiyalarda plakatlar dielektrik (plastik yoki yog'och) materialdan bo'lishi tavsiya etiladi.
+
+🔴 Eng muhim
+"YOQMANG! Odamlar ishlayapti" plakati ilingan klyuchni hech kim (hatto bosh muhandis ham) burashga haqli emas! Uni faqat ilgan xodimning o'zi olishi mumkin.`,
         mashq: [
           {
-            prompt: "220 kVli ajratgich ochildi. Qaysi plakat ilinadi?",
+            prompt: "1-mashq: 220 kVli ajratgich ochildi. Qaysi plakat ilinadi?",
             type: SC,
             options: [
               { text: "'Shu yerga chiqing'", correct: false },
@@ -163,22 +177,21 @@ Eng muhim: "YOQMANG! Odamlar ishlayapti" ilingan klyuchni hech kim (hatto bosh m
             ],
           },
           {
-            prompt: 'Ish joyi tayyorlandi. Ishchi qayerda ishlashini qanday biladi?',
+            prompt: "2-mashq: Ish joyi tayyorlandi. Ishchi qayerda ishlashini qanday biladi?",
             type: SC,
             options: [
               { text: "Ogohlantiruvchi sariq plakat orqali", correct: false },
-              { text: "'SHU YERDA ISHLANG' (Ko'k/Oq — Buyuruvchi)", correct: true },
+              { text: "'Shu yerda ishlang' plakati orqali (Ko'k/Oq — Buyuruvchi guruh)", correct: true },
               { text: 'Yashil YERLATILGAN orqali', correct: false },
             ],
           },
           {
-            prompt: 'Plakat ranglarini moslang',
+            prompt: '3-mashq (Ranglar ma\'nosi): moslang',
             type: MA,
             options: [
-              { text: 'Qizil plakat', correct: true, match: 'Taqiqlash' },
-              { text: 'Sariq plakat', correct: true, match: 'Ogohlantirish' },
+              { text: 'Qizil plakat', correct: true, match: 'Xavfli harakatni taqiqlash' },
+              { text: 'Sariq plakat', correct: true, match: 'Yaqinlashish xavfi haqida ogohlantirish' },
               { text: "Ko'k plakat", correct: true, match: 'Ruxsat etilgan nuqta' },
-              { text: 'Yashil plakat', correct: true, match: 'Xavfsiz holat' },
             ],
           },
         ],
@@ -191,16 +204,38 @@ Eng muhim: "YOQMANG! Odamlar ishlayapti" ilingan klyuchni hech kim (hatto bosh m
       {
         title: "2.1-dars: Naryad-ruxsatnoma va Farmoyish (Hujjatlar bilan ishlash)",
         parentContent: INTRO,
-        nazariya: `Elektr qurilmalarida ish oldidan rasmiy ruxsat majburiy.
+        nazariya: `Elektr qurilmalarida har qanday ish bajarishdan oldin rasmiy ruxsat olish majburiy. Bu tasodifiy kuchlanish berilishidan yoki boshqa brigadaning xato qilishidan himoya qiladi.
 
-Ishlarni tashkil etish: Naryad-ruxsatnoma (murakkab, uzoq ishlar), Farmoyish (oddiy, qisqa), Joriy ekspluatatsiya (ro'yxatdagi mayda ishlar).
+1. Ishlarni tashkil etishning uch usuli
 
-Naryadning 7 ta elementi: ish joyi; vaqt; ishga ruxsat beruvchi; ish rahbari; brigada; xavfsizlik tadbirlari; imzolar.
+Usul | Ta'rifi | Qachon qo'llaniladi
+Naryad-ruxsatnoma | Yozma topshiriq: joy, vaqt, shart va brigada tarkibi ko'rsatiladi | Murakkab, ko'p vaqt talab etadigan ishlar
+Farmoyish | Og'zaki yoki yozma tezkor buyruq | Oddiy, qisqa muddatli ishlar
+Joriy ekspluatatsiya | Doimiy bajariladigan mayda ishlar ro'yxati | Ro'yxatga kiritilgan kichik ishlar
 
-Naryad: amal muddati 15 kalendar kuni; uzaytirish faqat 1 marta (+15 kun); yopish; saqlash 30 kun. Ikki nusxada. Naryad yo'qolsa — ishni to'xtatib yangisi.`,
+2. Naryad-ruxsatnomasining 7 ta majburiy elementi
+
+1. Ish joyi — aniq ko'rsatilishi shart
+2. Ish boshlanish va tugash vaqti
+3. Ishga ruxsat beruvchi — kuchlanishni o'chirgan shaxs
+4. Ish rahbari — brigadani boshqaruvchi
+5. Brigada tarkibi — har bir a'zoning ismi va elektr xavfsizlik guruhi
+6. Xavfsizlik tadbirlari — qaysi ajratgichlar ochiladi, yerlatgich o'rnatiladi
+7. Imzolar — beruvchi va qabul qiluvchi imzosi
+
+3. Naryad muddatlari va qoidalari
+
+• Amal qilish muddati: 15 kalendar kuni
+• Uzaytirish: Faqat 1 marta, yana 15 kungacha
+• Yopish: Ish tugagach, ish rahbari "Ish bajarildi" deb imzo chekadi
+• Saqlash muddati: 30 kun
+
+🧐 Ekspert
+Naryad ikki nusxada yoziladi: biri ishga ruxsat beruvchida, ikkinchisi ish rahbarida qoladi. Agar naryad yo'qolsa yoki shikastlansa — ishni darhol to'xtatib, yangisini olish shart!`,
         mashq: [
           {
-            prompt: "110 kV kabelni almashtirasiz — uch kunlik ish. Qaysi hujjat?",
+            prompt:
+              '1-savol: 110 kVli kabelni almashtirasiz — bu uch kunlik ish. Qaysi hujjat kerak?',
             type: SC,
             options: [
               { text: 'Farmoyish', correct: false },
@@ -209,7 +244,8 @@ Naryad: amal muddati 15 kalendar kuni; uzaytirish faqat 1 marta (+15 kun); yopis
             ],
           },
           {
-            prompt: "Naryad-ruxsatnomasining amal qilish muddati necha kalendar kuni?",
+            prompt:
+              '2-savol: Naryad-ruxsatnomasining amal qilish muddati ___ kalendar kuni. (Javob: 15)',
             type: SC,
             options: [
               { text: '7 kun', correct: false },
@@ -218,7 +254,7 @@ Naryad: amal muddati 15 kalendar kuni; uzaytirish faqat 1 marta (+15 kun); yopis
             ],
           },
           {
-            prompt: 'Naryad muddatini ikki marta uzaytirish mumkin',
+            prompt: "3-savol (Ha/Yo'q): Naryad muddatini ikki marta uzaytirish mumkin.",
             type: YN,
             options: [
               { text: 'Ha', correct: false },
@@ -226,11 +262,11 @@ Naryad: amal muddati 15 kalendar kuni; uzaytirish faqat 1 marta (+15 kun); yopis
             ],
           },
           {
-            prompt: 'Kim naryad berishga vakolatli?',
+            prompt: '4-savol: Kim naryad berishga vakolatli?',
             type: SC,
             options: [
               { text: 'Ixtiyoriy navbatchi', correct: false },
-              { text: "Belgilanigan vakolatli shaxs (mas'ul muhandis)", correct: true },
+              { text: "Belgilangan vakolatli shaxs (mas'ul muhandis)", correct: true },
               { text: 'Faqat dispetcher', correct: false },
             ],
           },
@@ -239,24 +275,45 @@ Naryad: amal muddati 15 kalendar kuni; uzaytirish faqat 1 marta (+15 kun); yopis
       {
         title: '2.2-dars: Kuchlanish ostidagi qismlargacha xavfsiz masofalar',
         parentContent: INTRO,
-        nazariya: `Tok urishi uchun simga tegish shart emas. Kuchlanish baland — havo orqali yoy masofasi katta.
+        nazariya: `Elektr toki urishi uchun simga tegish shart emas. Kuchlanish qanchalik yuqori bo'lsa, havo orqali elektr yoyi sakrashi mumkin bo'lgan masofa shunchalik katta bo'ladi.
 
-Minimal masofalar (xodim va asbob): 1 kV gacha 0,3 m / 0,6 m; 1–35 kV 0,6/0,6 m; 110 kV 1,0 m; 220 kV 2,0 m; 500 kV 3,5 m; 750 kV 5,0 m.
+1. Minimal xavfsiz masofalar jadvali
 
-Qadam kuchlanishi: yer bo'ylab tok — xavfli radius simdan ~8 m; kichik qadam yoki bir oyoq usuli.
+Kuchlanish darajasi | Ishchi xodimgacha minimal masofa | Asbob-uskunagacha masofa
+1 kV gacha | 0,3 m | 0,6 m
+1–35 kV | 0,6 m | 0,6 m
+110 kV | 1,0 m | 1,0 m
+220 kV | 2,0 m | 2,0 m
+500 kV | 3,5 m | 3,5 m
+750 kV | 5,0 m | 5,0 m
 
-220 kV da hatto 2 m masofada uzun metall asbob ko'tarish xavfli — yoy jalb qilishi mumkin.`,
+2. "Qadam kuchlanishi" xavfi
+
+Yerga tushgan sim atrofida ham xavfli zona mavjud. Yer bo'ylab tarqalayotgan tok "qadam kuchlanishi" hosil qiladi.
+• Xavfli radius: simdan 8 metr gacha
+• Harakat qilish usuli: Kichik qadamlar bilan yoki bir oyoqda sakrab (bir oyoq usuli) yoy markazidan uzoqlashish
+
+🧐 Muhim
+220 kV li qurilmada ishlar olib borayotganda, hatto 2 metr masofada turgan holda ham uzun metall asbob ko'tarib turish mumkin emas — u elektr yoyini jalb qilishi mumkin!`,
         mashq: [
           {
-            prompt: '220 kV shinoprovod. 1,5 m masofada holat?',
+            prompt: '1-savol (Simulyatsiya): 220 kVli shinoprovod. 1,5 m masofada holat?',
             type: SC,
             options: [
-              { text: 'Xavfsiz', correct: false },
-              { text: 'XAVF (minimal 2 m)', correct: true },
+              { text: '🔴 XAVF!', correct: true },
+              { text: '🟢 Xavfsiz', correct: false },
             ],
           },
           {
-            prompt: 'Kuchlanish va masofani moslang',
+            prompt: '2-savol (Simulyatsiya): 220 kVli shinoprovod. 2,5 m masofada holat?',
+            type: SC,
+            options: [
+              { text: '🔴 XAVF!', correct: false },
+              { text: '🟢 Xavfsiz!', correct: true },
+            ],
+          },
+          {
+            prompt: '3-savol (Moslang): 110 kV ↔ 1,0 m | 220 kV ↔ 2,0 m | 35 kV ↔ 0,6 m | 500 kV ↔ 3,5 m',
             type: MA,
             options: [
               { text: '110 kV', correct: true, match: '1,0 m' },

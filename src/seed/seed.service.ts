@@ -8,6 +8,7 @@ import { QuestionOption } from '../database/entities/question-option.entity';
 import { MODULE_SEED_DATA, type QSeed } from './seed-curriculum';
 import { LESSON_SLIDES } from './seed-lesson-slides';
 import type { TheorySlide } from '../common/types/theory-slide';
+import { TheoryRole } from '../common/enums/theory-role.enum';
 
 @Injectable()
 export class SeedService {
@@ -69,9 +70,14 @@ export class SeedService {
           orderIndex: ti,
           parentTheoryId: null,
           slides: null,
+          theoryRole: TheoryRole.LESSON,
         });
         if (parent._created) createdTheories++;
         else skippedTheories++;
+
+        const mashChild = await this.theoryRepo.findOne({
+          where: { parentTheoryId: parent.id, title: mashTitle },
+        });
 
         const lessonKey = lesson.title.match(/^(\d+\.\d+)-dars/)?.[1];
         const fromMap =
@@ -86,24 +92,19 @@ export class SeedService {
           orderIndex: 0,
           parentTheoryId: parent.id,
           slides,
+          theoryRole: TheoryRole.NAZARIYA,
         });
         if (naz._created) createdTheories++;
         else skippedTheories++;
 
-        const mash = await this.upsertTheory(level.id, {
-          title: mashTitle,
-          content: '',
-          orderIndex: 1,
-          parentTheoryId: parent.id,
-          slides: null,
-        });
-        if (mash._created) createdTheories++;
-        else skippedTheories++;
-
         await this.questionRepo.delete({ theoryId: parent.id });
+        if (mashChild) {
+          await this.questionRepo.delete({ theoryId: mashChild.id });
+          await this.theoryRepo.remove(mashChild);
+        }
         await this.questionRepo.delete({ theoryId: naz.id });
 
-        const sq = await this.seedQuestions(level.id, mash.id, lesson.mashq);
+        const sq = await this.seedQuestions(level.id, parent.id, lesson.mashq);
         createdQuestions += sq.createdQuestions;
         skippedQuestions += sq.skippedQuestions;
         createdOptions += sq.createdOptions;
@@ -140,6 +141,7 @@ export class SeedService {
       orderIndex: number;
       parentTheoryId: string | null;
       slides: TheorySlide[] | null;
+      theoryRole: TheoryRole | null;
     },
   ): Promise<Theory & { _created: boolean }> {
     let theory = await this.theoryRepo.findOne({
@@ -154,6 +156,7 @@ export class SeedService {
           orderIndex: args.orderIndex,
           parentTheoryId: args.parentTheoryId,
           slides: args.slides,
+          theoryRole: args.theoryRole,
         }),
       );
       return Object.assign(theory, { _created: true });
@@ -165,6 +168,7 @@ export class SeedService {
         orderIndex: args.orderIndex,
         parentTheoryId: args.parentTheoryId,
         slides: args.slides,
+        theoryRole: args.theoryRole,
       },
     );
     return Object.assign({ ...theory, ...args }, { _created: false });

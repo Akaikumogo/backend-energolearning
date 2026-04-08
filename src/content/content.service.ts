@@ -12,6 +12,7 @@ import { UpdateTheoryDto } from './dto/update-theory.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import type { TheorySlide } from '../common/types/theory-slide';
+import { TheoryRole } from '../common/enums/theory-role.enum';
 
 @Injectable()
 export class ContentService {
@@ -65,8 +66,8 @@ export class ContentService {
   }
 
   /**
-   * Dars root ID yoki bolalar ID: o‘qish uchun parent intro + « · Nazariya»,
-   * savollar « · Mashq» theory_id da.
+   * Dars root ID yoki bolalar ID: o‘qish uchun parent intro + « · Nazariya» slaydlari,
+   * savollar dars ildizi (parent theory_id) da.
    */
   async findTheoryForMobileLessonView(id: string): Promise<{
     id: string;
@@ -85,8 +86,9 @@ export class ContentService {
       where: { parentTheoryId: theory.id },
       order: { orderIndex: 'ASC' },
     });
-    const naz = children.find((c) => c.title.endsWith(' · Nazariya'));
-    const mash = children.find((c) => c.title.endsWith(' · Mashq'));
+    const naz =
+      children.find((c) => c.theoryRole === TheoryRole.NAZARIYA) ??
+      children.find((c) => c.title.endsWith(' · Nazariya'));
     const slideList =
       naz?.slides && naz.slides.length > 0 ? naz.slides : null;
     let content: string;
@@ -103,7 +105,7 @@ export class ContentService {
       content,
       slides: slideList,
       orderIndex: theory.orderIndex,
-      quizTheoryId: mash?.id ?? theory.id,
+      quizTheoryId: theory.id,
     };
   }
 
@@ -298,6 +300,7 @@ export class ContentService {
       slides: dto.slides ?? null,
       parentTheoryId,
       createdById: userId,
+      theoryRole: dto.theoryRole ?? null,
     });
     return this.theoryRepo.save(theory);
   }
@@ -322,6 +325,7 @@ export class ContentService {
     if (dto.orderIndex !== undefined) theory.orderIndex = dto.orderIndex;
     if (dto.content !== undefined) theory.content = dto.content ?? '';
     if (dto.slides !== undefined) theory.slides = dto.slides ?? null;
+    if (dto.theoryRole !== undefined) theory.theoryRole = dto.theoryRole ?? null;
     return this.theoryRepo.save(theory);
   }
 
