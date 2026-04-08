@@ -23,7 +23,11 @@ import { ExamQuestionOption } from './entities/exam-question-option.entity';
 import { ExamQuestionPosition } from './entities/exam-question-position.entity';
 import { ExamAssignment } from './entities/exam-assignment.entity';
 import { ExamAttempt } from './entities/exam-attempt.entity';
+import { ExamSession } from './entities/exam-session.entity';
+import { ExamAttemptAnswer } from './entities/exam-attempt-answer.entity';
 import { Notification } from './entities/notification.entity';
+import { EmployeeCertificate } from './entities/employee-certificate.entity';
+import { EmployeeCheck } from './entities/employee-check.entity';
 import { Init1743074000000 } from './migrations/0001-init';
 import { AddUserAvatar1743076000000 } from './migrations/0002-add-user-avatar';
 import { AddContentTables1743078000000 } from './migrations/0003-add-content-tables';
@@ -61,7 +65,11 @@ export const AppDataSource = new DataSource({
     ExamQuestionPosition,
     ExamAssignment,
     ExamAttempt,
+    ExamSession,
+    ExamAttemptAnswer,
     Notification,
+    EmployeeCertificate,
+    EmployeeCheck,
   ],
   migrations: [
     Init1743074000000,
