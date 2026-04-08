@@ -59,14 +59,7 @@ export class MobileContentController {
   @ApiParam({ name: 'id' })
   @ApiOkResponse({ description: 'Nazariya detail' })
   async getTheoryById(@Param('id', ParseUUIDPipe) id: string) {
-    const theory = await this.contentService.findTheoryForMobileById(id);
-    return {
-      id: theory.id,
-      levelId: theory.levelId,
-      title: theory.title,
-      content: theory.content,
-      orderIndex: theory.orderIndex,
-    };
+    return this.contentService.findTheoryForMobileLessonView(id);
   }
 
   @Get('theories/:theoryId/questions')
