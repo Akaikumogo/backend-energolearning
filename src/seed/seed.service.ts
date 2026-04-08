@@ -21,6 +21,7 @@ export class SeedService {
     private readonly optionRepo: Repository<QuestionOption>,
   ) {}
 
+  /** Level=modul; har dars uchun LESSON + bitta NAZARIYA bola; savollar dars (lesson) theoryId ga. */
   async seedAll() {
     const modules = MODULE_SEED_DATA;
     let createdModules = 0;

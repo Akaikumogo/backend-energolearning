@@ -141,11 +141,11 @@ export const LESSON_SLIDES: Record<string, TheorySlide[]> = {
   ],
   "2.3": [
     {
-      "head": "3 xil kirish zonasi",
+      "head": "Ruxsat zonalari tizimi",
       "items": [
-        "🟢 Erkin zona: ma'muriy binolar — hamma kiradi",
-        "🟡 Nazorat zona: elektr guruhi bo'lgan xodimlar",
-        "🔴 Cheklangan zona: faqat ruxsat etilgan brigada"
+        "Erkin zona — ma'muriy binolar, nazorat xonasi — barcha xodimlar",
+        "Nazorat ostidagi zona — qurilmalar yaqinidagi o'tish yo'llari — elektr xavfsizlik guruhiga ega xodimlar",
+        "Cheklangan zona — to'g'ridan-to'g'ri kuchlanish ostidagi qurilmalar — faqat ruxsat etilgan brigada a'zolari"
       ]
     },
     {
@@ -175,6 +175,14 @@ export const LESSON_SLIDES: Record<string, TheorySlide[]> = {
         "2️⃣ Ajratgich (выключатель) o'chirish",
         "3️⃣ Razedinitelni ochish",
         "4️⃣ Blokirovka qilish + plakat ilish"
+      ]
+    },
+    {
+      "head": "Blokirovka tartibi",
+      "items": [
+        "Masofadan boshqarish pultidagi klyuchni oling",
+        "Klyuchga shaxsiy qulf osilib, kalitni o'zingizda saqlang",
+        "\"YOQMANG! Odamlar ishlayapti\" plakatini ilib qo'ying"
       ]
     },
     {
@@ -215,6 +223,15 @@ export const LESSON_SLIDES: Record<string, TheorySlide[]> = {
       ]
     },
     {
+      "head": "Ko'rsatkich turlari (qisqacha)",
+      "items": [
+        "UVN-90 — 1 kV gacha — neon chiroq yonishi",
+        "UVNF — 6–110 kV — tovush va yorug'lik signali",
+        "UVN-10 — 6–10 kV — kontakt turi",
+        "Kontaktsiz indikator — keng diapazon — elektromagnit maydon"
+      ]
+    },
+    {
       "head": "⚠️ Eng xavfli yanglishish!",
       "warn": true,
       "items": [
@@ -252,6 +269,15 @@ export const LESSON_SLIDES: Record<string, TheorySlide[]> = {
         "3️⃣ Faza A ni uzing",
         "4️⃣ ER shinasidan uzing",
         "🔴 Tamoyil: Avval FAZA — keyin YER!"
+      ]
+    },
+    {
+      "head": "Yerlatgich qayerda bo'lishi shart",
+      "items": [
+        "Ish joyining har ikki tomonida (manba va iste'molchi tarafida)",
+        "Uzun kabel: har 200 m da bir marta",
+        "Ko'rinmaydigan tomonlarda ham o'rnatilishi shart",
+        "Ko'chma yerlatgich mis kesimi 25 mm² dan kam bo'lmasin"
       ]
     }
   ],
@@ -329,6 +355,14 @@ export const LESSON_SLIDES: Record<string, TheorySlide[]> = {
         "3. Hushini tekshiring  4. Nafas tekshiring (10s)",
         "5. 112 ga qo'ng'iroq  6. YOR: 30 siqish + 2 nafas"
       ]
+    },
+    {
+      "head": "YOR — texnikasi (30:2)",
+      "items": [
+        "Ko'krak siqish: 30 marta, chuqurlik 5–6 sm, tezlik 100–120/daqiqa",
+        "Sun'iy nafas: 2 marta — bosh orqaga, iyak ko'tarilgan",
+        "Nisbat 30:2 — 30 ta siqish + 2 ta nafas = 1 sikl"
+      ]
     }
   ],
   "4.2": [
@@ -367,6 +401,13 @@ export const LESSON_SLIDES: Record<string, TheorySlide[]> = {
         "Kuchlanish ostidagi uskunalarni SUV BILAN O'CHIRIB BO'LMAYDI!",
         "Suv — elektr o'tkazuvchi. Tok siz orqali o'tadi!",
         "Avval kuchlanishni o'chiring — keyin o'chirishni boshlang!"
+      ]
+    },
+    {
+      "head": "CO₂ (OU) o'chirgich bilan",
+      "warn": true,
+      "items": [
+        "Kuchlanish ostidagi qurilmaga OU bilan 1 metrdan yaqin bormang!"
       ]
     },
     {
