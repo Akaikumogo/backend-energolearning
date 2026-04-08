@@ -54,14 +54,13 @@ import { DbAdminModule } from './db-admin/db-admin.module';
 import 'dotenv/config';
 import { EmployeeCertificate } from './database/entities/employee-certificate.entity';
 import { EmployeeCheck } from './database/entities/employee-check.entity';
+import { getPostgresConnectionOptions } from './database/postgres-env';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
     TypeOrmModule.forRoot({
       type: 'postgres',
-      url:
-        process.env.DATABASE_URL ??
-        'postgresql://sarvarbekxazratov@localhost:5432/elektrolearn',
+      ...getPostgresConnectionOptions(),
       entities: [
         User,
         Organization,
