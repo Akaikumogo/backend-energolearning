@@ -11,6 +11,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ProgressService } from './progress.service';
 import { SubmitAnswerDto } from './dto/submit-answer.dto';
+import { SubmitMatchingDto } from './dto/submit-matching.dto';
 
 @ApiTags('Progress')
 @ApiBearerAuth('bearer')
@@ -35,6 +36,17 @@ export class ProgressController {
     @Body() dto: SubmitAnswerDto,
   ) {
     return this.progressService.submitAnswer(req.user.id, dto);
+  }
+
+  @Post('matching')
+  @ApiOperation({ summary: 'Moslashtirish (MATCHING) javob yuborish' })
+  @ApiBody({ type: SubmitMatchingDto })
+  @ApiOkResponse({ description: 'Natija: isCorrect, xpEarned' })
+  submitMatching(
+    @Req() req: Request & { user: { id: string } },
+    @Body() dto: SubmitMatchingDto,
+  ) {
+    return this.progressService.submitMatching(req.user.id, dto);
   }
 
   @Get('level/:levelId')
