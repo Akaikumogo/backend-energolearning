@@ -8,6 +8,7 @@ import { ExamAttempt } from '../database/entities/exam-attempt.entity';
 import { ExamQuestion } from '../database/entities/exam-question.entity';
 import { ExamQuestionOption } from '../database/entities/exam-question-option.entity';
 import { ExamQuestionPosition } from '../database/entities/exam-question-position.entity';
+import { ExamQuestionCatalog } from '../database/entities/exam-question-catalog.entity';
 import { Position } from '../database/entities/position.entity';
 import { User } from '../database/entities/user.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
@@ -23,6 +24,7 @@ import { ExamSchedulerService } from './exam-scheduler.service';
       Position,
       Exam,
       ExamQuestion,
+      ExamQuestionCatalog,
       ExamQuestionOption,
       ExamQuestionPosition,
       ExamAssignment,

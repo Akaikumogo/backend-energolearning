@@ -9,6 +9,8 @@ import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
+import { EmployeeCheck } from '../database/entities/employee-check.entity';
 
 const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
   '12h') as StringValue;
@@ -18,7 +20,7 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
     UsersModule,
     OrganizationsModule,
     PassportModule,
-    TypeOrmModule.forFeature([RefreshToken]),
+    TypeOrmModule.forFeature([RefreshToken, EmployeeCertificate, EmployeeCheck]),
     JwtModule.register({
       secret: process.env.JWT_SECRET ?? 'elektrolearn-dev-secret',
       signOptions: {

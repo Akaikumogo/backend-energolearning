@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEnum, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
 import { ExamType } from '../../common/enums/exam-type.enum';
 
 export class CreateExamDto {
@@ -31,5 +31,15 @@ export class CreateExamDto {
   @IsOptional()
   @IsBoolean()
   includesTb?: boolean;
+
+  @ApiPropertyOptional({ description: 'Bir vaqtda tayinlash: xodim' })
+  @IsOptional()
+  @IsUUID('4')
+  assigneeUserId?: string;
+
+  @ApiPropertyOptional({ description: 'Bir vaqtda tayinlash: tashkilot' })
+  @IsOptional()
+  @IsUUID('4')
+  assigneeOrganizationId?: string;
 }
 

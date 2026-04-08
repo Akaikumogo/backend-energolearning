@@ -8,6 +8,8 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { CreatePositionDto } from './dto/create-position.dto';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { CreateExamQuestionDto } from './dto/create-exam-question.dto';
+import { CreateExamQuestionCatalogDto } from './dto/create-exam-question-catalog.dto';
+import { UpdateExamQuestionCatalogDto } from './dto/update-exam-question-catalog.dto';
 import { ScheduleExamAssignmentDto } from './dto/schedule-exam-assignment.dto';
 import { ExamsService } from './exams.service';
 
@@ -76,7 +78,9 @@ export class ExamsController {
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Body() body: CreateExamDto,
   ) {
-    return this.examsService.ensureDefaultOrgModerator(req.user).then(() => this.examsService.createExam(body));
+    return this.examsService.ensureDefaultOrgModerator(req.user).then(() =>
+      this.examsService.createExam(body, req.user),
+    );
   }
 
   @Put('exams/:id')
@@ -102,12 +106,61 @@ export class ExamsController {
     return this.examsService.ensureDefaultOrgModerator(req.user).then(() => this.examsService.deleteExam(id));
   }
 
+  // ─── Exam question catalogs ───────────────────────────────────────────────
+  @Get('exam-question-catalogs')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Savol kataloglari (default PT/TB + qo`shimcha)' })
+  listExamQuestionCatalogs(@Req() req: Request & { user: { role: Role; organizationIds: string[] } }) {
+    return this.examsService.ensureDefaultOrgModerator(req.user).then(() => this.examsService.listExamQuestionCatalogs());
+  }
+
+  @Post('exam-question-catalogs')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Savol katalogi yaratish' })
+  @ApiBody({ type: CreateExamQuestionCatalogDto })
+  createExamQuestionCatalog(
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Body() body: CreateExamQuestionCatalogDto,
+  ) {
+    return this.examsService.ensureDefaultOrgModerator(req.user).then(() => this.examsService.createExamQuestionCatalog(body));
+  }
+
+  @Put('exam-question-catalogs/:id')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiParam({ name: 'id' })
+  @ApiOperation({ summary: 'Savol katalogini yangilash' })
+  @ApiBody({ type: UpdateExamQuestionCatalogDto })
+  updateExamQuestionCatalog(
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateExamQuestionCatalogDto,
+  ) {
+    return this.examsService.ensureDefaultOrgModerator(req.user).then(() => this.examsService.updateExamQuestionCatalog(id, body));
+  }
+
+  @Delete('exam-question-catalogs/:id')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiParam({ name: 'id' })
+  @ApiOperation({ summary: 'Savol katalogini o`chirish (bo`sh bo`lsa)' })
+  deleteExamQuestionCatalog(
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.examsService.ensureDefaultOrgModerator(req.user).then(() => this.examsService.deleteExamQuestionCatalog(id));
+  }
+
   // ─── Exam questions ───────────────────────────────────────────────────────
   @Get('exam-questions')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Imtihon savollari (default-org mod yoki SuperAdmin)' })
-  listExamQuestions(@Req() req: Request & { user: { role: Role; organizationIds: string[] } }) {
-    return this.examsService.ensureDefaultOrgModerator(req.user).then(() => this.examsService.listExamQuestions());
+  @ApiQuery({ name: 'catalogId', required: false })
+  listExamQuestions(
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Query('catalogId') catalogId?: string,
+  ) {
+    return this.examsService
+      .ensureDefaultOrgModerator(req.user)
+      .then(() => this.examsService.listExamQuestions(catalogId?.trim() || undefined));
   }
 
   @Post('exam-questions')
