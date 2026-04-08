@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Level } from '../database/entities/level.entity';
@@ -36,6 +36,19 @@ export class ContentService {
       .orderBy('t.order_index', 'ASC')
       .addOrderBy('t.created_at', 'ASC')
       .getMany();
+  }
+
+  async findTheoryTreeForMobileByLevel(levelId: string): Promise<Theory[]> {
+    const theories = await this.theoryRepo
+      .createQueryBuilder('t')
+      .innerJoin('t.level', 'l')
+      .where('t.level_id = :levelId', { levelId })
+      .andWhere('l.is_active = true')
+      .orderBy('t.parent_theory_id', 'ASC', 'NULLS FIRST')
+      .addOrderBy('t.order_index', 'ASC')
+      .addOrderBy('t.created_at', 'ASC')
+      .getMany();
+    return theories;
   }
 
   async findTheoryForMobileById(id: string): Promise<Theory> {
@@ -224,11 +237,21 @@ export class ContentService {
       .getRawOne();
     const nextOrder = dto.orderIndex ?? (maxOrder?.max ?? -1) + 1;
 
+    const parentTheoryId =
+      dto.parentTheoryId === undefined ? null : (dto.parentTheoryId ?? null);
+    if (parentTheoryId) {
+      const parent = await this.theoryRepo.findOne({
+        where: { id: parentTheoryId, levelId: dto.levelId },
+      });
+      if (!parent) throw new BadRequestException('Parent nazariya topilmadi');
+    }
+
     const theory = this.theoryRepo.create({
       levelId: dto.levelId,
       title: dto.title,
       orderIndex: nextOrder,
       content: dto.content ?? '',
+      parentTheoryId,
       createdById: userId,
     });
     return this.theoryRepo.save(theory);
@@ -236,8 +259,35 @@ export class ContentService {
 
   async updateTheory(id: string, dto: UpdateTheoryDto): Promise<Theory> {
     const theory = await this.findTheoryById(id);
-    Object.assign(theory, dto);
+    if (dto.parentTheoryId !== undefined) {
+      const nextParent =
+        dto.parentTheoryId === null ? null : (dto.parentTheoryId ?? null);
+      if (nextParent === id) {
+        throw new BadRequestException('Parent nazariya o`zi bo`la olmaydi');
+      }
+      if (nextParent) {
+        const parent = await this.theoryRepo.findOne({
+          where: { id: nextParent, levelId: theory.levelId },
+        });
+        if (!parent) throw new BadRequestException('Parent nazariya topilmadi');
+      }
+      theory.parentTheoryId = nextParent;
+    }
+    if (dto.title !== undefined) theory.title = dto.title;
+    if (dto.orderIndex !== undefined) theory.orderIndex = dto.orderIndex;
+    if (dto.content !== undefined) theory.content = dto.content ?? '';
     return this.theoryRepo.save(theory);
+  }
+
+  async findTheoryTreeByLevel(levelId: string): Promise<Theory[]> {
+    return this.theoryRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.createdBy', 'u')
+      .where('t.level_id = :levelId', { levelId })
+      .orderBy('t.parent_theory_id', 'ASC', 'NULLS FIRST')
+      .addOrderBy('t.order_index', 'ASC')
+      .addOrderBy('t.created_at', 'ASC')
+      .getMany();
   }
 
   async removeTheory(id: string): Promise<void> {

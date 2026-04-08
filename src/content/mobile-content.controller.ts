@@ -24,6 +24,36 @@ export class MobileContentController {
     }));
   }
 
+  @Get('levels/:levelId/theories-tree')
+  @ApiOperation({ summary: 'Level nazariyalari (tree, mobile uchun)' })
+  @ApiParam({ name: 'levelId' })
+  @ApiOkResponse({ description: 'Nazariyalar tree' })
+  async getTheoryTreeByLevel(@Param('levelId', ParseUUIDPipe) levelId: string) {
+    const rows = await this.contentService.findTheoryTreeForMobileByLevel(levelId);
+    const byId = new Map(rows.map((t) => [t.id, { ...t, children: [] as any[] }]));
+    const roots: any[] = [];
+    for (const t of rows) {
+      const node = byId.get(t.id)!;
+      if (t.parentTheoryId && byId.has(t.parentTheoryId)) {
+        byId.get(t.parentTheoryId)!.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    const mapNode = (n: any): any => ({
+      id: n.id,
+      levelId: n.levelId,
+      title: n.title,
+      content: n.content,
+      orderIndex: n.orderIndex,
+      parentTheoryId: n.parentTheoryId ?? null,
+      children: (n.children ?? []).map(mapNode),
+    });
+
+    return roots.map(mapNode);
+  }
+
   @Get('theories/:id')
   @ApiOperation({ summary: 'Nazariya batafsil (mobile uchun)' })
   @ApiParam({ name: 'id' })

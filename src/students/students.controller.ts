@@ -30,6 +30,7 @@ import { UpsertEmployeeCertificateDto } from './dto/upsert-employee-certificate.
 import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
 import { CreateEmployeeCheckDto } from './dto/create-employee-check.dto';
 import { UpdateEmployeeCheckDto } from './dto/update-employee-check.dto';
+import { CreateStudentDto } from './dto/create-student.dto';
 
 @ApiTags('Students')
 @ApiBearerAuth('bearer')
@@ -38,6 +39,16 @@ import { UpdateEmployeeCheckDto } from './dto/update-employee-check.dto';
 @Controller('admin/students')
 export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Xodim qo`shish (admin)' })
+  @ApiBody({ type: CreateStudentDto })
+  create(
+    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Body() body: CreateStudentDto,
+  ) {
+    return this.studentsService.createStudent(req.user, body);
+  }
 
   @Get()
   @ApiOperation({ summary: 'Talabalar ro`yxati (admin)' })
@@ -73,6 +84,16 @@ export class StudentsController {
     @Param('id') id: string,
   ) {
     return this.studentsService.findOne(id, req.user);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Xodimni o`chirish (admin)' })
+  @ApiParam({ name: 'id', description: 'Student ID' })
+  remove(
+    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.studentsService.deleteStudent(id, req.user).then(() => ({ ok: true }));
   }
 
   @Get(':id/lost-questions')
