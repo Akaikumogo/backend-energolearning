@@ -30,6 +30,7 @@ import { AddContentTables1743078000000 } from './migrations/0003-add-content-tab
 import { AddQuestionType1743080000000 } from './migrations/0004-add-question-type';
 import { AddModeratorPermissionsAndViolations1743600000000 } from './migrations/0005-add-moderator-permissions-and-violations';
 import { ExamQuestionCatalogs1744000000000 } from './migrations/0006-exam-question-catalogs';
+import { TheorySlidesJsonb1744108800000 } from './migrations/0007-theory-slides-jsonb';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -70,6 +71,7 @@ export const AppDataSource = new DataSource({
     AddQuestionType1743080000000,
     AddModeratorPermissionsAndViolations1743600000000,
     ExamQuestionCatalogs1744000000000,
+    TheorySlidesJsonb1744108800000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
