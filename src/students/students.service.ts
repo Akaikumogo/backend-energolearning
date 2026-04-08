@@ -1,8 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import * as bcrypt from 'bcrypt';
 import { Role } from '../common/enums/role.enum';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { UsersService } from '../users/users.service';
 import { User } from '../database/entities/user.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
@@ -23,6 +25,7 @@ const BADGES = [
 export class StudentsService {
   constructor(
     private readonly organizationsService: OrganizationsService,
+    private readonly usersService: UsersService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(UserLevelCompletion) private readonly completionRepo: Repository<UserLevelCompletion>,
     @InjectRepository(UserQuestionAttempt) private readonly attemptRepo: Repository<UserQuestionAttempt>,
@@ -32,6 +35,56 @@ export class StudentsService {
     @InjectRepository(EmployeeCheck)
     private readonly employeeCheckRepo: Repository<EmployeeCheck>,
   ) {}
+
+  async createStudent(
+    requestingUser: { id: string; role: Role; organizationIds: string[] },
+    dto: {
+      email: string;
+      firstName: string;
+      lastName: string;
+      password: string;
+      organizationId?: string;
+    },
+  ) {
+    const existing = await this.usersService.findByEmail(dto.email);
+    if (existing) throw new BadRequestException('Bu email allaqachon mavjud');
+
+    if (requestingUser.role === Role.MODERATOR) {
+      if (!dto.organizationId) {
+        throw new ForbiddenException('Moderator uchun organizationId majburiy');
+      }
+      const scopedOrgIds =
+        (await this.organizationsService.resolveModeratorScope(
+          requestingUser.organizationIds,
+        )) ?? null;
+
+      if (scopedOrgIds && scopedOrgIds.length === 0) {
+        throw new ForbiddenException('Ruxsat yo`q');
+      }
+      if (scopedOrgIds && !scopedOrgIds.includes(dto.organizationId)) {
+        throw new ForbiddenException('Ruxsat yo`q');
+      }
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const user = await this.usersService.createUser({
+      email: dto.email,
+      passwordHash,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      organizationId: dto.organizationId,
+    });
+
+    return this.findOne(user.id, requestingUser);
+  }
+
+  async deleteStudent(
+    studentId: string,
+    requestingUser: { id: string; role: Role; organizationIds: string[] },
+  ) {
+    await this.findOne(studentId, requestingUser);
+    await this.usersService.removeUser(studentId);
+  }
 
   async findAll(
     requestingUser: { id: string; role: Role; organizationIds: string[] },

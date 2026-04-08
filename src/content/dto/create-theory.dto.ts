@@ -6,6 +6,11 @@ export class CreateTheoryDto {
   @IsUUID()
   levelId: string;
 
+  @ApiPropertyOptional({ example: 'uuid-of-parent-theory' })
+  @IsOptional()
+  @IsUUID()
+  parentTheoryId?: string | null;
+
   @ApiProperty({ example: 'Tok kuchi va kuchlanish' })
   @IsString()
   @MinLength(1)

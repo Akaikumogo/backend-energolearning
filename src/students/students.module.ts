@@ -5,6 +5,7 @@ import { UserLevelCompletion } from '../database/entities/user-level-completion.
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { Level } from '../database/entities/level.entity';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { UsersModule } from '../users/users.module';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
@@ -21,6 +22,7 @@ import { EmployeeCheck } from '../database/entities/employee-check.entity';
       EmployeeCheck,
     ]),
     OrganizationsModule,
+    UsersModule,
   ],
   controllers: [StudentsController],
   providers: [StudentsService],

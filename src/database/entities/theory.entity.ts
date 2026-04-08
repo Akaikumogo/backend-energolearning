@@ -27,6 +27,19 @@ export class Theory {
   @Column({ type: 'text' })
   title: string;
 
+  @ManyToOne(() => Theory, (t) => t.children, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'parent_theory_id' })
+  parent: Theory | null;
+
+  @Column({ type: 'uuid', name: 'parent_theory_id', nullable: true })
+  parentTheoryId: string | null;
+
+  @OneToMany(() => Theory, (t) => t.parent)
+  children: Theory[];
+
   @Column({ type: 'int', name: 'order_index', default: 0 })
   orderIndex: number;
 
