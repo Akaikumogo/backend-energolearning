@@ -14,6 +14,7 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { User } from '../database/entities/user.entity';
 import { SubmitAnswerDto } from './dto/submit-answer.dto';
 import { HeartsService } from '../hearts/hearts.service';
+import { TheoryRole } from '../common/enums/theory-role.enum';
 
 const BADGES = [
   { label: 'Yangi ishchi', bolts: 1 },
@@ -178,9 +179,10 @@ export class ProgressService {
           where: { parentTheoryId: theory.id },
           order: { orderIndex: 'ASC' },
         });
-        const mash = children.find((c) => c.title.endsWith(' · Mashq'));
-        const naz = children.find((c) => c.title.endsWith(' · Nazariya'));
-        const quizTheoryId = mash?.id ?? theory.id;
+        const naz =
+          children.find((c) => c.theoryRole === TheoryRole.NAZARIYA) ??
+          children.find((c) => c.title.endsWith(' · Nazariya'));
+        const quizTheoryId = theory.id;
 
         const totalQuestions = await this.questionRepo.count({
           where: { theoryId: quizTheoryId },

@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsEnum,
   IsInt,
   IsOptional,
   IsString,
@@ -10,6 +11,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { TheoryRole } from '../../common/enums/theory-role.enum';
 import { TheorySlideDto } from './theory-slide.dto';
 
 export class CreateTheoryDto {
@@ -44,4 +46,9 @@ export class CreateTheoryDto {
   @ValidateNested({ each: true })
   @Type(() => TheorySlideDto)
   slides?: TheorySlideDto[] | null;
+
+  @ApiPropertyOptional({ enum: TheoryRole, description: 'Dars ildizi yoki Nazariya' })
+  @IsOptional()
+  @IsEnum(TheoryRole)
+  theoryRole?: TheoryRole | null;
 }
