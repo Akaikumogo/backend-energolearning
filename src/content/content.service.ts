@@ -63,6 +63,40 @@ export class ContentService {
     return theory;
   }
 
+  /**
+   * Dars root ID yoki bolalar ID: o‘qish uchun parent intro + « · Nazariya»,
+   * savollar « · Mashq» theory_id da.
+   */
+  async findTheoryForMobileLessonView(id: string): Promise<{
+    id: string;
+    levelId: string;
+    title: string;
+    content: string;
+    orderIndex: number;
+    quizTheoryId: string;
+  }> {
+    let theory = await this.findTheoryForMobileById(id);
+    while (theory.parentTheoryId) {
+      theory = await this.findTheoryForMobileById(theory.parentTheoryId);
+    }
+    const children = await this.theoryRepo.find({
+      where: { parentTheoryId: theory.id },
+      order: { orderIndex: 'ASC' },
+    });
+    const naz = children.find((c) => c.title.endsWith(' · Nazariya'));
+    const mash = children.find((c) => c.title.endsWith(' · Mashq'));
+    const parts = [theory.content?.trim(), naz?.content?.trim()].filter(Boolean);
+    const content = parts.join('\n\n') || '';
+    return {
+      id: theory.id,
+      levelId: theory.levelId,
+      title: theory.title,
+      content,
+      orderIndex: theory.orderIndex,
+      quizTheoryId: mash?.id ?? theory.id,
+    };
+  }
+
   /** Mobile: nazariya bo'yicha har safar tasodifiy 4 ta savol (kamida 4 ta bo'lsa hammasi qaytadi). */
   private static readonly MOBILE_THEORY_QUESTION_SAMPLE = 4;
 

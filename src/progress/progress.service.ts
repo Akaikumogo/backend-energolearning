@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { Level } from '../database/entities/level.entity';
 import { Theory } from '../database/entities/theory.entity';
 import { Question } from '../database/entities/question.entity';
@@ -167,15 +167,23 @@ export class ProgressService {
       }
     }
 
-    const theories = await this.theoryRepo.find({
-      where: { levelId },
+    const roots = await this.theoryRepo.find({
+      where: { levelId, parentTheoryId: IsNull() },
       order: { orderIndex: 'ASC' },
     });
 
     const theoriesWithProgress = await Promise.all(
-      theories.map(async (theory) => {
+      roots.map(async (theory) => {
+        const children = await this.theoryRepo.find({
+          where: { parentTheoryId: theory.id },
+          order: { orderIndex: 'ASC' },
+        });
+        const mash = children.find((c) => c.title.endsWith(' · Mashq'));
+        const naz = children.find((c) => c.title.endsWith(' · Nazariya'));
+        const quizTheoryId = mash?.id ?? theory.id;
+
         const totalQuestions = await this.questionRepo.count({
-          where: { theoryId: theory.id },
+          where: { theoryId: quizTheoryId },
         });
 
         const answeredQuestions = await this.attemptRepo
@@ -191,16 +199,20 @@ export class ProgressService {
               .getQuery();
             return `a.questionId IN ${subQuery}`;
           })
-          .setParameters({ userId, theoryId: theory.id })
+          .setParameters({ userId, theoryId: quizTheoryId })
           .getRawOne<{ cnt: string }>();
+
+        const readParts = [theory.content?.trim(), naz?.content?.trim()].filter(Boolean);
+        const readContent = readParts.join('\n\n') || '';
 
         return {
           id: theory.id,
           title: theory.title,
-          content: theory.content,
+          content: readContent,
           orderIndex: theory.orderIndex,
           totalQuestions,
           answeredQuestions: parseInt(answeredQuestions?.cnt ?? '0', 10),
+          quizTheoryId,
         };
       }),
     );
