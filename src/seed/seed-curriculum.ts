@@ -1,6 +1,8 @@
 import { QuestionType } from '../common/enums/question-type.enum';
 import type { TheorySlide } from '../common/types/theory-slide';
 
+/** Modul (Level) → dars (Theory LESSON, ildiz) → nazariya (Theory NAZARIYA, bola) → mashqlar (Question, theoryId = dars id). Slides bo'lsa nazariya matni DBda bo'sh, mazmun seed-lesson-slides.ts da. */
+
 export type QSeed = {
   prompt: string;
   type: QuestionType;

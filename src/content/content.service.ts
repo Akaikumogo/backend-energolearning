@@ -276,15 +276,21 @@ export class ContentService {
   async createTheory(dto: CreateTheoryDto, userId: string): Promise<Theory> {
     await this.findLevelById(dto.levelId);
 
-    const maxOrder = await this.theoryRepo
-      .createQueryBuilder('t')
-      .select('MAX(t.order_index)', 'max')
-      .where('t.level_id = :levelId', { levelId: dto.levelId })
-      .getRawOne();
-    const nextOrder = dto.orderIndex ?? (maxOrder?.max ?? -1) + 1;
-
     const parentTheoryId =
       dto.parentTheoryId === undefined ? null : (dto.parentTheoryId ?? null);
+
+    const orderQb = this.theoryRepo
+      .createQueryBuilder('t')
+      .select('MAX(t.order_index)', 'max')
+      .where('t.level_id = :levelId', { levelId: dto.levelId });
+    if (parentTheoryId) {
+      orderQb.andWhere('t.parent_theory_id = :pid', { pid: parentTheoryId });
+    } else {
+      orderQb.andWhere('t.parent_theory_id IS NULL');
+    }
+    const maxOrder = await orderQb.getRawOne();
+    const nextOrder = dto.orderIndex ?? (maxOrder?.max ?? -1) + 1;
+
     if (parentTheoryId) {
       const parent = await this.theoryRepo.findOne({
         where: { id: parentTheoryId, levelId: dto.levelId },
@@ -330,14 +336,30 @@ export class ContentService {
   }
 
   async findTheoryTreeByLevel(levelId: string): Promise<Theory[]> {
-    return this.theoryRepo
-      .createQueryBuilder('t')
-      .leftJoinAndSelect('t.createdBy', 'u')
-      .where('t.level_id = :levelId', { levelId })
-      .orderBy('t.parent_theory_id', 'ASC', 'NULLS FIRST')
-      .addOrderBy('t.order_index', 'ASC')
-      .addOrderBy('t.created_at', 'ASC')
-      .getMany();
+    const all = await this.theoryRepo.find({
+      where: { levelId },
+      relations: ['createdBy'],
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+    const byParent = new Map<string | null, Theory[]>();
+    for (const t of all) {
+      const pid = t.parentTheoryId ?? null;
+      if (!byParent.has(pid)) byParent.set(pid, []);
+      byParent.get(pid)!.push(t);
+    }
+    for (const arr of byParent.values()) {
+      arr.sort(
+        (a, b) =>
+          a.orderIndex - b.orderIndex ||
+          a.createdAt.getTime() - b.createdAt.getTime(),
+      );
+    }
+    const roots = byParent.get(null) ?? [];
+    const attach = (node: Theory): Theory => {
+      const kids = byParent.get(node.id) ?? [];
+      return { ...node, children: kids.map(attach) } as Theory;
+    };
+    return roots.map(attach);
   }
 
   async removeTheory(id: string): Promise<void> {
