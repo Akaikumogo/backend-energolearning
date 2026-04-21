@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
@@ -34,6 +34,8 @@ type MistakeSummary = {
 
 @Injectable()
 export class AiChatService {
+  private readonly logger = new Logger(AiChatService.name);
+
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
@@ -60,29 +62,45 @@ export class AiChatService {
     const model = process.env.OLLAMA_MODEL?.trim() || 'qwen2.5:7b';
     const baseUrl =
       process.env.OLLAMA_BASE_URL?.trim() || 'http://192.0.6.84:11434';
+    const requestUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`;
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS ?? 120000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: true,
-        messages: [
-          {
-            role: 'system',
-            content: this.buildSystemPrompt(context),
-          },
-          ...history.map((item) => ({
-            role: item.role,
-            content: item.content,
-          })),
-          {
-            role: 'user',
-            content: message,
-          },
-        ],
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          stream: true,
+          messages: [
+            {
+              role: 'system',
+              content: this.buildSystemPrompt(context),
+            },
+            ...history.map((item) => ({
+              role: item.role,
+              content: item.content,
+            })),
+            {
+              role: 'user',
+              content: message,
+            },
+          ],
+        }),
+      });
+    } catch (error) {
+      const details = this.formatFetchError(error);
+      this.logger.error(
+        `Ollama request failed for user ${userId}. url=${requestUrl} model=${model} details=${details}`,
+      );
+      throw new Error(`Ollama ulanish xatosi: ${details}`);
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => '');
@@ -205,28 +223,38 @@ export class AiChatService {
       take: 5,
     });
 
-    const leaderboardRow = orgId
-      ? await this.attemptRepo.query(
-          `
-            WITH scores AS (
-              SELECT
-                user_id AS "userId",
-                (COUNT(*) FILTER (WHERE is_correct = true) * 10)::int AS "xp"
-              FROM user_question_attempts
-              WHERE organization_id = $1
-              GROUP BY user_id
-            ),
-            ranked AS (
-              SELECT
-                *,
-                DENSE_RANK() OVER (ORDER BY "xp" DESC, "userId" ASC)::int AS "rank"
-              FROM scores
-            )
-            SELECT * FROM ranked WHERE "userId" = $2 LIMIT 1
-          `,
-          [orgId, userId],
-        )
+    const leaderboardRows = orgId
+      ? await this.attemptRepo
+          .createQueryBuilder('attempt')
+          .select('attempt.userId', 'userId')
+          .addSelect(
+            'COUNT(*) FILTER (WHERE attempt.isCorrect = true) * 10',
+            'xp',
+          )
+          .where('attempt.organizationId = :orgId', { orgId })
+          .groupBy('attempt.userId')
+          .orderBy('"xp"', 'DESC')
+          .addOrderBy('attempt.userId', 'ASC')
+          .getRawMany<{ userId: string; xp: string }>()
       : [];
+
+    const leaderboardRow = (() => {
+      if (!leaderboardRows.length) return null;
+      let previousXp: number | null = null;
+      let rank = 0;
+      for (let index = 0; index < leaderboardRows.length; index += 1) {
+        const row = leaderboardRows[index];
+        const xp = Number(row.xp) || 0;
+        if (previousXp === null || xp < previousXp) {
+          rank += 1;
+          previousXp = xp;
+        }
+        if (row.userId === userId) {
+          return { rank, xp };
+        }
+      }
+      return null;
+    })();
 
     return {
       user: {
@@ -278,8 +306,8 @@ export class AiChatService {
       }),
       leaderboard: orgId
         ? {
-            organizationRank: leaderboardRow?.[0]?.rank ?? null,
-            xp: leaderboardRow?.[0]?.xp ?? correctCount * 10,
+            organizationRank: leaderboardRow?.rank ?? null,
+            xp: leaderboardRow?.xp ?? correctCount * 10,
           }
         : null,
       nextExam: nextExam
@@ -321,5 +349,29 @@ export class AiChatService {
       'Agar reyting, daraja, imtihon sanasi, certificate yoki check haqida so`rasa, faqat shu contextdan foydalan.',
       `USER_CONTEXT:\n${JSON.stringify(context)}`,
     ].join('\n');
+  }
+
+  private formatFetchError(error: unknown) {
+    if (!error) return 'unknown';
+    if (error instanceof Error) {
+      const cause = error.cause as
+        | { code?: string; errno?: number | string; syscall?: string; address?: string; port?: number }
+        | undefined;
+      if (cause) {
+        return [
+          error.name,
+          error.message,
+          cause.code,
+          cause.errno ? `errno=${cause.errno}` : '',
+          cause.syscall ? `syscall=${cause.syscall}` : '',
+          cause.address ? `address=${cause.address}` : '',
+          typeof cause.port === 'number' ? `port=${cause.port}` : '',
+        ]
+          .filter(Boolean)
+          .join(' | ');
+      }
+      return `${error.name}: ${error.message}`;
+    }
+    return String(error);
   }
 }
