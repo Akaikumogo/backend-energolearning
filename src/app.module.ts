@@ -55,6 +55,7 @@ import 'dotenv/config';
 import { EmployeeCertificate } from './database/entities/employee-certificate.entity';
 import { EmployeeCheck } from './database/entities/employee-check.entity';
 import { getPostgresConnectionOptions } from './database/postgres-env';
+import { AiChatModule } from './ai-chat/ai-chat.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -111,6 +112,7 @@ import { getPostgresConnectionOptions } from './database/postgres-env';
     ExamLiveModule,
     NotificationsModule,
     DbAdminModule,
+    AiChatModule,
   ],
   controllers: [AppController],
   providers: [
