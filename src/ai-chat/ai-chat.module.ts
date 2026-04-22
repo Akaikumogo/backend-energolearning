@@ -7,6 +7,7 @@ import { AiChatSession } from '../database/entities/ai-chat-session.entity';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
 import { EmployeeCheck } from '../database/entities/employee-check.entity';
 import { ExamAssignment } from '../database/entities/exam-assignment.entity';
+import { Exam } from '../database/entities/exam.entity';
 import { Level } from '../database/entities/level.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { Question } from '../database/entities/question.entity';
@@ -36,6 +37,7 @@ import { AiChatService } from './ai-chat.service';
       UserQuestionAttempt,
       UserLevelCompletion,
       ExamAssignment,
+      Exam,
       EmployeeCertificate,
       EmployeeCheck,
       AiChatSession,
