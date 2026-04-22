@@ -60,6 +60,53 @@ function buildCorsConfig(): CorsOptions {
   };
 }
 
+async function probeOllamaOnBoot() {
+  const baseUrl = process.env.OLLAMA_BASE_URL?.trim();
+  const model = process.env.OLLAMA_MODEL?.trim();
+  const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS ?? 120000);
+
+  if (!baseUrl) {
+    console.log('AI probe:    skipped (OLLAMA_BASE_URL yo`q)');
+    return;
+  }
+
+  const requestUrl = `${baseUrl.replace(/\/$/, '')}/api/tags`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.min(timeoutMs, 10000));
+
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.log(`AI probe:    fail (HTTP ${response.status})`);
+      return;
+    }
+
+    const payload = (await response.json().catch(() => ({}))) as {
+      models?: Array<{ name?: string }>;
+    };
+    const names = Array.isArray(payload.models)
+      ? payload.models
+          .map((item) => item.name?.trim() || '')
+          .filter(Boolean)
+      : [];
+    const modelExists = model ? names.includes(model) : false;
+
+    console.log(
+      `AI probe:    ok (${names.length} model)${model ? ` | requested=${model} | exists=${modelExists ? 'yes' : 'no'}` : ''}`,
+    );
+  } catch (error) {
+    console.log(
+      `AI probe:    fail (${error instanceof Error ? error.message : String(error)})`,
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useWebSocketAdapter(new IoAdapter(app));
@@ -132,6 +179,8 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');
+
+  await probeOllamaOnBoot();
 
   const showBootInfo = (process.env.SHOW_BOOT_INFO ?? '').toLowerCase();
   if (showBootInfo === 'true' || showBootInfo === 'full') {

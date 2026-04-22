@@ -73,15 +73,27 @@ export class AiChatGateway
           content: row.content,
         })),
       );
+      this.logger.log(
+        `AI socket connected: client=${client.id} user=${payload.sub} role=${payload.role ?? '-'} scope=${scope} history=${historyRows.length}`,
+      );
       client.emit('assistant_ready', { ok: true, scope });
       client.emit('assistant_history', { messages: historyRows });
-    } catch {
-      this.logger.warn('AI chat disconnect: invalid token');
+    } catch (error) {
+      this.logger.warn(
+        `AI chat disconnect: invalid token or session init failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
       client.disconnect();
     }
   }
 
   handleDisconnect(client: Socket) {
+    this.logger.log(
+      `AI socket disconnected: client=${client.id} user=${String(
+        client.data.userId ?? '-',
+      )} scope=${String(client.data.scope ?? '-')}`,
+    );
     this.conversations.delete(client.id);
   }
 
@@ -100,11 +112,18 @@ export class AiChatGateway
     const message = body?.message?.trim() ?? '';
 
     if (!userId || !sessionId || !role || !message) {
+      this.logger.warn(
+        `AI message rejected: client=${client.id} user=${userId || '-'} session=${sessionId || '-'} role=${role || '-'} empty=${message.length === 0}`,
+      );
       client.emit('assistant_error', {
         message: 'Xabar bo`sh bo`lmasligi kerak',
       });
       return { ok: false };
     }
+
+    this.logger.log(
+      `AI message received: client=${client.id} user=${userId} role=${role} scope=${scope} chars=${message.length}`,
+    );
 
     const history = this.conversations.get(client.id) ?? [];
     const nextHistory = [...history, { role: 'user' as const, content: message }];
@@ -135,6 +154,10 @@ export class AiChatGateway
       ];
       this.conversations.set(client.id, updatedHistory.slice(-12));
       await this.aiChatService.saveMessage(sessionId, 'assistant', fullResponse);
+
+      this.logger.log(
+        `AI response ready: user=${userId} scope=${scope} chars=${fullResponse.length}`,
+      );
 
       client.emit('assistant_done', {
         message: fullResponse,
