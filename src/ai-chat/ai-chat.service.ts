@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { ExamAssignmentStatus } from '../common/enums/exam-assignment-status.enum';
 import { ExamAssignment } from '../database/entities/exam-assignment.entity';
+import { Exam } from '../database/entities/exam.entity';
 import { Level } from '../database/entities/level.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
@@ -27,6 +28,8 @@ export class AiChatService {
     private readonly attemptRepo: Repository<UserQuestionAttempt>,
     @InjectRepository(ExamAssignment)
     private readonly examAssignmentRepo: Repository<ExamAssignment>,
+    @InjectRepository(Exam)
+    private readonly examRepo: Repository<Exam>,
   ) {}
 
   normalizeScope(role: Role | undefined, requestedScope?: string): AiChatScope {
@@ -47,7 +50,8 @@ export class AiChatService {
     onChunk: (chunk: string) => void;
   }) {
     const model = process.env.OLLAMA_MODEL?.trim() || 'qwen2.5-coder:7b';
-    const baseUrl = process.env.OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434';
+    const baseUrl =
+      process.env.OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434';
     const requestUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`;
 
     const ctx = await this.getContextLine(args.userId, args.scope);
@@ -69,7 +73,7 @@ export class AiChatService {
             {
               role: 'system',
               content:
-                "Sen o'zbekcha gapiradigan yordamchisan. Faqat kerakli savol-javob. Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.",
+                "Sen o'zbekcha gapiradigan yordamchisan. Faqat kerakli savol-javob. Hech qachon ID/UUID/token yoki ichki kodlarni foydalanuvchiga ko'rsatma id bilan topilgan ma'lumotlarni esa asosan string bo'lgan NAME larni tilte larni olib kel misol uchun question ning matni va bo'limning matni . Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.",
             },
             { role: 'user', content: `${ctx}\nSAVOL: ${args.message}` },
           ],
@@ -104,14 +108,18 @@ export class AiChatService {
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        const parsed = JSON.parse(trimmed) as { message?: { content?: string } };
+        const parsed = JSON.parse(trimmed) as {
+          message?: { content?: string };
+        };
         const chunk = parsed.message?.content ?? '';
         if (chunk) args.onChunk(chunk);
       }
     }
 
     if (buffer.trim()) {
-      const parsed = JSON.parse(buffer.trim()) as { message?: { content?: string } };
+      const parsed = JSON.parse(buffer.trim()) as {
+        message?: { content?: string };
+      };
       const chunk = parsed.message?.content ?? '';
       if (chunk) args.onChunk(chunk);
     }
@@ -162,24 +170,40 @@ export class AiChatService {
     });
     const totalXp = correctCount * 10;
 
-    const wrongRows = (await this.attemptRepo.query(
+    const wrongRows: Array<{
+      prompt: string;
+      levelTitle: string;
+      theoryTitle: string;
+    }> = await this.attemptRepo.query(
       `
-      SELECT a.question_id AS "questionId"
+      SELECT q.prompt AS "prompt", l.title AS "levelTitle", t.title AS "theoryTitle"
       FROM user_question_attempts a
+      JOIN questions q ON q.id = a.question_id
+      JOIN levels l ON l.id = q.level_id
+      JOIN theories t ON t.id = q.theory_id
       WHERE a.user_id = $1
         AND a.is_correct = false
       ORDER BY a.answered_at DESC
       LIMIT 30;
       `,
       [userId],
-    )) as Array<{ questionId: string }>;
+    );
     const wrongDistinct: string[] = [];
     for (const r of wrongRows) {
-      const qid = r.questionId;
-      if (!qid) continue;
-      if (wrongDistinct.includes(qid)) continue;
-      wrongDistinct.push(qid);
-      if (wrongDistinct.length >= 10) break;
+      const p0 = (r.prompt ?? '').replace(/\s+/g, ' ').trim();
+      const lvl = (r.levelTitle ?? '').replace(/\s+/g, ' ').trim();
+      const thr = (r.theoryTitle ?? '').replace(/\s+/g, ' ').trim();
+      const p = [
+        lvl && `Level: ${lvl}`,
+        thr && `Mavzu: ${thr}`,
+        p0 && `Savol: ${p0}`,
+      ]
+        .filter(Boolean)
+        .join(' | ');
+      if (!p) continue;
+      if (wrongDistinct.includes(p)) continue;
+      wrongDistinct.push(p.length > 80 ? `${p.slice(0, 77)}...` : p);
+      if (wrongDistinct.length >= 6) break;
     }
 
     const exam = await this.examAssignmentRepo.findOne({
@@ -194,8 +218,16 @@ export class AiChatService {
     const examFlag = exam ? 'ha' : 'yoq';
     const examStatus = exam?.status ?? '-';
     const examAt = exam?.scheduledAt ? exam.scheduledAt.toISOString() : '-';
+    let examTitle = '-';
+    if (exam?.examId) {
+      const ex = await this.examRepo.findOne({ where: { id: exam.examId } });
+      if (ex?.title) examTitle = ex.title.replace(/\s+/g, ' ').trim();
+    }
 
-    const ctx = `CTX: uid=${userId} scope=${scope} org=${org?.name ?? '-'} xp=${totalXp} stage=${stage} exam=${examFlag} exam_status=${examStatus} exam_at=${examAt} wrong_q=[${wrongDistinct.join(',')}]`;
+    const wrongPart = wrongDistinct.length
+      ? ` wrong=[${wrongDistinct.map((x) => `"${x.replace(/"/g, "'")}"`).join(',')}]`
+      : '';
+    const ctx = `CTX: scope=${scope} org=${org?.name ?? '-'} xp=${totalXp} stage=${stage} exam=${examFlag} exam_title=${examTitle} exam_status=${examStatus} exam_at=${examAt}${wrongPart}`;
     this.ctxCache.set(key, { at: now, ctx });
     return ctx;
   }
@@ -227,6 +259,11 @@ export class AiChatService {
       }
       return `${error.name}: ${error.message}`;
     }
-    return String(error);
+    if (typeof error === 'string') return error;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'unknown';
+    }
   }
 }

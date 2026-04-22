@@ -112,8 +112,9 @@ export class AiChatGateway
         scope,
         message,
         onChunk: (chunk) => {
-          fullResponse += chunk;
-          client.emit('assistant_chunk', { chunk });
+          const safe = this.scrubIds(chunk);
+          fullResponse += safe;
+          client.emit('assistant_chunk', { chunk: safe });
         },
       });
 
@@ -122,7 +123,7 @@ export class AiChatGateway
       );
 
       client.emit('assistant_done', {
-        message: fullResponse,
+        message: this.scrubIds(fullResponse),
       });
       return { ok: true };
     } catch (error) {
@@ -137,5 +138,19 @@ export class AiChatGateway
       });
       return { ok: false };
     }
+  }
+
+  private scrubIds(text: string) {
+    if (!text) return text;
+    let out = text;
+    out = out.replace(
+      /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi,
+      '[id]',
+    );
+    out = out.replace(/\b\d{9,}\b/g, '[id]');
+    out = out.replace(/\b(?:user|uid|id|uuid)\s*[:=]\s*\S+/gi, (m) =>
+      m.replace(/[:=].*$/, ': [id]'),
+    );
+    return out;
   }
 }
