@@ -38,6 +38,18 @@ function parseDbInfo(databaseUrl: string | undefined) {
   }
 }
 
+function parseOllamaInfo() {
+  const baseUrl = process.env.OLLAMA_BASE_URL?.trim();
+  const model = process.env.OLLAMA_MODEL?.trim();
+  const timeoutMs = process.env.OLLAMA_TIMEOUT_MS?.trim();
+
+  return {
+    baseUrl: baseUrl || '',
+    model: model || '',
+    timeoutMs: timeoutMs || '',
+  };
+}
+
 function buildCorsConfig(): CorsOptions {
   return {
     origin: true,
@@ -130,6 +142,7 @@ async function bootstrap() {
       : '';
 
     const dbInfo = parseDbInfo(process.env.DATABASE_URL);
+    const ollamaInfo = parseOllamaInfo();
     const adminEmail = process.env.SUPERADMIN_EMAIL;
     const adminPassword = process.env.SUPERADMIN_PASSWORD;
 
@@ -166,6 +179,9 @@ async function bootstrap() {
     console.log(
       `Admin pass:  ${showFull ? (adminPassword ?? '-') : maskSecret(adminPassword) || '-'}`,
     );
+    console.log(`AI base:     ${ollamaInfo.baseUrl || '-'}`);
+    console.log(`AI model:    ${ollamaInfo.model || '-'}`);
+    console.log(`AI timeout:  ${ollamaInfo.timeoutMs || '-'} ms`);
     console.log('SHOW_BOOT_INFO: true (mask) | full (no mask)');
     console.log('==========================================================\n');
   }
