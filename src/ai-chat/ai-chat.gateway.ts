@@ -10,7 +10,12 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { AiChatService, type AiChatTurn } from './ai-chat.service';
+import { Role } from '../common/enums/role.enum';
+import {
+  AiChatService,
+  type AiChatScope,
+  type AiChatTurn,
+} from './ai-chat.service';
 
 @WebSocketGateway({
   namespace: '/ai-chat',
@@ -30,9 +35,11 @@ export class AiChatGateway
     private readonly aiChatService: AiChatService,
   ) {}
 
-  handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
     try {
-      const auth = client.handshake.auth as { token?: string } | undefined;
+      const auth = client.handshake.auth as
+        | { token?: string; scope?: string }
+        | undefined;
       const header = client.handshake.headers.authorization;
       const raw = auth?.token ?? header;
       const token =
@@ -42,11 +49,32 @@ export class AiChatGateway
         return;
       }
 
-      const payload = this.jwt.verify<{ sub: string; role?: string }>(token);
+      const payload = this.jwt.verify<{
+        sub: string;
+        role?: Role;
+        organizationIds?: string[];
+      }>(token);
+      const scope = this.aiChatService.normalizeScope(payload.role, auth?.scope);
+      const session = await this.aiChatService.getOrCreateSession(
+        payload.sub,
+        scope,
+      );
+      const historyRows = await this.aiChatService.getSessionMessages(session.id);
+
       client.data.userId = payload.sub;
       client.data.role = payload.role;
-      this.conversations.set(client.id, []);
-      client.emit('assistant_ready', { ok: true });
+      client.data.organizationIds = payload.organizationIds ?? [];
+      client.data.scope = scope;
+      client.data.sessionId = session.id;
+      this.conversations.set(
+        client.id,
+        historyRows.map((row) => ({
+          role: row.role,
+          content: row.content,
+        })),
+      );
+      client.emit('assistant_ready', { ok: true, scope });
+      client.emit('assistant_history', { messages: historyRows });
     } catch {
       this.logger.warn('AI chat disconnect: invalid token');
       client.disconnect();
@@ -63,9 +91,15 @@ export class AiChatGateway
     @MessageBody() body: { message?: string },
   ) {
     const userId = String(client.data.userId ?? '');
+    const role = client.data.role as Role | undefined;
+    const organizationIds = Array.isArray(client.data.organizationIds)
+      ? (client.data.organizationIds as string[])
+      : [];
+    const scope = (client.data.scope as AiChatScope | undefined) ?? 'mobile';
+    const sessionId = String(client.data.sessionId ?? '');
     const message = body?.message?.trim() ?? '';
 
-    if (!userId || !message) {
+    if (!userId || !sessionId || !role || !message) {
       client.emit('assistant_error', {
         message: 'Xabar bo`sh bo`lmasligi kerak',
       });
@@ -75,6 +109,7 @@ export class AiChatGateway
     const history = this.conversations.get(client.id) ?? [];
     const nextHistory = [...history, { role: 'user' as const, content: message }];
     this.conversations.set(client.id, nextHistory.slice(-12));
+    await this.aiChatService.saveMessage(sessionId, 'user', message);
 
     client.emit('assistant_started', { messageId: Date.now().toString() });
 
@@ -83,6 +118,9 @@ export class AiChatGateway
     try {
       await this.aiChatService.streamReply({
         userId,
+        role,
+        organizationIds,
+        scope,
         message,
         history,
         onChunk: (chunk) => {
@@ -96,6 +134,7 @@ export class AiChatGateway
         { role: 'assistant' as const, content: fullResponse },
       ];
       this.conversations.set(client.id, updatedHistory.slice(-12));
+      await this.aiChatService.saveMessage(sessionId, 'assistant', fullResponse);
 
       client.emit('assistant_done', {
         message: fullResponse,
