@@ -11,11 +11,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Role } from '../common/enums/role.enum';
-import {
-  AiChatService,
-  type AiChatScope,
-  type AiChatTurn,
-} from './ai-chat.service';
+import { AiChatService, type AiChatScope } from './ai-chat.service';
 
 @WebSocketGateway({
   namespace: '/ai-chat',
@@ -54,22 +50,16 @@ export class AiChatGateway
         organizationIds?: string[];
       }>(token);
       const scope = this.aiChatService.normalizeScope(payload.role, auth?.scope);
-      const session = await this.aiChatService.getOrCreateSession(
-        payload.sub,
-        scope,
-      );
-      const historyRows = await this.aiChatService.getSessionMessages(session.id);
 
       client.data.userId = payload.sub;
       client.data.role = payload.role;
       client.data.organizationIds = payload.organizationIds ?? [];
       client.data.scope = scope;
-      client.data.sessionId = session.id;
       this.logger.log(
-        `AI socket connected: client=${client.id} user=${payload.sub} role=${payload.role ?? '-'} scope=${scope} history=${historyRows.length}`,
+        `AI socket connected: client=${client.id} user=${payload.sub} role=${payload.role ?? '-'} scope=${scope}`,
       );
       client.emit('assistant_ready', { ok: true, scope });
-      client.emit('assistant_history', { messages: historyRows });
+      client.emit('assistant_history', { messages: [] });
     } catch (error) {
       this.logger.warn(
         `AI chat disconnect: invalid token or session init failed: ${
@@ -95,16 +85,12 @@ export class AiChatGateway
   ) {
     const userId = String(client.data.userId ?? '');
     const role = client.data.role as Role | undefined;
-    const organizationIds = Array.isArray(client.data.organizationIds)
-      ? (client.data.organizationIds as string[])
-      : [];
     const scope = (client.data.scope as AiChatScope | undefined) ?? 'mobile';
-    const sessionId = String(client.data.sessionId ?? '');
     const message = body?.message?.trim() ?? '';
 
-    if (!userId || !sessionId || !role || !message) {
+    if (!userId || !role || !message) {
       this.logger.warn(
-        `AI message rejected: client=${client.id} user=${userId || '-'} session=${sessionId || '-'} role=${role || '-'} empty=${message.length === 0}`,
+        `AI message rejected: client=${client.id} user=${userId || '-'} role=${role || '-'} empty=${message.length === 0}`,
       );
       client.emit('assistant_error', {
         message: 'Xabar bo`sh bo`lmasligi kerak',
@@ -116,28 +102,18 @@ export class AiChatGateway
       `AI message received: client=${client.id} user=${userId} role=${role} scope=${scope} chars=${message.length}`,
     );
 
-    await this.aiChatService.saveMessage(sessionId, 'user', message);
-
     client.emit('assistant_started', { messageId: Date.now().toString() });
 
     let fullResponse = '';
 
     try {
       await this.aiChatService.streamReply({
-        userId,
-        role,
-        organizationIds,
-        scope,
         message,
-        // History is persisted in DB and shown to the user, but we do NOT send it to the model.
-        history: [],
         onChunk: (chunk) => {
           fullResponse += chunk;
           client.emit('assistant_chunk', { chunk });
         },
       });
-
-      await this.aiChatService.saveMessage(sessionId, 'assistant', fullResponse);
 
       this.logger.log(
         `AI response ready: user=${userId} scope=${scope} chars=${fullResponse.length}`,
