@@ -56,6 +56,8 @@ import { EmployeeCertificate } from './database/entities/employee-certificate.en
 import { EmployeeCheck } from './database/entities/employee-check.entity';
 import { getPostgresConnectionOptions } from './database/postgres-env';
 import { AiChatModule } from './ai-chat/ai-chat.module';
+import { AiChatSession } from './database/entities/ai-chat-session.entity';
+import { AiChatMessage } from './database/entities/ai-chat-message.entity';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -92,6 +94,8 @@ import { AiChatModule } from './ai-chat/ai-chat.module';
         Notification,
         EmployeeCertificate,
         EmployeeCheck,
+        AiChatSession,
+        AiChatMessage,
       ],
       synchronize: true,
     }),
