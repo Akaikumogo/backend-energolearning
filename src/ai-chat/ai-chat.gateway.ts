@@ -28,7 +28,6 @@ export class AiChatGateway
   server!: Server;
 
   private readonly logger = new Logger(AiChatGateway.name);
-  private readonly conversations = new Map<string, AiChatTurn[]>();
 
   constructor(
     private readonly jwt: JwtService,
@@ -66,13 +65,6 @@ export class AiChatGateway
       client.data.organizationIds = payload.organizationIds ?? [];
       client.data.scope = scope;
       client.data.sessionId = session.id;
-      this.conversations.set(
-        client.id,
-        historyRows.map((row) => ({
-          role: row.role,
-          content: row.content,
-        })),
-      );
       this.logger.log(
         `AI socket connected: client=${client.id} user=${payload.sub} role=${payload.role ?? '-'} scope=${scope} history=${historyRows.length}`,
       );
@@ -94,7 +86,6 @@ export class AiChatGateway
         client.data.userId ?? '-',
       )} scope=${String(client.data.scope ?? '-')}`,
     );
-    this.conversations.delete(client.id);
   }
 
   @SubscribeMessage('chat_message')
@@ -125,9 +116,6 @@ export class AiChatGateway
       `AI message received: client=${client.id} user=${userId} role=${role} scope=${scope} chars=${message.length}`,
     );
 
-    const history = this.conversations.get(client.id) ?? [];
-    const nextHistory = [...history, { role: 'user' as const, content: message }];
-    this.conversations.set(client.id, nextHistory.slice(-12));
     await this.aiChatService.saveMessage(sessionId, 'user', message);
 
     client.emit('assistant_started', { messageId: Date.now().toString() });
@@ -141,18 +129,14 @@ export class AiChatGateway
         organizationIds,
         scope,
         message,
-        history,
+        // History is persisted in DB and shown to the user, but we do NOT send it to the model.
+        history: [],
         onChunk: (chunk) => {
           fullResponse += chunk;
           client.emit('assistant_chunk', { chunk });
         },
       });
 
-      const updatedHistory = [
-        ...(this.conversations.get(client.id) ?? []),
-        { role: 'assistant' as const, content: fullResponse },
-      ];
-      this.conversations.set(client.id, updatedHistory.slice(-12));
       await this.aiChatService.saveMessage(sessionId, 'assistant', fullResponse);
 
       this.logger.log(
