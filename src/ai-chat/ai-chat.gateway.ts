@@ -108,6 +108,8 @@ export class AiChatGateway
 
     try {
       await this.aiChatService.streamReply({
+        userId,
+        scope,
         message,
         onChunk: (chunk) => {
           fullResponse += chunk;
