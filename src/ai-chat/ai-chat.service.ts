@@ -47,6 +47,15 @@ type PersistedMessageDto = {
   createdAt: string;
 };
 
+type QueryIntent =
+  | 'mistakes'
+  | 'progress'
+  | 'leaderboard'
+  | 'exam'
+  | 'employee'
+  | 'admin_analytics'
+  | 'general';
+
 @Injectable()
 export class AiChatService {
   private readonly logger = new Logger(AiChatService.name);
@@ -154,7 +163,14 @@ export class AiChatService {
     history,
     onChunk,
   }: StreamReplyArgs) {
-    const context = await this.buildContext({ userId, role, organizationIds, scope });
+    const intent = this.detectIntent(message, scope, role);
+    const context = await this.buildContext({
+      userId,
+      role,
+      organizationIds,
+      scope,
+      intent,
+    });
     const model = process.env.OLLAMA_MODEL?.trim() || 'qwen2.5-coder:7b';
     const baseUrl =
       process.env.OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434';
@@ -175,9 +191,9 @@ export class AiChatService {
           messages: [
             {
               role: 'system',
-              content: this.buildSystemPrompt(scope, role, context),
+              content: this.buildSystemPrompt(scope, role, intent, context),
             },
-            ...history.slice(-20).map((item) => ({
+            ...history.slice(-6).map((item) => ({
               role: item.role,
               content: item.content,
             })),
@@ -236,137 +252,90 @@ export class AiChatService {
     role: Role;
     organizationIds: string[];
     scope: AiChatScope;
+    intent: QueryIntent;
   }) {
     if (args.role === Role.USER) {
-      return this.buildUserContext(args.userId);
+      return this.buildUserContext(args.userId, args.intent);
     }
-    return this.buildAdminContext(args.userId, args.role, args.organizationIds);
+    return this.buildAdminContext(
+      args.userId,
+      args.role,
+      args.organizationIds,
+      args.intent,
+    );
   }
 
-  private async buildUserContext(userId: string) {
+  private async buildUserContext(userId: string, intent: QueryIntent) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
       relations: ['organizations', 'organizations.organization'],
     });
     if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
 
-    const levels = await this.levelRepo.find({
-      where: { isActive: true },
-      order: { orderIndex: 'ASC' },
-    });
-    const completions = await this.completionRepo.find({ where: { userId } });
-    const attempts = await this.attemptRepo.find({
-      where: { userId },
-      order: { answeredAt: 'DESC' },
-      take: 200,
-    });
-
-    const questionIds = Array.from(new Set(attempts.map((item) => item.questionId)));
-    const questions = questionIds.length
-      ? await this.questionRepo.find({
-          where: { id: In(questionIds) },
-          relations: ['level', 'theory'],
-        })
-      : [];
-    const questionMap = new Map(questions.map((item) => [item.id, item]));
-
-    const correctCount = attempts.filter((item) => item.isCorrect).length;
-    const wrongAttempts = attempts.filter((item) => !item.isCorrect);
-    const heartLossByQuestion = await this.getSelfHeartLossQuestions(userId);
-
-    const completedLevels = completions.filter(
-      (item) => item.completionPercent >= 100,
-    ).length;
-    const currentLevel =
-      levels.find((level) => {
-        const completion = completions.find((item) => item.levelId === level.id);
-        return !completion || completion.completionPercent < 100;
-      }) ?? levels.at(-1) ?? null;
-
     const orgId = user.organizations?.[0]?.organization?.id ?? null;
-    const nextExam = await this.assignmentRepo.findOne({
-      where: {
-        userId,
-        status: In(['PENDING', 'SCHEDULED']),
-      },
-      relations: ['exam'],
-      order: { suggestedAt: 'ASC' },
-    });
-
-    const certificate = await this.employeeCertificateRepo.findOne({
-      where: { userId },
-      relations: ['organization'],
-    });
-    const checks = await this.employeeCheckRepo.find({
-      where: { userId },
-      order: { checkDate: 'DESC', createdAt: 'DESC' },
-      take: 5,
-    });
-    const orgLeaderboard = orgId
-      ? await this.getOrganizationLeaderboardPosition(orgId, userId)
-      : null;
-
-    return {
+    const context: Record<string, unknown> = {
       actor: 'user',
       user: {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.email,
         organizations: (user.organizations ?? []).map((item) => ({
           id: item.organization?.id ?? '',
           name: item.organization?.name ?? '',
         })),
       },
-      progress: {
-        totalXp: correctCount * 10,
-        totalAnswers: attempts.length,
-        correctAnswers: correctCount,
-        wrongAnswers: wrongAttempts.length,
-        completedLevels,
-        currentLevel: currentLevel
-          ? {
-              id: currentLevel.id,
-              title: currentLevel.title,
-              orderIndex: currentLevel.orderIndex,
-            }
-          : null,
-        levels: levels.map((level) => {
-          const completion = completions.find((item) => item.levelId === level.id);
-          return {
-            id: level.id,
-            title: level.title,
-            completionPercent: completion?.completionPercent ?? 0,
-            completedAt: completion?.completedAt?.toISOString() ?? null,
-          };
-        }),
-      },
-      heartLossQuestions: heartLossByQuestion,
-      recentMistakes: wrongAttempts.slice(0, 8).map((attempt) => {
-        const question = questionMap.get(attempt.questionId);
-        return {
-          questionId: attempt.questionId,
-          answeredAt: attempt.answeredAt?.toISOString() ?? null,
-          prompt: question?.prompt ?? 'Savol topilmadi',
-          levelTitle: question?.level?.title ?? 'Noma`lum level',
-          theoryTitle: question?.theory?.title ?? 'Noma`lum mavzu',
-        };
-      }),
-      leaderboard: orgLeaderboard,
-      nextExam: nextExam
+    };
+
+    if (intent === 'mistakes' || intent === 'general') {
+      const heartLossByQuestion = await this.getSelfHeartLossQuestions(userId);
+      const recentMistakes = await this.getRecentMistakes(userId, 4);
+      context.heartLossQuestions = heartLossByQuestion.slice(0, 5);
+      context.recentMistakes = recentMistakes;
+    }
+
+    if (intent === 'progress' || intent === 'general') {
+      context.progress = await this.getCompactProgress(userId);
+    }
+
+    if (intent === 'leaderboard' || intent === 'general') {
+      context.leaderboard = orgId
+        ? await this.getOrganizationLeaderboardPosition(orgId, userId)
+        : null;
+    }
+
+    if (intent === 'exam' || intent === 'general') {
+      const nextExam = await this.assignmentRepo.findOne({
+        where: {
+          userId,
+          status: In(['PENDING', 'SCHEDULED']),
+        },
+        relations: ['exam'],
+        order: { suggestedAt: 'ASC' },
+      });
+      context.nextExam = nextExam
         ? {
-            assignmentId: nextExam.id,
             examTitle: nextExam.exam?.title ?? null,
             suggestedAt: nextExam.suggestedAt?.toISOString() ?? null,
             scheduledAt: nextExam.scheduledAt?.toISOString() ?? null,
             status: nextExam.status,
           }
-        : null,
-      employee: {
+        : null;
+    }
+
+    if (intent === 'employee' || intent === 'general') {
+      const certificate = await this.employeeCertificateRepo.findOne({
+        where: { userId },
+        relations: ['organization'],
+      });
+      const checks = await this.employeeCheckRepo.find({
+        where: { userId },
+        order: { checkDate: 'DESC', createdAt: 'DESC' },
+        take: 3,
+      });
+      context.employee = {
         certificate: certificate
           ? {
               positionTitle: certificate.positionTitle,
-              certificateNumber: certificate.certificateNumber,
               organizationName: certificate.organization?.name ?? null,
             }
           : null,
@@ -375,16 +344,18 @@ export class AiChatService {
           checkDate: check.checkDate ?? null,
           nextCheckDate: check.nextCheckDate ?? null,
           grade: check.grade,
-          conclusion: check.conclusion,
         })),
-      },
-    };
+      };
+    }
+
+    return context;
   }
 
   private async buildAdminContext(
     userId: string,
     role: Role,
     organizationIds: string[],
+    intent: QueryIntent,
   ) {
     if (role === Role.USER) throw new ForbiddenException();
 
@@ -399,38 +370,12 @@ export class AiChatService {
         ? await this.organizationsService.resolveModeratorScope(organizationIds)
         : undefined;
 
-    const totalOrganizations =
-      scopedOrgIds && scopedOrgIds.length >= 0
-        ? scopedOrgIds.length
-        : await this.organizationRepo.count();
-
-    const totalStudents =
-      scopedOrgIds === undefined
-        ? await this.userOrgRepo.count({
-            where: { user: { role: Role.USER } },
-          })
-        : scopedOrgIds.length === 0
-          ? 0
-          : await this.userOrgRepo.count({
-              where: {
-                user: { role: Role.USER },
-                organization: { id: In(scopedOrgIds) },
-              },
-            });
-
-    const activeUsers7d = await this.getActiveUsers7d(scopedOrgIds);
-    const questionErrors = await this.getScopedQuestionErrors(scopedOrgIds, 12);
-    const heartsLost = await this.getScopedHeartsLost(scopedOrgIds, 12);
-    const topUsersByLoss = await this.getScopedUsersByHeartLoss(scopedOrgIds, 8);
-    const upcomingExamCount = await this.getUpcomingExamCount(scopedOrgIds);
-
-    return {
+    const context: Record<string, unknown> = {
       actor: 'admin',
       admin: {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
-        email: user.email,
         role: user.role,
         organizations: (user.organizations ?? []).map((item) => ({
           id: item.organization?.id ?? '',
@@ -438,16 +383,120 @@ export class AiChatService {
         })),
       },
       scope: scopedOrgIds === undefined ? 'all' : scopedOrgIds,
-      summary: {
+    };
+
+    if (intent === 'admin_analytics' || intent === 'general') {
+      const totalOrganizations =
+        scopedOrgIds && scopedOrgIds.length >= 0
+          ? scopedOrgIds.length
+          : await this.organizationRepo.count();
+
+      const totalStudents =
+        scopedOrgIds === undefined
+          ? await this.userOrgRepo.count({
+              where: { user: { role: Role.USER } },
+            })
+          : scopedOrgIds.length === 0
+            ? 0
+            : await this.userOrgRepo.count({
+                where: {
+                  user: { role: Role.USER },
+                  organization: { id: In(scopedOrgIds) },
+                },
+              });
+
+      context.summary = {
         totalOrganizations,
         totalStudents,
-        activeUsers7d,
-        upcomingExamCount,
-      },
-      topQuestionErrors: questionErrors,
-      topHeartLossQuestions: heartsLost,
-      topUsersByHeartLoss: topUsersByLoss,
+        activeUsers7d: await this.getActiveUsers7d(scopedOrgIds),
+        upcomingExamCount: await this.getUpcomingExamCount(scopedOrgIds),
+      };
+      context.topQuestionErrors = await this.getScopedQuestionErrors(
+        scopedOrgIds,
+        5,
+      );
+      context.topHeartLossQuestions = await this.getScopedHeartsLost(
+        scopedOrgIds,
+        5,
+      );
+      context.topUsersByHeartLoss = await this.getScopedUsersByHeartLoss(
+        scopedOrgIds,
+        5,
+      );
+    }
+
+    return context;
+  }
+
+  private async getCompactProgress(userId: string) {
+    const levels = await this.levelRepo.find({
+      where: { isActive: true },
+      order: { orderIndex: 'ASC' },
+      take: 6,
+    });
+    const completions = await this.completionRepo.find({ where: { userId } });
+    const attempts = await this.attemptRepo.find({
+      where: { userId },
+      order: { answeredAt: 'DESC' },
+      take: 80,
+    });
+
+    const correctCount = attempts.filter((item) => item.isCorrect).length;
+    const completedLevels = completions.filter(
+      (item) => item.completionPercent >= 100,
+    ).length;
+    const currentLevel =
+      levels.find((level) => {
+        const completion = completions.find((item) => item.levelId === level.id);
+        return !completion || completion.completionPercent < 100;
+      }) ?? levels.at(-1) ?? null;
+
+    return {
+      totalXp: correctCount * 10,
+      totalAnswers: attempts.length,
+      correctAnswers: correctCount,
+      wrongAnswers: Math.max(0, attempts.length - correctCount),
+      completedLevels,
+      currentLevel: currentLevel
+        ? {
+            title: currentLevel.title,
+            orderIndex: currentLevel.orderIndex,
+          }
+        : null,
+      levels: levels.map((level) => {
+        const completion = completions.find((item) => item.levelId === level.id);
+        return {
+          title: level.title,
+          completionPercent: completion?.completionPercent ?? 0,
+        };
+      }),
     };
+  }
+
+  private async getRecentMistakes(userId: string, limit: number) {
+    const attempts = await this.attemptRepo.find({
+      where: { userId, isCorrect: false },
+      order: { answeredAt: 'DESC' },
+      take: limit,
+    });
+    const questionIds = Array.from(new Set(attempts.map((item) => item.questionId)));
+    const questions = questionIds.length
+      ? await this.questionRepo.find({
+          where: { id: In(questionIds) },
+          relations: ['level', 'theory'],
+        })
+      : [];
+    const questionMap = new Map(questions.map((item) => [item.id, item]));
+
+    return attempts.map((attempt) => {
+      const question = questionMap.get(attempt.questionId);
+      return {
+        prompt: question?.prompt ?? 'Savol topilmadi',
+        levelTitle: question?.level?.title ?? 'Noma`lum level',
+        theoryTitle: question?.theory?.title ?? 'Noma`lum mavzu',
+        answeredAt: attempt.answeredAt?.toISOString() ?? null,
+      };
+    });
   }
 
   private async getSelfHeartLossQuestions(userId: string) {
@@ -469,7 +518,7 @@ export class AiChatService {
       .addGroupBy('l.title')
       .addGroupBy('t.title')
       .orderBy('"lostHearts"', 'DESC')
-      .limit(20)
+      .limit(8)
       .getRawMany<{
         questionId: string;
         prompt: string;
@@ -692,6 +741,7 @@ export class AiChatService {
   private buildSystemPrompt(
     scope: AiChatScope,
     role: Role,
+    intent: QueryIntent,
     context: unknown,
   ) {
     const base = [
@@ -700,6 +750,7 @@ export class AiChatService {
       'Mavjud bo`lmagan yoki ruxsat berilmagan ma`lumotni uydirma.',
       'Kerak bo`lsa ochiq ayt: "Menda hozir bu ma`lumot yo`q".',
       'Javoblar aniq, ixcham va amaliy bo`lsin.',
+      `Current intent: ${intent}`,
     ];
 
     if (scope === 'mobile' || role === Role.USER) {
@@ -717,6 +768,40 @@ export class AiChatService {
 
     base.push(`USER_CONTEXT:\n${JSON.stringify(context)}`);
     return base.join('\n');
+  }
+
+  private detectIntent(
+    message: string,
+    scope: AiChatScope,
+    role: Role,
+  ): QueryIntent {
+    const text = message.toLowerCase();
+
+    if (
+      /xato|savol|adash|heart|jon|yo['`’]qot|yoqot|mistake|wrong/.test(text)
+    ) {
+      return 'mistakes';
+    }
+    if (/daraja|level|progress|xp|mavzu|ustida ishlash/.test(text)) {
+      return 'progress';
+    }
+    if (/reyting|rank|leaderboard|o['`’]rin|nechanchi/.test(text)) {
+      return 'leaderboard';
+    }
+    if (/imtihon|exam|sana|scheduled|qachon/.test(text)) {
+      return 'exam';
+    }
+    if (/guvohnoma|certificate|check|tekshiruv|medical|permit/.test(text)) {
+      return 'employee';
+    }
+    if (
+      scope === 'admin' ||
+      role !== Role.USER ||
+      /foydalanuvchi|analytics|analitika|moderator|tashkilot/.test(text)
+    ) {
+      return 'admin_analytics';
+    }
+    return 'general';
   }
 
   private formatFetchError(error: unknown) {
