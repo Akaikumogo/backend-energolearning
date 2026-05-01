@@ -58,6 +58,10 @@ import { getPostgresConnectionOptions } from './database/postgres-env';
 import { AiChatModule } from './ai-chat/ai-chat.module';
 import { AiChatSession } from './database/entities/ai-chat-session.entity';
 import { AiChatMessage } from './database/entities/ai-chat-message.entity';
+import { AudioBook } from './database/entities/audio-book.entity';
+import { AudioChapter } from './database/entities/audio-chapter.entity';
+import { AudioParagraph } from './database/entities/audio-paragraph.entity';
+import { AudioLibraryModule } from './audio-library/audio-library.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -96,6 +100,9 @@ import { AiChatMessage } from './database/entities/ai-chat-message.entity';
         EmployeeCheck,
         AiChatSession,
         AiChatMessage,
+        AudioBook,
+        AudioChapter,
+        AudioParagraph,
       ],
       synchronize: true,
     }),
@@ -117,6 +124,7 @@ import { AiChatMessage } from './database/entities/ai-chat-message.entity';
     NotificationsModule,
     DbAdminModule,
     AiChatModule,
+    AudioLibraryModule,
   ],
   controllers: [AppController],
   providers: [
