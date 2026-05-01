@@ -97,6 +97,17 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
     return { module: 'exams', action: 'create' };
   }
 
+  // Audio library (admin CRUD)
+  if (path === '/admin/audio-books' && m === 'POST') return { module: 'audioLibrary', action: 'create' };
+  if (/^\/admin\/audio-books\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
+  if (/^\/admin\/audio-books\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
+  if (/^\/admin\/audio-books\/[^/]+\/chapters$/.test(path) && m === 'POST') return { module: 'audioLibrary', action: 'create' };
+  if (/^\/admin\/audio-chapters\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
+  if (/^\/admin\/audio-chapters\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
+  if (/^\/admin\/audio-chapters\/[^/]+\/paragraphs$/.test(path) && m === 'POST') return { module: 'audioLibrary', action: 'create' };
+  if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
+  if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
+
   return null;
 }
 
@@ -163,4 +174,3 @@ export class ModeratorPermissionsGuard implements CanActivate {
     throw new ForbiddenException('Sizda ushbu amal uchun ruxsat yo`q');
   }
 }
-

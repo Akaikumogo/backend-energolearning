@@ -49,12 +49,44 @@ export class AiChatService {
     message: string;
     onChunk: (chunk: string) => void;
   }) {
+    const ctx = await this.getContextLine(args.userId, args.scope);
+    const systemPrompt =
+      "Sen o'zbekcha gapiradigan yordamchisan. Faqat kerakli savol-javob. Hech qachon ID/UUID/token yoki ichki kodlarni foydalanuvchiga ko'rsatma id bilan topilgan ma'lumotlarni esa asosan string bo'lgan NAME larni tilte larni olib kel misol uchun question ning matni va bo'limning matni . Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.";
+    const userPrompt = `${ctx}\nSAVOL: ${args.message}`;
+
+    // Provider selection:
+    // 1) Explicit AI_PROVIDER=openrouter
+    // 2) If OpenRouter key exists, prefer it (useful in prod where Ollama is not available)
+    // 3) Fallback to Ollama
+    const provider =
+      process.env.AI_PROVIDER?.trim().toLowerCase() ||
+      (process.env.ANTHROPIC_AUTH_TOKEN?.trim() ? 'openrouter' : 'ollama');
+
+    if (provider === 'openrouter') {
+      await this.streamFromOpenRouter({
+        system: systemPrompt,
+        user: userPrompt,
+        onChunk: args.onChunk,
+      });
+      return;
+    }
+
+    await this.streamFromOllama({
+      system: systemPrompt,
+      user: userPrompt,
+      onChunk: args.onChunk,
+    });
+  }
+
+  private async streamFromOllama(args: {
+    system: string;
+    user: string;
+    onChunk: (chunk: string) => void;
+  }) {
     const model = process.env.OLLAMA_MODEL?.trim() || 'qwen2.5-coder:7b';
     const baseUrl =
       process.env.OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434';
     const requestUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`;
-
-    const ctx = await this.getContextLine(args.userId, args.scope);
 
     const controller = new AbortController();
     const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS ?? 120000);
@@ -72,10 +104,9 @@ export class AiChatService {
           messages: [
             {
               role: 'system',
-              content:
-                "Sen o'zbekcha gapiradigan yordamchisan. Faqat kerakli savol-javob. Hech qachon ID/UUID/token yoki ichki kodlarni foydalanuvchiga ko'rsatma id bilan topilgan ma'lumotlarni esa asosan string bo'lgan NAME larni tilte larni olib kel misol uchun question ning matni va bo'limning matni . Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.",
+              content: args.system,
             },
-            { role: 'user', content: `${ctx}\nSAVOL: ${args.message}` },
+            { role: 'user', content: args.user },
           ],
         }),
       });
@@ -122,6 +153,99 @@ export class AiChatService {
       };
       const chunk = parsed.message?.content ?? '';
       if (chunk) args.onChunk(chunk);
+    }
+  }
+
+  private async streamFromOpenRouter(args: {
+    system: string;
+    user: string;
+    onChunk: (chunk: string) => void;
+  }) {
+    const baseUrl = (process.env.ANTHROPIC_BASE_URL?.trim() || 'https://openrouter.ai/api').replace(
+      /\/$/,
+      '',
+    );
+    const apiKey = process.env.ANTHROPIC_AUTH_TOKEN?.trim() || '';
+    if (!apiKey) throw new Error('OpenRouter key yo`q (ANTHROPIC_AUTH_TOKEN)');
+
+    const model =
+      process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?.trim() ||
+      process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?.trim() ||
+      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?.trim() ||
+      'openai/gpt-4o-mini';
+
+    const timeoutMs = Number(process.env.AI_TIMEOUT_MS ?? process.env.OLLAMA_TIMEOUT_MS ?? 120000);
+    const maxTokens = Number(process.env.AI_MAX_TOKENS ?? 256);
+    const requestUrl = `${baseUrl}/v1/chat/completions`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(requestUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          // Optional but recommended by OpenRouter. Keep safe defaults.
+          'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER?.trim() || 'http://localhost',
+          'X-Title': process.env.OPENROUTER_APP_TITLE?.trim() || 'ElectroLearn',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          stream: true,
+          temperature: 0.2,
+          max_tokens: Number.isFinite(maxTokens) ? maxTokens : 256,
+          messages: [
+            { role: 'system', content: args.system },
+            { role: 'user', content: args.user },
+          ],
+        }),
+      });
+    } catch (error) {
+      const details = this.formatFetchError(error);
+      this.logger.error(
+        `OpenRouter request failed. url=${requestUrl} model=${model} details=${details}`,
+      );
+      throw new Error(`OpenRouter ulanish xatosi: ${details}`);
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (!response.ok || !response.body) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`OpenRouter HTTP ${response.status}: ${text}`);
+    }
+
+    // OpenAI-style SSE stream: lines start with `data: {json}` and end with `data: [DONE]`.
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const data = trimmed.slice('data:'.length).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(data) as {
+            choices?: Array<{ delta?: { content?: string } }>;
+          };
+          const chunk = parsed.choices?.[0]?.delta?.content ?? '';
+          if (chunk) args.onChunk(chunk);
+        } catch {
+          // ignore parse errors on partial lines
+        }
+      }
     }
   }
 

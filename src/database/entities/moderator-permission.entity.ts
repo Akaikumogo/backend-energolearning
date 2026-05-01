@@ -26,6 +26,8 @@ export type ModeratorPermissions = {
   profile: CrudPermissions;
   /** Imtihonlar moduli: lavozimlar, imtihonlar, imtihon savollari, jadval, korzinka */
   exams: CrudPermissions;
+  /** Audio kutubxona: audiokitoblar, boblar, paragraf(audioUrl) */
+  audioLibrary: CrudPermissions;
 };
 
 const DEFAULT_CRUD: CrudPermissions = { create: false, update: false, delete: false };
@@ -40,6 +42,7 @@ export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   moderators: DEFAULT_CRUD,
   profile: DEFAULT_CRUD,
   exams: DEFAULT_CRUD,
+  audioLibrary: DEFAULT_CRUD,
 };
 
 const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
@@ -52,6 +55,7 @@ const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
   'moderators',
   'profile',
   'exams',
+  'audioLibrary',
 ];
 
 /** Eski jsonb qatorlarida yangi modullar bo‘lmasa, default bilan to‘ldiradi. */
@@ -92,4 +96,3 @@ export class ModeratorPermission {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }
-
