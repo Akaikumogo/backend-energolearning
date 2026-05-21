@@ -48,6 +48,17 @@ type NormalizedEmployee = {
 export class NesEmployeesService {
   private readonly logger = new Logger(NesEmployeesService.name);
 
+  private syncState: {
+    running: boolean;
+    current: number;
+    total: number;
+    startedAt: Date | null;
+  } = { running: false, current: 0, total: 0, startedAt: null };
+
+  getSyncStatus() {
+    return { ...this.syncState };
+  }
+
   constructor(
     @InjectRepository(NesEmployee)
     private readonly employeeRepo: Repository<NesEmployee>,
@@ -72,7 +83,11 @@ export class NesEmployeesService {
     }
   }
 
-  async syncFromNes(date = process.env.NES_EMPLOYEES_SYNC_DATE ?? '2026-01-01') {
+  async syncFromNes(date = process.env.NES_EMPLOYEES_SYNC_DATE ?? new Date().toISOString().slice(0, 10)) {
+    if (this.syncState.running) {
+      throw new BadRequestException('Sync allaqachon ishlamoqda');
+    }
+
     const rows = (await this.fetchEmployees(date))
       .map((row) => this.normalize(row))
       .sort((a, b) => {
@@ -80,15 +95,23 @@ export class NesEmployeesService {
         if (keyCompare !== 0) return keyCompare;
         return this.eventTime(a) - this.eventTime(b);
       });
+
+    this.syncState = { running: true, current: 0, total: rows.length, startedAt: new Date() };
+
     let created = 0;
     let updated = 0;
     let unchanged = 0;
 
-    for (const row of rows) {
-      const result = await this.upsertEmployee(row);
-      if (result === 'created') created += 1;
-      else if (result === 'updated') updated += 1;
-      else unchanged += 1;
+    try {
+      for (const row of rows) {
+        const result = await this.upsertEmployee(row);
+        this.syncState.current += 1;
+        if (result === 'created') created += 1;
+        else if (result === 'updated') updated += 1;
+        else unchanged += 1;
+      }
+    } finally {
+      this.syncState.running = false;
     }
 
     return {
@@ -101,7 +124,13 @@ export class NesEmployeesService {
     };
   }
 
-  async listEmployees(filters?: { search?: string; page?: number; limit?: number }) {
+  async listEmployees(filters?: {
+    search?: string;
+    organizationName?: string;
+    division?: string;
+    page?: number;
+    limit?: number;
+  }) {
     const page = filters?.page ?? 1;
     const limit = filters?.limit ?? 20;
     const qb = this.employeeRepo
@@ -116,12 +145,45 @@ export class NesEmployeesService {
       );
     }
 
+    if (filters?.organizationName) {
+      qb.andWhere('LOWER(e.organizationName) = :org', {
+        org: filters.organizationName.toLowerCase(),
+      });
+    }
+
+    if (filters?.division) {
+      qb.andWhere('LOWER(e.division) = :div', {
+        div: filters.division.toLowerCase(),
+      });
+    }
+
     const total = await qb.getCount();
     const data = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
     return { data, total, page, limit };
+  }
+
+  async getFilterOptions() {
+    const orgs = await this.employeeRepo
+      .createQueryBuilder('e')
+      .select('DISTINCT e.organizationName', 'organizationName')
+      .where('e.organizationName IS NOT NULL AND e.organizationName != :empty', { empty: '' })
+      .orderBy('e.organizationName', 'ASC')
+      .getRawMany<{ organizationName: string }>();
+
+    const divs = await this.employeeRepo
+      .createQueryBuilder('e')
+      .select('DISTINCT e.division', 'division')
+      .where('e.division IS NOT NULL AND e.division != :empty', { empty: '' })
+      .orderBy('e.division', 'ASC')
+      .getRawMany<{ division: string }>();
+
+    return {
+      organizations: orgs.map((r) => r.organizationName),
+      divisions: divs.map((r) => r.division),
+    };
   }
 
   async listHistory(personnelNumber: string) {

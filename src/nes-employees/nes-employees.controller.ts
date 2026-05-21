@@ -20,19 +20,39 @@ import { NesEmployeesService } from './nes-employees.service';
 export class NesEmployeesController {
   constructor(private readonly nesEmployeesService: NesEmployeesService) {}
 
+  @Get('filter-options')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Filtr uchun noyob tashkilot va bo`limlar ro`yxati' })
+  filterOptions() {
+    return this.nesEmployeesService.getFilterOptions();
+  }
+
+  @Get('sync-status')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Hozirgi sync holati va progressi' })
+  syncStatus() {
+    return this.nesEmployeesService.getSyncStatus();
+  }
+
   @Get()
   @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'NESdan import qilingan xodimlar ro`yxati' })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'organizationName', required: false })
+  @ApiQuery({ name: 'division', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   list(
     @Query('search') search?: string,
+    @Query('organizationName') organizationName?: string,
+    @Query('division') division?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.nesEmployeesService.listEmployees({
       search,
+      organizationName,
+      division,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
