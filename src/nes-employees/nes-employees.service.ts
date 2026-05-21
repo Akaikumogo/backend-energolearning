@@ -10,6 +10,7 @@ import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { User } from '../database/entities/user.entity';
+import { NesSyncGateway } from './nes-sync.gateway';
 
 type NesEmployeePayload = {
   personnel_number?: string;
@@ -72,6 +73,7 @@ export class NesEmployeesService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(UserOrganization)
     private readonly userOrgRepo: Repository<UserOrganization>,
+    private readonly nesSyncGateway: NesSyncGateway,
   ) {}
 
   @Cron('59 23 * * *', { timeZone: 'Asia/Tashkent' })
@@ -97,6 +99,7 @@ export class NesEmployeesService {
       });
 
     this.syncState = { running: true, current: 0, total: rows.length, startedAt: new Date() };
+    this.nesSyncGateway.emitProgress(0, rows.length);
 
     let created = 0;
     let updated = 0;
@@ -109,12 +112,17 @@ export class NesEmployeesService {
         if (result === 'created') created += 1;
         else if (result === 'updated') updated += 1;
         else unchanged += 1;
+
+        // Har 50 ta xodimda bir emit (DB og'irligini kamaytirish uchun)
+        if (this.syncState.current % 50 === 0 || this.syncState.current === rows.length) {
+          this.nesSyncGateway.emitProgress(this.syncState.current, rows.length);
+        }
       }
     } finally {
       this.syncState.running = false;
     }
 
-    return {
+    const result = {
       success: true,
       date,
       total: rows.length,
@@ -122,6 +130,8 @@ export class NesEmployeesService {
       updated,
       unchanged,
     };
+    this.nesSyncGateway.emitDone(result);
+    return result;
   }
 
   async listEmployees(filters?: {
@@ -194,10 +204,14 @@ export class NesEmployeesService {
   }
 
   async listPositionHistory(personnelNumber: string) {
-    return this.positionHistoryRepo.find({
+    const items = await this.positionHistoryRepo.find({
       where: { personnelNumber },
       order: { effectiveAt: 'ASC', createdAt: 'ASC' },
     });
+    return items.map((item, idx) => ({
+      ...item,
+      isCurrent: idx === items.length - 1,
+    }));
   }
 
   private async fetchEmployees(date: string): Promise<NesEmployeePayload[]> {
