@@ -155,7 +155,7 @@ export class StudentsService {
       where: { id, role: Role.USER },
       relations: ['organizations', 'organizations.organization'],
     });
-    if (!user) throw new NotFoundException('Talaba topilmadi');
+    if (!user) throw new NotFoundException('Xodim topilmadi');
 
     const levels = await this.levelRepo.find({ order: { orderIndex: 'ASC' } });
     const orgIds =
@@ -169,7 +169,7 @@ export class StudentsService {
       const allowed = (user.organizations ?? []).some((uo) =>
         orgIds ? orgIds.includes(uo.organization?.id ?? '') : true,
       );
-      if (!allowed) throw new NotFoundException('Talaba topilmadi');
+      if (!allowed) throw new NotFoundException('Xodim topilmadi');
     }
 
     const completions = await this.completionRepo.find({
@@ -179,7 +179,7 @@ export class StudentsService {
           : { userId: id },
     });
 
-    // Agar student bir nechta organization'da bo'lsa (MODERATOR uchun ham) bu level
+    // Agar xodim bir nechta organization'da bo'lsa (MODERATOR uchun ham) bu level
     // bo'yicha eng yuqori completionPercent'ni olamiz.
     const completionMap = new Map<
       string,
@@ -260,7 +260,7 @@ export class StudentsService {
       where: { id: studentId, role: Role.USER },
       relations: ['organizations', 'organizations.organization'],
     });
-    if (!user) throw new NotFoundException('Talaba topilmadi');
+    if (!user) throw new NotFoundException('Xodim topilmadi');
 
     const orgIds =
       requestingUser.role === Role.MODERATOR
@@ -320,7 +320,7 @@ export class StudentsService {
       where: { id: studentId, role: Role.USER },
       relations: ['organizations', 'organizations.organization'],
     });
-    if (!user) throw new NotFoundException('Talaba topilmadi');
+    if (!user) throw new NotFoundException('Xodim topilmadi');
 
     const since = new Date();
     since.setDate(since.getDate() - 27);
@@ -333,7 +333,7 @@ export class StudentsService {
           )
         : undefined;
 
-    // Moderator uchun allowance check: agar talaba ularning organization'lardan biriga tegishli bo'lmasa, empty heatmap qaytaramiz.
+    // Moderator uchun allowance check: agar xodim ularning organization'lardan biriga tegishli bo'lmasa, empty heatmap qaytaramiz.
     if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
       // attempts query ham org bilan kesiladi (quyida), lekin membership check uchun relations kerak bo'ladi.
       const allowed = (user.organizations ?? []).some((uo) =>
