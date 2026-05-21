@@ -24,15 +24,27 @@ export class NesEmployeesController {
   @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'NESdan import qilingan xodimlar ro`yxati' })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'organizationName', required: false })
+  @ApiQuery({ name: 'division', required: false })
+  @ApiQuery({ name: 'post', required: false })
+  @ApiQuery({ name: 'personnelNumber', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   list(
     @Query('search') search?: string,
+    @Query('organizationName') organizationName?: string,
+    @Query('division') division?: string,
+    @Query('post') post?: string,
+    @Query('personnelNumber') personnelNumber?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.nesEmployeesService.listEmployees({
       search,
+      organizationName,
+      division,
+      post,
+      personnelNumber,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });

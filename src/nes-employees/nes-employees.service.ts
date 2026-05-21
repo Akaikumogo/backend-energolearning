@@ -101,7 +101,15 @@ export class NesEmployeesService {
     };
   }
 
-  async listEmployees(filters?: { search?: string; page?: number; limit?: number }) {
+  async listEmployees(filters?: {
+    search?: string;
+    organizationName?: string;
+    division?: string;
+    post?: string;
+    personnelNumber?: string;
+    page?: number;
+    limit?: number;
+  }) {
     const page = filters?.page ?? 1;
     const limit = filters?.limit ?? 20;
     const qb = this.employeeRepo
@@ -114,6 +122,26 @@ export class NesEmployeesService {
         `LOWER(e.fullName) LIKE :q OR LOWER(e.personnelNumber) LIKE :q OR LOWER(e.login) LIKE :q`,
         { q: `%${filters.search.toLowerCase()}%` },
       );
+    }
+    if (filters?.organizationName) {
+      qb.andWhere('LOWER(e.organizationName) LIKE :org', {
+        org: `%${filters.organizationName.toLowerCase()}%`,
+      });
+    }
+    if (filters?.division) {
+      qb.andWhere('LOWER(e.division) LIKE :division', {
+        division: `%${filters.division.toLowerCase()}%`,
+      });
+    }
+    if (filters?.post) {
+      qb.andWhere('LOWER(e.post) LIKE :post', {
+        post: `%${filters.post.toLowerCase()}%`,
+      });
+    }
+    if (filters?.personnelNumber) {
+      qb.andWhere('e.personnelNumber LIKE :personnelNumber', {
+        personnelNumber: `%${filters.personnelNumber}%`,
+      });
     }
 
     const total = await qb.getCount();
