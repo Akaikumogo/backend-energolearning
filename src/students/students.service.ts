@@ -11,6 +11,7 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { Level } from '../database/entities/level.entity';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
 import { EmployeeCheck } from '../database/entities/employee-check.entity';
+import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
 
 const BADGES = [
@@ -34,6 +35,8 @@ export class StudentsService {
     private readonly employeeCertRepo: Repository<EmployeeCertificate>,
     @InjectRepository(EmployeeCheck)
     private readonly employeeCheckRepo: Repository<EmployeeCheck>,
+    @InjectRepository(NesEmployee)
+    private readonly nesEmployeeRepo: Repository<NesEmployee>,
   ) {}
 
   async createStudent(
@@ -519,6 +522,10 @@ export class StudentsService {
       (c) => c.completionPercent >= 100,
     ).length;
     const badgeIndex = Math.min(completedLevels, BADGES.length - 1);
+    const nesEmployee = await this.nesEmployeeRepo.findOne({
+      where: { userId: user.id },
+      select: ['personnelNumber'],
+    });
     for (const level of levels) {
       const c = completionMap.get(level.id);
       if (!c || c.completionPercent < 100) {
@@ -534,6 +541,7 @@ export class StudentsService {
       lastName: user.lastName,
       email: user.email,
       avatarUrl: user.avatarUrl,
+      personnelNumber: nesEmployee?.personnelNumber ?? null,
       completedLevels,
       totalXp,
       currentLevelId,
