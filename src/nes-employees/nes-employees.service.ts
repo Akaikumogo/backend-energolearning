@@ -99,7 +99,7 @@ export class NesEmployeesService {
       });
 
     this.syncState = { running: true, current: 0, total: rows.length, startedAt: new Date() };
-    this.nesSyncGateway.emitProgress(0, rows.length);
+    this.nesSyncGateway.emitProgress(0, rows.length, 0);
 
     let created = 0;
     let updated = 0;
@@ -113,9 +113,9 @@ export class NesEmployeesService {
         else if (result === 'updated') updated += 1;
         else unchanged += 1;
 
-        // Har 50 ta xodimda bir emit (DB og'irligini kamaytirish uchun)
+        // Har 50 ta xodimda bir emit
         if (this.syncState.current % 50 === 0 || this.syncState.current === rows.length) {
-          this.nesSyncGateway.emitProgress(this.syncState.current, rows.length);
+          this.nesSyncGateway.emitProgress(this.syncState.current, rows.length, created);
         }
       }
     } finally {
@@ -194,6 +194,34 @@ export class NesEmployeesService {
       organizations: orgs.map((r) => r.organizationName),
       divisions: divs.map((r) => r.division),
     };
+  }
+
+  async deleteAll() {
+    if (this.syncState.running) {
+      throw new BadRequestException('Sync ishlamoqda, avval tugashini kuting');
+    }
+
+    // Barcha NES xodimlarning userId larini yig'amiz
+    const employees = await this.employeeRepo.find({ select: ['id', 'userId'] });
+    const userIds = employees.map((e) => e.userId);
+
+    // nes_employee_position_history va nes_employee_history CASCADE bilan o'chadi
+    // avval nes_employees o'chiramiz
+    await this.employeeRepo.createQueryBuilder()
+      .delete()
+      .from('nes_employees')
+      .execute();
+
+    // Bog'liq userlarni o'chiramiz (user_organization ham CASCADE o'chadi)
+    if (userIds.length > 0) {
+      await this.userRepo.createQueryBuilder()
+        .delete()
+        .from('users')
+        .whereInIds(userIds)
+        .execute();
+    }
+
+    return { success: true, deleted: employees.length };
   }
 
   async listHistory(personnelNumber: string) {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -34,19 +34,32 @@ export class NesEmployeesController {
     return this.nesEmployeesService.getSyncStatus();
   }
 
+  @Delete()
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Barcha NES xodimlarini va ularning userlarini o`chirish' })
+  deleteAll() {
+    return this.nesEmployeesService.deleteAll();
+  }
+
   @Get()
   @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'NESdan import qilingan xodimlar ro`yxati' })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'organizationName', required: false })
+  @ApiQuery({ name: 'division', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   list(
     @Query('search') search?: string,
+    @Query('organizationName') organizationName?: string,
+    @Query('division') division?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.nesEmployeesService.listEmployees({
       search,
+      organizationName,
+      division,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
