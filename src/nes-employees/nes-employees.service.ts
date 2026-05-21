@@ -140,7 +140,8 @@ export class NesEmployeesService {
 
   private async fetchEmployees(date: string): Promise<NesEmployeePayload[]> {
     const url =
-      process.env.NES_EMPLOYEES_URL ?? 'http://localhost/NES/hs/employees/get';
+      process.env.NES_EMPLOYEES_URL ??
+      'http://192.0.3.186/NES/hs/employees/get';
     const username = process.env.NES_EMPLOYEES_USERNAME ?? 'HTTPClient';
     const password =
       process.env.NES_EMPLOYEES_PASSWORD ?? 'ZF5d0GLem3FuBLn';
