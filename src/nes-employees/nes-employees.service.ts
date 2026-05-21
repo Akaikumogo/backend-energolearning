@@ -224,16 +224,16 @@ export class NesEmployeesService {
     return { success: true, deleted: employees.length };
   }
 
-  async listHistory(personnelNumber: string) {
+  async listHistory(employeeId: string) {
     return this.historyRepo.find({
-      where: { personnelNumber },
+      where: { employeeId },
       order: { createdAt: 'DESC' },
     });
   }
 
-  async listPositionHistory(personnelNumber: string) {
+  async listPositionHistory(employeeId: string) {
     const items = await this.positionHistoryRepo.find({
-      where: { personnelNumber },
+      where: { employeeId },
       order: { effectiveAt: 'ASC', createdAt: 'ASC' },
     });
     return items.map((item, idx) => ({
@@ -306,8 +306,13 @@ export class NesEmployeesService {
     }
 
     const organization = await this.ensureOrganization(data.organizationName);
+    // Unique kalit: personnelNumber + organizationName
+    // Bir tashkilotda bir raqam faqat bitta odamga tegishli
     const existing = await this.employeeRepo.findOne({
-      where: { personnelNumber: data.personnelNumber },
+      where: {
+        personnelNumber: data.personnelNumber,
+        organizationName: data.organizationName,
+      },
       relations: ['user'],
     });
 
