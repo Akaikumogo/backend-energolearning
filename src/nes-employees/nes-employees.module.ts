@@ -8,6 +8,7 @@ import { UserOrganization } from '../database/entities/user-organization.entity'
 import { User } from '../database/entities/user.entity';
 import { NesEmployeesController } from './nes-employees.controller';
 import { NesEmployeesService } from './nes-employees.service';
+import { NesSyncGateway } from './nes-sync.gateway';
 
 @Module({
   imports: [
@@ -21,6 +22,6 @@ import { NesEmployeesService } from './nes-employees.service';
     ]),
   ],
   controllers: [NesEmployeesController],
-  providers: [NesEmployeesService],
+  providers: [NesEmployeesService, NesSyncGateway],
 })
 export class NesEmployeesModule {}
