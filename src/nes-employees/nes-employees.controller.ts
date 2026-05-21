@@ -65,18 +65,18 @@ export class NesEmployeesController {
     });
   }
 
-  @Get(':personnelNumber/history')
+  @Get(':id/history')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'NES xodimining o`zgarish tarixi' })
-  history(@Param('personnelNumber') personnelNumber: string) {
-    return this.nesEmployeesService.listHistory(personnelNumber);
+  @ApiOperation({ summary: 'NES xodimining o`zgarish tarixi (employee UUID bo`yicha)' })
+  history(@Param('id') id: string) {
+    return this.nesEmployeesService.listHistory(id);
   }
 
-  @Get(':personnelNumber/positions')
+  @Get(':id/positions')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'NES xodimining lavozim xronologiyasi' })
-  positions(@Param('personnelNumber') personnelNumber: string) {
-    return this.nesEmployeesService.listPositionHistory(personnelNumber);
+  @ApiOperation({ summary: 'NES xodimining lavozim xronologiyasi (employee UUID bo`yicha)' })
+  positions(@Param('id') id: string) {
+    return this.nesEmployeesService.listPositionHistory(id);
   }
 
   @Post('sync')

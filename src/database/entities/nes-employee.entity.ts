@@ -5,17 +5,19 @@ import {
   JoinColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Organization } from './organization.entity';
 import { User } from './user.entity';
 
 @Entity({ name: 'nes_employees' })
+@Unique('UQ_nes_employee_number_org', ['personnelNumber', 'organizationName'])
 export class NesEmployee {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'text', unique: true, name: 'personnel_number' })
+  @Column({ type: 'text', name: 'personnel_number' })
   personnelNumber: string;
 
   @Column({ type: 'uuid', name: 'user_id' })
