@@ -62,6 +62,10 @@ import { AudioBook } from './database/entities/audio-book.entity';
 import { AudioChapter } from './database/entities/audio-chapter.entity';
 import { AudioParagraph } from './database/entities/audio-paragraph.entity';
 import { AudioLibraryModule } from './audio-library/audio-library.module';
+import { NesEmployee } from './database/entities/nes-employee.entity';
+import { NesEmployeeHistory } from './database/entities/nes-employee-history.entity';
+import { NesEmployeePositionHistory } from './database/entities/nes-employee-position-history.entity';
+import { NesEmployeesModule } from './nes-employees/nes-employees.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -103,6 +107,9 @@ import { AudioLibraryModule } from './audio-library/audio-library.module';
         AudioBook,
         AudioChapter,
         AudioParagraph,
+        NesEmployee,
+        NesEmployeeHistory,
+        NesEmployeePositionHistory,
       ],
       synchronize: true,
     }),
@@ -125,6 +132,7 @@ import { AudioLibraryModule } from './audio-library/audio-library.module';
     DbAdminModule,
     AiChatModule,
     AudioLibraryModule,
+    NesEmployeesModule,
   ],
   controllers: [AppController],
   providers: [

@@ -32,11 +32,11 @@ import { CreateEmployeeCheckDto } from './dto/create-employee-check.dto';
 import { UpdateEmployeeCheckDto } from './dto/update-employee-check.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 
-@ApiTags('Students')
+@ApiTags('Employees')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.SUPERADMIN, Role.MODERATOR)
-@Controller('admin/students')
+@Controller(['admin/students', 'admin/employees'])
 export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
 
@@ -51,13 +51,13 @@ export class StudentsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Talabalar ro`yxati (admin)' })
+  @ApiOperation({ summary: 'Xodimlar ro`yxati (admin)' })
   @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'levelId', required: false })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
-  @ApiOkResponse({ description: 'Paginated talabalar ro`yxati' })
+  @ApiOkResponse({ description: 'Paginated xodimlar ro`yxati' })
   findAll(
     @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
     @Query('orgId') orgId?: string,
@@ -76,9 +76,9 @@ export class StudentsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Talaba to`liq ma`lumoti' })
-  @ApiParam({ name: 'id', description: 'Student ID' })
-  @ApiOkResponse({ description: 'Talaba detali' })
+  @ApiOperation({ summary: 'Xodim to`liq ma`lumoti' })
+  @ApiParam({ name: 'id', description: 'Employee ID' })
+  @ApiOkResponse({ description: 'Xodim detali' })
   findOne(
     @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
     @Param('id') id: string,
@@ -88,7 +88,7 @@ export class StudentsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Xodimni o`chirish (admin)' })
-  @ApiParam({ name: 'id', description: 'Student ID' })
+  @ApiParam({ name: 'id', description: 'Employee ID' })
   remove(
     @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
     @Param('id', ParseUUIDPipe) id: string,
@@ -98,7 +98,7 @@ export class StudentsController {
 
   @Get(':id/lost-questions')
   @ApiOperation({ summary: 'Eng ko`p xato qilingan savollar' })
-  @ApiParam({ name: 'id', description: 'Student ID' })
+  @ApiParam({ name: 'id', description: 'Employee ID' })
   @ApiOkResponse({ description: 'Lost questions ro`yxati' })
   getLostQuestions(
     @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
@@ -109,7 +109,7 @@ export class StudentsController {
 
   @Get(':id/activity')
   @ApiOperation({ summary: '28 kunlik faollik heatmap' })
-  @ApiParam({ name: 'id', description: 'Student ID' })
+  @ApiParam({ name: 'id', description: 'Employee ID' })
   @ApiOkResponse({ description: 'Activity data: [{date, count}]' })
   getActivity(
     @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },

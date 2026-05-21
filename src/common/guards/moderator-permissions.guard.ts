@@ -74,10 +74,12 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
     return { module: 'users', action: 'update' };
   }
 
-  // Students: currently read-only endpoints, but keep mapping for future write endpoints
-  if (path === '/admin/students' && m === 'POST') return { module: 'students', action: 'create' };
-  if (/^\/admin\/students\/[^/]+$/.test(path) && (m === 'PUT' || m === 'PATCH')) return { module: 'students', action: 'update' };
-  if (/^\/admin\/students\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'students', action: 'delete' };
+  // Employees: legacy /admin/students is still supported by the controller.
+  if ((path === '/admin/students' || path === '/admin/employees') && m === 'POST') {
+    return { module: 'students', action: 'create' };
+  }
+  if (/^\/admin\/(students|employees)\/[^/]+$/.test(path) && (m === 'PUT' || m === 'PATCH')) return { module: 'students', action: 'update' };
+  if (/^\/admin\/(students|employees)\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'students', action: 'delete' };
 
   // Users / Moderators management
   if (path === '/admin/users/moderators' && m === 'POST') return { module: 'moderators', action: 'create' };

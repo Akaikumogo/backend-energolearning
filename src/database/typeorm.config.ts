@@ -28,6 +28,12 @@ import { ExamAttemptAnswer } from './entities/exam-attempt-answer.entity';
 import { Notification } from './entities/notification.entity';
 import { EmployeeCertificate } from './entities/employee-certificate.entity';
 import { EmployeeCheck } from './entities/employee-check.entity';
+import { AudioBook } from './entities/audio-book.entity';
+import { AudioChapter } from './entities/audio-chapter.entity';
+import { AudioParagraph } from './entities/audio-paragraph.entity';
+import { NesEmployee } from './entities/nes-employee.entity';
+import { NesEmployeeHistory } from './entities/nes-employee-history.entity';
+import { NesEmployeePositionHistory } from './entities/nes-employee-position-history.entity';
 import { Init1743074000000 } from './migrations/0001-init';
 import { AddUserAvatar1743076000000 } from './migrations/0002-add-user-avatar';
 import { AddContentTables1743078000000 } from './migrations/0003-add-content-tables';
@@ -37,6 +43,8 @@ import { ExamQuestionCatalogs1744000000000 } from './migrations/0006-exam-questi
 import { TheorySlidesJsonb1744108800000 } from './migrations/0007-theory-slides-jsonb';
 import { QuestionsOnLessonRoot1744200000000 } from './migrations/0008-questions-on-lesson-root';
 import { TheoryRole1744300000000 } from './migrations/0009-theory-role';
+import { AddAudioLibrary1746060000000 } from './migrations/0010-add-audio-library';
+import { AddNesEmployees1746070000000 } from './migrations/0011-add-nes-employees';
 import { getPostgresConnectionOptions } from './postgres-env';
 
 export const AppDataSource = new DataSource({
@@ -72,6 +80,12 @@ export const AppDataSource = new DataSource({
     Notification,
     EmployeeCertificate,
     EmployeeCheck,
+    AudioBook,
+    AudioChapter,
+    AudioParagraph,
+    NesEmployee,
+    NesEmployeeHistory,
+    NesEmployeePositionHistory,
   ],
   migrations: [
     Init1743074000000,
@@ -83,6 +97,8 @@ export const AppDataSource = new DataSource({
     TheorySlidesJsonb1744108800000,
     QuestionsOnLessonRoot1744200000000,
     TheoryRole1744300000000,
+    AddAudioLibrary1746060000000,
+    AddNesEmployees1746070000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
