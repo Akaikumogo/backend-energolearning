@@ -10,6 +10,7 @@ import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
 import { EmployeeCheck } from '../database/entities/employee-check.entity';
+import { NesEmployee } from '../database/entities/nes-employee.entity';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { EmployeeCheck } from '../database/entities/employee-check.entity';
       Level,
       EmployeeCertificate,
       EmployeeCheck,
+      NesEmployee,
     ]),
     OrganizationsModule,
     UsersModule,
