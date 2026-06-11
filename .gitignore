@@ -22,6 +22,9 @@ lerna-debug.log*
 # TypeScript cache files
 *.tsbuildinfo
 
+# AI secrets (hardcoded keys — do not commit)
+src/ai-chat/ai-chat.secrets.ts
+
 # IDE-specific files (optional, depends on your editor)
 .idea
 .vscode
