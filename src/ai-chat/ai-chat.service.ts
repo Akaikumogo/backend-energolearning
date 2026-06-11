@@ -146,8 +146,8 @@ export class AiChatService {
     onChunk: (chunk: string) => void;
   }) {
     const baseUrl = 'https://openrouter.ai/api';
-    const apiKey = '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';
-    const model = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+    const apiKey = OPENROUTER_API_KEY;
+    const model = OPENROUTER_MODEL;
     const timeoutMs = 120000;
     const maxTokens = 512;
     const requestUrl = `${baseUrl}/v1/chat/completions`;
