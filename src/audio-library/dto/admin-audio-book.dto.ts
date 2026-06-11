@@ -27,6 +27,11 @@ export class AdminCreateAudioBookDto {
   coverUrl?: string | null;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  audioUrl?: string | null;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 }
@@ -46,6 +51,11 @@ export class AdminUpdateAudioBookDto {
   @IsString()
   @MaxLength(2000)
   coverUrl?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  audioUrl?: string | null;
 
   @IsOptional()
   @IsBoolean()
