@@ -54,24 +54,7 @@ export class AiChatService {
       "Sen o'zbekcha gapiradigan yordamchisan. Faqat kerakli savol-javob. Hech qachon ID/UUID/token yoki ichki kodlarni foydalanuvchiga ko'rsatma id bilan topilgan ma'lumotlarni esa asosan string bo'lgan NAME larni tilte larni olib kel misol uchun question ning matni va bo'limning matni . Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.";
     const userPrompt = `${ctx}\nSAVOL: ${args.message}`;
 
-    // Provider selection:
-    // 1) Explicit AI_PROVIDER=openrouter
-    // 2) If OpenRouter key exists, prefer it (useful in prod where Ollama is not available)
-    // 3) Fallback to Ollama
-    const provider =
-      process.env.AI_PROVIDER?.trim().toLowerCase() ||
-      (process.env.ANTHROPIC_AUTH_TOKEN?.trim() ? 'openrouter' : 'ollama');
-
-    if (provider === 'openrouter') {
-      await this.streamFromOpenRouter({
-        system: systemPrompt,
-        user: userPrompt,
-        onChunk: args.onChunk,
-      });
-      return;
-    }
-
-    await this.streamFromOllama({
+    await this.streamFromOpenRouter({
       system: systemPrompt,
       user: userPrompt,
       onChunk: args.onChunk,
@@ -161,21 +144,11 @@ export class AiChatService {
     user: string;
     onChunk: (chunk: string) => void;
   }) {
-    const baseUrl = (process.env.ANTHROPIC_BASE_URL?.trim() || 'https://openrouter.ai/api').replace(
-      /\/$/,
-      '',
-    );
-    const apiKey = process.env.ANTHROPIC_AUTH_TOKEN?.trim() || '';
-    if (!apiKey) throw new Error('OpenRouter key yo`q (ANTHROPIC_AUTH_TOKEN)');
-
-    const model =
-      process.env.ANTHROPIC_DEFAULT_SONNET_MODEL?.trim() ||
-      process.env.ANTHROPIC_DEFAULT_OPUS_MODEL?.trim() ||
-      process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL?.trim() ||
-      'openai/gpt-4o-mini';
-
-    const timeoutMs = Number(process.env.AI_TIMEOUT_MS ?? process.env.OLLAMA_TIMEOUT_MS ?? 120000);
-    const maxTokens = Number(process.env.AI_MAX_TOKENS ?? 256);
+    const baseUrl = 'https://openrouter.ai/api';
+    const apiKey = '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';
+    const model = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+    const timeoutMs = 120000;
+    const maxTokens = 512;
     const requestUrl = `${baseUrl}/v1/chat/completions`;
 
     const controller = new AbortController();
@@ -188,9 +161,8 @@ export class AiChatService {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          // Optional but recommended by OpenRouter. Keep safe defaults.
-          'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER?.trim() || 'http://localhost',
-          'X-Title': process.env.OPENROUTER_APP_TITLE?.trim() || 'ElectroLearn',
+          'HTTP-Referer': 'https://elektrolearn.uzbekistonmet.uz',
+          'X-Title': 'ElektroLearn',
         },
         signal: controller.signal,
         body: JSON.stringify({

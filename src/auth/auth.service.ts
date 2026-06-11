@@ -40,9 +40,19 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto): Promise<LoginSuccessResponseDto> {
-    const user = await this.usersService.findByEmail(dto.email);
+    const identifier = (dto.login ?? dto.email ?? '').trim();
+    if (!identifier) {
+      throw new UnauthorizedException('Login yoki email kiritilmadi');
+    }
+
+    // NES 1C dan sync qilingan foydalanuvchilarda login `users.email` ustunida saqlanadi.
+    // Shu sababli avval to'g'ridan-to'g'ri tekshiramiz, topilmasa lowercase variantini sinaymiz.
+    let user = await this.usersService.findByEmail(identifier);
+    if (!user) {
+      user = await this.usersService.findByEmail(identifier.toLowerCase());
+    }
     if (!user || !user.passwordHash) {
-      throw new UnauthorizedException('Email yoki parol noto`g`ri');
+      throw new UnauthorizedException('Login yoki parol noto`g`ri');
     }
 
     const passwordMatches = await bcrypt.compare(
@@ -50,7 +60,7 @@ export class AuthService {
       user.passwordHash,
     );
     if (!passwordMatches) {
-      throw new UnauthorizedException('Email yoki parol noto`g`ri');
+      throw new UnauthorizedException('Login yoki parol noto`g`ri');
     }
 
     const payload: JwtPayload = {

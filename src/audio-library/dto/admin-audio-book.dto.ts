@@ -1,4 +1,11 @@
-import { IsBoolean, IsInt, IsOptional, IsString, IsUrl, MaxLength, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class AdminCreateAudioBookDto {
   @IsString()
@@ -10,8 +17,12 @@ export class AdminCreateAudioBookDto {
   @MaxLength(4000)
   description?: string | null;
 
+  /**
+   * Cover URL: tashqi URL ham, ichki `/uploads/...` ham qabul qilinadi.
+   * Shu sababli IsUrl ishlatilmaydi.
+   */
   @IsOptional()
-  @IsUrl()
+  @IsString()
   @MaxLength(2000)
   coverUrl?: string | null;
 
@@ -32,7 +43,7 @@ export class AdminUpdateAudioBookDto {
   description?: string | null;
 
   @IsOptional()
-  @IsUrl()
+  @IsString()
   @MaxLength(2000)
   coverUrl?: string | null;
 
@@ -72,6 +83,10 @@ export class AdminCreateAudioParagraphDto {
   @Min(0)
   orderIndex: number;
 
+  /**
+   * Audio URL: `/uploads/audio/...` (ichki upload natijasi)
+   * yoki tashqi `https://...` URL bo'lishi mumkin.
+   */
   @IsString()
   @MaxLength(2000)
   audioUrl: string;
@@ -93,4 +108,3 @@ export class AdminUpdateAudioParagraphDto {
   @MaxLength(2000)
   audioUrl?: string;
 }
-
