@@ -141,10 +141,21 @@ export class AudioLibraryService {
   }
 
   async adminDeleteBook(bookId: string) {
-    const book = await this.bookRepo.findOne({ where: { id: bookId } });
+    const book = await this.bookRepo.findOne({
+      where: { id: bookId },
+      relations: { chapters: { paragraphs: true } },
+    });
     if (!book) throw new NotFoundException('Audio book not found');
-    // Soft-delete: keep rows but hide from mobile.
-    await this.bookRepo.update({ id: bookId }, { isActive: false });
+    // Hard delete: paragraphs → chapters → book (CASCADE handles it via FK)
+    for (const ch of book.chapters ?? []) {
+      if (ch.paragraphs?.length) {
+        await this.paragraphRepo.delete({ chapterId: ch.id });
+      }
+    }
+    if (book.chapters?.length) {
+      await this.chapterRepo.delete({ bookId });
+    }
+    await this.bookRepo.delete({ id: bookId });
     return { ok: true };
   }
 
