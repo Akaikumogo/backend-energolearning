@@ -17,7 +17,6 @@ export class AudioLibraryService {
   ) {}
 
   async listBooksForMobile() {
-    // Keep it light: list page doesn't need full chapters/paragraphs.
     const books = await this.bookRepo.find({
       where: { isActive: true },
       order: { createdAt: 'DESC' },
@@ -28,6 +27,7 @@ export class AudioLibraryService {
       id: b.id,
       title: b.title,
       coverUrl: b.coverUrl,
+      audioUrl: b.audioUrl,
       description: b.description,
       chaptersCount: (b.chapters ?? []).length,
     }));
@@ -44,6 +44,7 @@ export class AudioLibraryService {
       id: book.id,
       title: book.title,
       coverUrl: book.coverUrl,
+      audioUrl: book.audioUrl,
       description: book.description,
       chapters: (book.chapters ?? [])
         .slice()
@@ -86,6 +87,7 @@ export class AudioLibraryService {
       id: b.id,
       title: b.title,
       coverUrl: b.coverUrl,
+      audioUrl: b.audioUrl,
       description: b.description,
       isActive: b.isActive,
       chaptersCount: (b.chapters ?? []).length,
@@ -107,6 +109,7 @@ export class AudioLibraryService {
     title: string;
     description?: string | null;
     coverUrl?: string | null;
+    audioUrl?: string | null;
     isActive?: boolean;
   }) {
     const created = await this.bookRepo.save(
@@ -114,6 +117,7 @@ export class AudioLibraryService {
         title: args.title,
         description: args.description ?? null,
         coverUrl: args.coverUrl ?? null,
+        audioUrl: args.audioUrl ?? null,
         isActive: args.isActive ?? true,
       }),
     );
@@ -124,6 +128,7 @@ export class AudioLibraryService {
     title: string;
     description: string | null;
     coverUrl: string | null;
+    audioUrl: string | null;
     isActive: boolean;
   }>) {
     const book = await this.bookRepo.findOne({ where: { id: bookId } });
@@ -132,8 +137,9 @@ export class AudioLibraryService {
       { id: bookId },
       {
         title: args.title ?? book.title,
-        description: args.description ?? book.description,
-        coverUrl: args.coverUrl ?? book.coverUrl,
+        description: args.description !== undefined ? args.description : book.description,
+        coverUrl: args.coverUrl !== undefined ? args.coverUrl : book.coverUrl,
+        audioUrl: args.audioUrl !== undefined ? (args.audioUrl || null) : book.audioUrl,
         isActive: typeof args.isActive === 'boolean' ? args.isActive : book.isActive,
       },
     );
@@ -235,6 +241,7 @@ export class AudioLibraryService {
       id: book.id,
       title: book.title,
       coverUrl: book.coverUrl,
+      audioUrl: book.audioUrl,
       description: book.description,
       isActive: book.isActive,
       chapters: (book.chapters ?? [])

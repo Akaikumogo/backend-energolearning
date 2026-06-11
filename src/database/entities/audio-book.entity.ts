@@ -19,6 +19,9 @@ export class AudioBook {
   @Column({ type: 'text', name: 'cover_url', nullable: true })
   coverUrl: string | null;
 
+  @Column({ type: 'text', name: 'audio_url', nullable: true })
+  audioUrl: string | null;
+
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
