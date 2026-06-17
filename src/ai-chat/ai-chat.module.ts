@@ -20,6 +20,7 @@ import { UserOrganization } from '../database/entities/user-organization.entity'
 import { User } from '../database/entities/user.entity';
 import { AiChatGateway } from './ai-chat.gateway';
 import { AiChatService } from './ai-chat.service';
+import { AiChatController } from './ai-chat.controller';
 
 @Module({
   imports: [
@@ -45,5 +46,6 @@ import { AiChatService } from './ai-chat.service';
     ]),
   ],
   providers: [AiChatService, AiChatGateway],
+  controllers: [AiChatController],
 })
 export class AiChatModule {}

@@ -133,11 +133,18 @@ export class AiChatGateway
         }`,
       );
       client.emit('assistant_error', {
-        message:
-          'AI yordamchi hozir javob bera olmadi. Birozdan keyin qayta urinib ko`ring.',
+        message: this.formatUserError(error),
       });
       return { ok: false };
     }
+  }
+
+  private formatUserError(error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('OpenRouter HTTP 401') || msg.includes('User not found')) {
+      return 'AI vaqtincha javob bera olmadi. Birozdan keyin qayta urinib ko‘ring.';
+    }
+    return 'AI yordamchi hozir javob bera olmadi. Birozdan keyin qayta urinib ko`ring.';
   }
 
   private scrubIds(text: string) {

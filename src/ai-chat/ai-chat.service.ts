@@ -1,5 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OPENROUTER_API_KEY, OPENROUTER_MODEL } from './ai-chat.secrets';
+import {
+  AI_PROVIDER,
+  hasOllamaConfig,
+  hasOpenRouterConfig,
+  OLLAMA_BASE_URL,
+  OLLAMA_MODEL,
+  OLLAMA_TIMEOUT_MS,
+  OPENROUTER_API_KEY,
+  OPENROUTER_MODEL,
+} from './ai-chat.secrets';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
@@ -10,6 +19,8 @@ import { Level } from '../database/entities/level.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { User } from '../database/entities/user.entity';
+import { Organization } from '../database/entities/organization.entity';
+import { UserOrganization } from '../database/entities/user-organization.entity';
 
 export type AiChatScope = 'mobile' | 'admin';
 
@@ -22,6 +33,10 @@ export class AiChatService {
 
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(Organization)
+    private readonly orgRepo: Repository<Organization>,
+    @InjectRepository(UserOrganization)
+    private readonly userOrgRepo: Repository<UserOrganization>,
     @InjectRepository(Level) private readonly levelRepo: Repository<Level>,
     @InjectRepository(UserLevelCompletion)
     private readonly completionRepo: Repository<UserLevelCompletion>,
@@ -35,7 +50,22 @@ export class AiChatService {
 
   normalizeScope(role: Role | undefined, requestedScope?: string): AiChatScope {
     if (role === Role.USER) return 'mobile';
+    if (role === Role.MODERATOR || role === Role.SUPERADMIN) {
+      return requestedScope === 'mobile' ? 'mobile' : 'admin';
+    }
     return requestedScope === 'admin' ? 'admin' : 'mobile';
+  }
+
+  getProviderStatus() {
+    return {
+      provider: AI_PROVIDER,
+      openRouterConfigured: hasOpenRouterConfig(),
+      ollamaConfigured: hasOllamaConfig(),
+      openRouterModel: OPENROUTER_MODEL,
+      ollamaModel: OLLAMA_MODEL,
+      ollamaBaseUrl: OLLAMA_BASE_URL,
+      ready: true,
+    };
   }
 
   /**
@@ -50,16 +80,53 @@ export class AiChatService {
     message: string;
     onChunk: (chunk: string) => void;
   }) {
-    const ctx = await this.getContextLine(args.userId, args.scope);
+    const ctx =
+      args.scope === 'admin'
+        ? await this.getAdminContextLine(args.userId)
+        : await this.getMobileContextLine(args.userId);
     const systemPrompt =
-      "Sen o'zbekcha gapiradigan yordamchisan. Faqat kerakli savol-javob. Hech qachon ID/UUID/token yoki ichki kodlarni foydalanuvchiga ko'rsatma id bilan topilgan ma'lumotlarni esa asosan string bo'lgan NAME larni tilte larni olib kel misol uchun question ning matni va bo'limning matni . Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.";
+      args.scope === 'admin'
+        ? "Sen ElektroLearn admin panelidagi o'zbekcha AI yordamchisan. Moderator/superadmin filial statistikasi, xodimlar aktivligi, kunlik plan natijasi va xato savollar bo'yicha qisqa, aniq javob ber. Hech qachon UUID/token ko'rsatma. Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber."
+        : "Sen o'zbekcha gapiradigan o'quv yordamchisan. Foydalanuvchi progressi, xatolar, daraja va imtihon holati bo'yicha yordam ber. Hech qachon ID/UUID ko'rsatma. Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.";
     const userPrompt = `${ctx}\nSAVOL: ${args.message}`;
 
-    await this.streamFromOpenRouter({
+    await this.streamWithFallback({
       system: systemPrompt,
       user: userPrompt,
       onChunk: args.onChunk,
     });
+  }
+
+  private async streamWithFallback(args: {
+    system: string;
+    user: string;
+    onChunk: (chunk: string) => void;
+  }) {
+    const errors: string[] = [];
+
+    if (AI_PROVIDER === 'ollama') {
+      await this.streamFromOllama(args);
+      return;
+    }
+
+    if (AI_PROVIDER === 'openrouter' || AI_PROVIDER === 'auto') {
+      try {
+        await this.streamFromOpenRouter(args);
+        return;
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        errors.push(`OpenRouter: ${msg}`);
+        if (AI_PROVIDER === 'openrouter') throw error;
+      }
+    }
+
+    try {
+      await this.streamFromOllama(args);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      errors.push(`Ollama: ${msg}`);
+      throw new Error(errors.join(' | '));
+    }
   }
 
   private async streamFromOllama(args: {
@@ -67,13 +134,12 @@ export class AiChatService {
     user: string;
     onChunk: (chunk: string) => void;
   }) {
-    const model = process.env.OLLAMA_MODEL?.trim() || 'qwen2.5-coder:7b';
-    const baseUrl =
-      process.env.OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434';
+    const model = OLLAMA_MODEL;
+    const baseUrl = OLLAMA_BASE_URL;
     const requestUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`;
 
     const controller = new AbortController();
-    const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS ?? 120000);
+    const timeoutMs = OLLAMA_TIMEOUT_MS;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     let response: Response;
@@ -222,8 +288,8 @@ export class AiChatService {
     }
   }
 
-  private async getContextLine(userId: string, scope: AiChatScope) {
-    const key = `${userId}:${scope}`;
+  private async getMobileContextLine(userId: string) {
+    const key = `mobile:${userId}`;
     const now = Date.now();
     const cached = this.ctxCache.get(key);
     if (cached && now - cached.at < this.ctxTtlMs) return cached.ctx;
@@ -324,7 +390,75 @@ export class AiChatService {
     const wrongPart = wrongDistinct.length
       ? ` wrong=[${wrongDistinct.map((x) => `"${x.replace(/"/g, "'")}"`).join(',')}]`
       : '';
-    const ctx = `CTX: scope=${scope} org=${org?.name ?? '-'} xp=${totalXp} stage=${stage} exam=${examFlag} exam_title=${examTitle} exam_status=${examStatus} exam_at=${examAt}${wrongPart}`;
+    const ctx = `CTX: scope=mobile org=${org?.name ?? '-'} xp=${totalXp} stage=${stage} exam=${examFlag} exam_title=${examTitle} exam_status=${examStatus} exam_at=${examAt}${wrongPart}`;
+    this.ctxCache.set(key, { at: now, ctx });
+    return ctx;
+  }
+
+  private async getAdminContextLine(userId: string) {
+    const key = `admin:${userId}`;
+    const now = Date.now();
+    const cached = this.ctxCache.get(key);
+    if (cached && now - cached.at < this.ctxTtlMs) return cached.ctx;
+
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['organizations', 'organizations.organization'],
+    });
+    const org = user?.organizations?.[0]?.organization ?? null;
+    const orgId = org?.id;
+
+    if (!orgId) {
+      const ctx = 'CTX: scope=admin org=- role=moderator ma_lumot_yoq';
+      this.ctxCache.set(key, { at: now, ctx });
+      return ctx;
+    }
+
+    const since = new Date();
+    since.setDate(since.getDate() - 7);
+
+    const totalEmployeesRow = await this.userOrgRepo
+      .createQueryBuilder('uo')
+      .innerJoin(User, 'u', 'u.id = uo.user_id')
+      .where('uo.organization_id = :orgId', { orgId })
+      .andWhere('u.role = :role', { role: Role.USER })
+      .select('COUNT(*)::int', 'count')
+      .getRawOne<{ count: number }>();
+    const totalEmployees = totalEmployeesRow?.count ?? 0;
+
+    const quizTakers = await this.attemptRepo
+      .createQueryBuilder('a')
+      .select('COUNT(DISTINCT a.user_id)::int', 'count')
+      .where('a.organization_id = :orgId', { orgId })
+      .andWhere('a.answered_at >= :since', { since })
+      .getRawOne<{ count: number }>();
+
+    const wrongRows: Array<{ prompt: string; wrong: number }> =
+      await this.attemptRepo.query(
+        `
+        SELECT q.prompt AS prompt, COUNT(*)::int AS wrong
+        FROM user_question_attempts a
+        JOIN questions q ON q.id = a.question_id
+        WHERE a.organization_id = $1
+          AND a.is_correct = false
+          AND a.answered_at >= $2
+        GROUP BY q.id, q.prompt
+        ORDER BY wrong DESC
+        LIMIT 5
+        `,
+        [orgId, since],
+      );
+
+    const wrongPart = wrongRows.length
+      ? ` top_wrong=[${wrongRows
+          .map((r) => {
+            const p = (r.prompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
+            return `"${p} (${r.wrong}x)"`;
+          })
+          .join(', ')}]`
+      : '';
+
+    const ctx = `CTX: scope=admin org="${org?.name ?? '-'}" employees=${totalEmployees} quiz_takers_7d=${quizTakers?.count ?? 0}${wrongPart}`;
     this.ctxCache.set(key, { at: now, ctx });
     return ctx;
   }
