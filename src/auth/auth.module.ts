@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import type { StringValue } from 'ms';
@@ -11,6 +11,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
 import { EmployeeCheck } from '../database/entities/employee-check.entity';
+import { UserActivityModule } from '../user-activity/user-activity.module';
 
 const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
   '12h') as StringValue;
@@ -19,6 +20,7 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
   imports: [
     UsersModule,
     OrganizationsModule,
+    forwardRef(() => UserActivityModule),
     PassportModule,
     TypeOrmModule.forFeature([RefreshToken, EmployeeCertificate, EmployeeCheck]),
     JwtModule.register({

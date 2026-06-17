@@ -1,8 +1,10 @@
 import {
   BadRequestException,
   ForbiddenException,
+  Inject,
   Injectable,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -24,6 +26,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginSuccessResponseDto } from './dto/login-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
+import { UserActivityService } from '../user-activity/user-activity.service';
 
 @Injectable()
 export class AuthService {
@@ -31,6 +34,8 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly organizationsService: OrganizationsService,
     private readonly jwtService: JwtService,
+    @Inject(forwardRef(() => UserActivityService))
+    private readonly userActivityService: UserActivityService,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
     @InjectRepository(EmployeeCertificate)
@@ -73,6 +78,14 @@ export class AuthService {
     const accessToken = await this.jwtService.signAsync(payload);
     const refreshToken = await this.issueRefreshToken(user.id);
     const profile = this.toProfile(user);
+
+    const orgIds = this.getOrganizationIds(user);
+    void this.userActivityService
+      .startSession({
+        userId: user.id,
+        organizationId: orgIds[0] ?? null,
+      })
+      .catch(() => undefined);
 
     return {
       success: true,
