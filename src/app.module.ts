@@ -66,6 +66,11 @@ import { NesEmployee } from './database/entities/nes-employee.entity';
 import { NesEmployeeHistory } from './database/entities/nes-employee-history.entity';
 import { NesEmployeePositionHistory } from './database/entities/nes-employee-position-history.entity';
 import { NesEmployeesModule } from './nes-employees/nes-employees.module';
+import { UserSession } from './database/entities/user-session.entity';
+import { UserActivityEvent } from './database/entities/user-activity-event.entity';
+import { UserActivityModule } from './user-activity/user-activity.module';
+import { BranchAnalyticsModule } from './branch-analytics/branch-analytics.module';
+import { DailyPlan } from './database/entities/daily-plan.entity';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -110,6 +115,9 @@ import { NesEmployeesModule } from './nes-employees/nes-employees.module';
         NesEmployee,
         NesEmployeeHistory,
         NesEmployeePositionHistory,
+        UserSession,
+        UserActivityEvent,
+        DailyPlan,
       ],
       synchronize: true,
     }),
@@ -133,6 +141,8 @@ import { NesEmployeesModule } from './nes-employees/nes-employees.module';
     AiChatModule,
     AudioLibraryModule,
     NesEmployeesModule,
+    UserActivityModule,
+    BranchAnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -36,6 +36,9 @@ export class User {
   @Column({ type: 'text', default: Role.USER })
   role: Role;
 
+  @Column({ type: 'text', name: 'initial_password', nullable: true })
+  initialPassword: string | null;
+
   @OneToMany(() => UserOrganization, (uo) => uo.user)
   organizations: UserOrganization[];
 

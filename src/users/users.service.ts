@@ -159,6 +159,7 @@ export class UsersService implements OnModuleInit {
         firstName: dto.firstName,
         lastName: dto.lastName,
         role: Role.MODERATOR,
+        initialPassword: dto.password,
       }),
     );
 
