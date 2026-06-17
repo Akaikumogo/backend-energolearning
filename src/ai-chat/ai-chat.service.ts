@@ -8,7 +8,7 @@ import {
   OLLAMA_TIMEOUT_MS,
   OPENROUTER_API_KEY,
   OPENROUTER_MODEL,
-} from './ai-chat.secrets';
+} from './ai-chat.config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
