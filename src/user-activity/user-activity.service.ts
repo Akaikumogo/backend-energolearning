@@ -483,7 +483,7 @@ export class UserActivityService {
       .createQueryBuilder('a')
       .innerJoin(Question, 'q', 'q.id = a.question_id')
       .select('a.question_id', 'questionId')
-      .addSelect('q.text', 'questionText')
+      .addSelect('q.prompt', 'questionText')
       .addSelect('COUNT(*)::int', 'attempts')
       .addSelect(
         'SUM(CASE WHEN a.is_correct = false THEN 1 ELSE 0 END)::int',
@@ -495,7 +495,7 @@ export class UserActivityService {
       )
       .addSelect('MAX(a.answered_at)', 'lastAttemptAt')
       .groupBy('a.question_id')
-      .addGroupBy('q.text')
+      .addGroupBy('q.prompt')
       .orderBy('wrong', 'DESC')
       .limit(filter.limit ?? 50);
 
