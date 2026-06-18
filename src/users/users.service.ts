@@ -157,8 +157,9 @@ export class UsersService implements OnModuleInit {
     });
     if (existing) throw new BadRequestException('Bu email allaqachon mavjud');
 
-    const plainPassword = dto.password?.trim()
-      ? dto.password
+    const passwordWasProvided = !!dto.password?.trim();
+    const plainPassword = passwordWasProvided
+      ? (dto.password as string)
       : this.generatePassword();
 
     const passwordHash = await bcrypt.hash(plainPassword, 10);
@@ -170,6 +171,8 @@ export class UsersService implements OnModuleInit {
         lastName: dto.lastName,
         role: Role.MODERATOR,
         initialPassword: plainPassword,
+        // Avtomat generatsiya qilingan parol — birinchi loginda majburiy o'zgartirish
+        mustChangePassword: !passwordWasProvided,
       }),
     );
 
@@ -213,6 +216,10 @@ export class UsersService implements OnModuleInit {
     passwordHash: string,
   ): Promise<void> {
     await this.usersRepo.update(userId, { passwordHash });
+  }
+
+  async clearMustChangePassword(userId: string): Promise<void> {
+    await this.usersRepo.update(userId, { mustChangePassword: false });
   }
 
   private generatePassword(): string {

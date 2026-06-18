@@ -34,4 +34,11 @@ export class UserProfileDto {
     example: [{ id: 'org-uuid', name: 'Default Organization' }],
   })
   organizations: { id: string; name: string }[];
+
+  @ApiProperty({
+    description:
+      'true bo`lsa, foydalanuvchi keyingi qadamda parolni majburiy o`zgartirishi kerak',
+    example: false,
+  })
+  mustChangePassword: boolean;
 }

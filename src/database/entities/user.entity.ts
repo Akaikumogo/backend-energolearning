@@ -39,6 +39,23 @@ export class User {
   @Column({ type: 'text', name: 'initial_password', nullable: true })
   initialPassword: string | null;
 
+  @Column({
+    type: 'boolean',
+    name: 'must_change_password',
+    default: false,
+  })
+  mustChangePassword: boolean;
+
+  /** Avatar yuklash payti yuz aniqlangan-aniqlanmaganligi (mobilning client-side
+   *  face-detection natijasi). Kelajakda yuzni qayta tanish uchun yoki audit
+   *  uchun ishlatiladi. */
+  @Column({
+    type: 'boolean',
+    name: 'avatar_has_face',
+    default: false,
+  })
+  avatarHasFace: boolean;
+
   @OneToMany(() => UserOrganization, (uo) => uo.user)
   organizations: UserOrganization[];
 
