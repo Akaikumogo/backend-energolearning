@@ -49,7 +49,10 @@ export class ModeratorPermissionsController {
     @Param('moderatorId', ParseUUIDPipe) moderatorId: string,
     @Body() body: UpdateModeratorPermissionsDto,
   ) {
-    return this.moderatorPermissionsService.setPermissions(moderatorId, body.permissions as any);
+    return this.moderatorPermissionsService.setPermissions(
+      moderatorId,
+      body.permissions,
+    );
   }
 
   @Get('moderator-violations')
