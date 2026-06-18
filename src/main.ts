@@ -127,37 +127,42 @@ async function bootstrap() {
     }),
   );
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('ElektroLearn Backend API')
-    .setDescription(
-      'MVP API docs. Auth, permission, request body, response va headerlar to`liq hujjatlashtirilgan.',
-    )
-    .setVersion('1.0.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description:
-          'Auth/login endpointdan olingan tokenni Bearer formatda yuboring.',
+  const enableSwagger =
+    process.env.ENABLE_SWAGGER === 'true' ||
+    process.env.NODE_ENV !== 'production';
+
+  if (enableSwagger) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('ElektroLearn Backend API')
+      .setDescription(
+        'MVP API docs. Auth, permission, request body, response va headerlar to`liq hujjatlashtirilgan.',
+      )
+      .setVersion('1.0.0')
+      .addBearerAuth(
+        {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+          description:
+            'Auth/login endpointdan olingan tokenni Bearer formatda yuboring.',
+        },
+        'bearer',
+      )
+      .build();
+
+    const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+
+    SwaggerModule.setup(SWAGGER_RELATIVE_PATH, app, swaggerDocument, {
+      customSiteTitle: 'ElektroLearn API Docs',
+      swaggerOptions: {
+        persistAuthorization: true,
+        displayRequestDuration: true,
+        docExpansion: 'none',
+        filter: true,
+        tagsSorter: 'alpha',
+        operationsSorter: 'alpha',
       },
-      'bearer',
-    )
-    .build();
-
-  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
-
-  SwaggerModule.setup(SWAGGER_RELATIVE_PATH, app, swaggerDocument, {
-    customSiteTitle: 'ElektroLearn API Docs',
-    swaggerOptions: {
-      persistAuthorization: true,
-      displayRequestDuration: true,
-      docExpansion: 'none',
-      filter: true,
-      tagsSorter: 'alpha',
-      operationsSorter: 'alpha',
-    },
-    customCss: `
+      customCss: `
       :root {
         color-scheme: light dark;
       }
@@ -175,7 +180,8 @@ async function bootstrap() {
         }
       }
     `,
-  });
+    });
+  }
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');

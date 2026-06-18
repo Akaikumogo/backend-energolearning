@@ -1,6 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -33,6 +33,8 @@ import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { AdminAuditLog } from './database/entities/admin-audit-log.entity';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { AdminAuditLogMiddleware } from './common/middleware/admin-audit-log.middleware';
+import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
+import { SensitiveDataInterceptor } from './common/interceptors/sensitive-data.interceptor';
 import { AdminRoleForbiddenViolationFilter } from './common/filters/admin-role-forbidden-violation.filter';
 import { Position } from './database/entities/position.entity';
 import { UserPosition } from './database/entities/user-position.entity';
@@ -157,11 +159,20 @@ import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
       provide: APP_FILTER,
       useClass: AdminRoleForbiddenViolationFilter,
     },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: SensitiveDataInterceptor,
+    },
     AdminAuditLogMiddleware,
+    SecurityHeadersMiddleware,
   ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(AdminAuditLogMiddleware).forRoutes('admin');
+    consumer
+      .apply(SecurityHeadersMiddleware)
+      .forRoutes('*')
+      .apply(AdminAuditLogMiddleware)
+      .forRoutes('admin');
   }
 }

@@ -9,6 +9,7 @@ import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { LoginThrottleGuard } from './guards/login-throttle.guard';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
 import { EmployeeCheck } from '../database/entities/employee-check.entity';
 import { UserActivityModule } from '../user-activity/user-activity.module';
@@ -31,7 +32,7 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, LoginThrottleGuard],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
