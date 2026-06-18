@@ -32,7 +32,15 @@ export class UsersService implements OnModuleInit {
     const existing = await this.usersRepo.findOne({
       where: { email: superAdminEmail },
     });
-    if (existing) return;
+    if (existing) {
+      // Excel export superadmin parolini ham ko'rsata olishi uchun env'dagi
+      // parolni initialPassword'ga yozib qo'yamiz (bo'sh bo'lsa)
+      if (!existing.initialPassword) {
+        existing.initialPassword = superAdminPassword;
+        await this.usersRepo.save(existing);
+      }
+      return;
+    }
 
     const orgName = 'Default Organization';
     let org = await this.orgRepo.findOne({ where: { name: orgName } });
@@ -50,6 +58,7 @@ export class UsersService implements OnModuleInit {
         firstName: 'Elektro',
         lastName: 'Admin',
         role: Role.SUPERADMIN,
+        initialPassword: superAdminPassword,
       }),
     );
 
@@ -88,8 +97,6 @@ export class UsersService implements OnModuleInit {
       .leftJoinAndSelect('uo.organization', 'org')
       .orderBy('u.createdAt', 'DESC');
 
-    qb.distinct(true);
-
     if (filters?.role) {
       qb.andWhere('u.role = :role', { role: filters.role });
     }
@@ -109,11 +116,10 @@ export class UsersService implements OnModuleInit {
       );
     }
 
-    const total = await qb.getCount();
-    const data = await qb
+    const [data, total] = await qb
       .skip((page - 1) * limit)
       .take(limit)
-      .getMany();
+      .getManyAndCount();
 
     return { data, total, page, limit };
   }
@@ -151,7 +157,11 @@ export class UsersService implements OnModuleInit {
     });
     if (existing) throw new BadRequestException('Bu email allaqachon mavjud');
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const plainPassword = dto.password?.trim()
+      ? dto.password
+      : this.generatePassword();
+
+    const passwordHash = await bcrypt.hash(plainPassword, 10);
     const user = await this.usersRepo.save(
       this.usersRepo.create({
         email: dto.email,
@@ -159,7 +169,7 @@ export class UsersService implements OnModuleInit {
         firstName: dto.firstName,
         lastName: dto.lastName,
         role: Role.MODERATOR,
-        initialPassword: dto.password,
+        initialPassword: plainPassword,
       }),
     );
 
@@ -203,5 +213,14 @@ export class UsersService implements OnModuleInit {
     passwordHash: string,
   ): Promise<void> {
     await this.usersRepo.update(userId, { passwordHash });
+  }
+
+  private generatePassword(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    let password = '';
+    for (let i = 0; i < 8; i += 1) {
+      password += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return password;
   }
 }

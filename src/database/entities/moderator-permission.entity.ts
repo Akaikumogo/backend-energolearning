@@ -10,15 +10,18 @@ import {
 import { User } from './user.entity';
 
 export type CrudPermissions = {
+  view: boolean;
   create: boolean;
   update: boolean;
   delete: boolean;
 };
 
 export type ModeratorPermissions = {
+  // Content
   contentLevels: CrudPermissions;
   contentTheories: CrudPermissions;
   contentQuestions: CrudPermissions;
+  // Org & people
   organizations: CrudPermissions;
   students: CrudPermissions;
   users: CrudPermissions;
@@ -28,9 +31,24 @@ export type ModeratorPermissions = {
   exams: CrudPermissions;
   /** Audio kutubxona: audiokitoblar, boblar, paragraf(audioUrl) */
   audioLibrary: CrudPermissions;
+  // New (page-level)
+  analytics: CrudPermissions;
+  permissions: CrudPermissions;
+  violations: CrudPermissions;
+  logs: CrudPermissions;
+  nesSync: CrudPermissions;
+  aiAssistant: CrudPermissions;
+  showRoom: CrudPermissions;
+  qrScan: CrudPermissions;
+  salesIndicators: CrudPermissions;
 };
 
-const DEFAULT_CRUD: CrudPermissions = { create: false, update: false, delete: false };
+const DEFAULT_CRUD: CrudPermissions = {
+  view: false,
+  create: false,
+  update: false,
+  delete: false,
+};
 
 export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   contentLevels: DEFAULT_CRUD,
@@ -43,6 +61,15 @@ export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   profile: DEFAULT_CRUD,
   exams: DEFAULT_CRUD,
   audioLibrary: DEFAULT_CRUD,
+  analytics: DEFAULT_CRUD,
+  permissions: DEFAULT_CRUD,
+  violations: DEFAULT_CRUD,
+  logs: DEFAULT_CRUD,
+  nesSync: DEFAULT_CRUD,
+  aiAssistant: DEFAULT_CRUD,
+  showRoom: DEFAULT_CRUD,
+  qrScan: DEFAULT_CRUD,
+  salesIndicators: DEFAULT_CRUD,
 };
 
 const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
@@ -56,6 +83,15 @@ const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
   'profile',
   'exams',
   'audioLibrary',
+  'analytics',
+  'permissions',
+  'violations',
+  'logs',
+  'nesSync',
+  'aiAssistant',
+  'showRoom',
+  'qrScan',
+  'salesIndicators',
 ];
 
 /** Eski jsonb qatorlarida yangi modullar bo‘lmasa, default bilan to‘ldiradi. */
@@ -67,6 +103,7 @@ export function mergeModeratorPermissions(
     const def = DEFAULT_MODERATOR_PERMISSIONS[key];
     const p = partial?.[key];
     out[key] = {
+      view: p?.view ?? def.view,
       create: p?.create ?? def.create,
       update: p?.update ?? def.update,
       delete: p?.delete ?? def.delete,

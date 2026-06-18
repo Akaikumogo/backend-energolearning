@@ -6,10 +6,15 @@ export class CreateModeratorDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ example: 'Str0ng!Pass' })
+  @ApiPropertyOptional({
+    example: 'Str0ng!Pass',
+    description:
+      'Ixtiyoriy. Yuborilmasa, server avtomat 8 belgi parol generatsiya qiladi.',
+  })
+  @IsOptional()
   @IsString()
   @MinLength(6)
-  password: string;
+  password?: string;
 
   @ApiProperty({ example: 'Sardor' })
   @IsString()

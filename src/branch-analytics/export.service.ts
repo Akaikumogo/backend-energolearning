@@ -76,22 +76,33 @@ export class ExportService {
   }
 
   async buildModeratorsCredentialsExcel(): Promise<Buffer> {
-    const moderators = await this.userRepo.find({
-      where: { role: Role.MODERATOR },
+    const accounts = await this.userRepo.find({
+      where: [{ role: Role.MODERATOR }, { role: Role.SUPERADMIN }],
       relations: ['organizations', 'organizations.organization'],
-      order: { lastName: 'ASC', firstName: 'ASC' },
+      order: { role: 'ASC', lastName: 'ASC', firstName: 'ASC' },
+    });
+
+    // SUPERADMIN birinchi, keyin moderatorlar
+    accounts.sort((a, b) => {
+      if (a.role === b.role) {
+        return `${a.lastName} ${a.firstName}`.localeCompare(
+          `${b.lastName} ${b.firstName}`,
+        );
+      }
+      return a.role === Role.SUPERADMIN ? -1 : 1;
     });
 
     return this.toExcelBuffer(
       'Moderatorlar — login parollar',
-      ['№', 'F.I.O', 'Login', 'Parol', 'Filial', 'Email'],
-      moderators.map((m, i) => {
+      ['№', 'Rol', 'F.I.O', 'Login', 'Parol', 'Filial', 'Email'],
+      accounts.map((m, i) => {
         const orgName =
           m.organizations?.[0]?.organization?.name ??
           m.organizations?.map((uo) => uo.organization?.name).filter(Boolean).join(', ') ??
           '—';
         return [
           i + 1,
+          m.role,
           `${m.lastName} ${m.firstName}`.trim(),
           m.email,
           m.initialPassword ?? '—',
