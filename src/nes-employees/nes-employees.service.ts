@@ -327,6 +327,9 @@ export class NesEmployeesService {
           firstName: data.firstName,
           lastName: data.lastName,
           role: Role.USER,
+          initialPassword: password,
+          // ENERGO ID sync — birinchi loginda majburiy parol o'zgartirish
+          mustChangePassword: true,
         }),
       );
       await this.attachUserToOrganization(user.id, organization.id);
@@ -516,12 +519,19 @@ export class NesEmployeesService {
   }
 
   private buildLogin(data: NormalizedEmployee) {
+    // Format: {firstletter}.{lastname}{tabelNumber}
+    // Misol: Xusan Bo'riyev / 12345 -> "x.boriyev12345"
     const fullNameParts = data.fullName.split(/\s+/).filter(Boolean);
+    const firstNameSource =
+      data.firstName || fullNameParts[1] || fullNameParts[0] || 'u';
     const lastNameSource =
       data.lastName || fullNameParts[0] || data.firstName || 'user';
-    const lastSlug = this.slug(this.cyrillicToLatin(lastNameSource));
-    const numberSlug = this.slug(this.cyrillicToLatin(data.personnelNumber));
-    const base = `${lastSlug}${numberSlug}`.replace(/-/g, '');
+
+    const firstLetter = this.slug(this.cyrillicToLatin(firstNameSource)).charAt(0) || 'u';
+    const lastSlug = this.slug(this.cyrillicToLatin(lastNameSource)).replace(/-/g, '');
+    const numberSlug = this.slug(this.cyrillicToLatin(data.personnelNumber)).replace(/-/g, '');
+
+    const base = `${firstLetter}.${lastSlug}${numberSlug}`;
     return base || 'user';
   }
 

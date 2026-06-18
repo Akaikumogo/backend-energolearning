@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Param,
   Post,
@@ -155,13 +156,37 @@ export class UploadController {
   async uploadMyAvatar(
     @UploadedFile() file: Express.Multer.File,
     @Req() req: Request & { user: { id: string } },
+    @Body() body: { hasFace?: string | boolean; faceConfidence?: string | number },
   ) {
     if (!file) throw new BadRequestException('Fayl yuklanmadi');
 
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
-    await this.usersRepo.update(req.user.id, { avatarUrl });
+    // Mobil client-side face detection natijasi (face-api.js yoki mediapipe)
+    const hasFace =
+      body?.hasFace === true ||
+      body?.hasFace === 'true' ||
+      body?.hasFace === '1';
 
-    return { success: true, avatarUrl };
+    // Yuz aniqlanmagan bo'lsa — saqlamaymiz, qayta urinish so'raymiz.
+    // Mobil app shu xatoga moslab boshqa rasm tanlashni so'raydi.
+    if (!hasFace) {
+      // Yuklangan faylni o'chiramiz (saqlanmagan rasm uchun joy egallamaslik)
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
+      throw new BadRequestException(
+        'Rasmda yuz aniqlanmadi. Iltimos, yuzingiz aniq ko‘rinadigan boshqa rasm yuklang.',
+      );
+    }
+
+    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    await this.usersRepo.update(req.user.id, {
+      avatarUrl,
+      avatarHasFace: true,
+    });
+
+    return { success: true, avatarUrl, hasFace: true };
   }
 
   @Post('users/:userId/avatar')

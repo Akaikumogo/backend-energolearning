@@ -192,6 +192,7 @@ export class AuthService {
       avatarUrl: user.avatarUrl ?? null,
       organizationIds: this.getOrganizationIds(user),
       organizations,
+      mustChangePassword: user.mustChangePassword ?? false,
     };
   }
 
@@ -250,6 +251,8 @@ export class AuthService {
 
     const newHash = await bcrypt.hash(dto.newPassword, 10);
     await this.usersService.updatePasswordHash(userId, newHash);
+    // Parol o'zgartirildi — endi majburiy o'zgartirish bayrog'i tushiriladi
+    await this.usersService.clearMustChangePassword(userId);
 
     return { success: true, message: 'Parol muvaffaqiyatli yangilandi' };
   }
