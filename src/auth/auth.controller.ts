@@ -21,7 +21,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginSuccessResponseDto } from './dto/login-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { LoginThrottleGuard } from './guards/login-throttle.guard';
 import { JoinOrganizationDto } from './dto/join-organization.dto';
 import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
 
@@ -40,6 +40,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @UseGuards(LoginThrottleGuard)
   @ApiOperation({
     summary: 'Email + parol orqali login',
     description:
