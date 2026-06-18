@@ -45,6 +45,7 @@ import { QuestionsOnLessonRoot1744200000000 } from './migrations/0008-questions-
 import { TheoryRole1744300000000 } from './migrations/0009-theory-role';
 import { AddAudioLibrary1746060000000 } from './migrations/0010-add-audio-library';
 import { AddNesEmployees1746070000000 } from './migrations/0011-add-nes-employees';
+import { AddActivityAndDailyPlan1746080000000 } from './migrations/0012-add-activity-and-daily-plan';
 import { getPostgresConnectionOptions } from './postgres-env';
 
 export const AppDataSource = new DataSource({
@@ -99,6 +100,7 @@ export const AppDataSource = new DataSource({
     TheoryRole1744300000000,
     AddAudioLibrary1746060000000,
     AddNesEmployees1746070000000,
+    AddActivityAndDailyPlan1746080000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
