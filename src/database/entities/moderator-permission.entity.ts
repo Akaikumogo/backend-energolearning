@@ -38,9 +38,6 @@ export type ModeratorPermissions = {
   logs: CrudPermissions;
   nesSync: CrudPermissions;
   aiAssistant: CrudPermissions;
-  showRoom: CrudPermissions;
-  qrScan: CrudPermissions;
-  salesIndicators: CrudPermissions;
 };
 
 const DEFAULT_CRUD: CrudPermissions = {
@@ -67,12 +64,9 @@ export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   logs: DEFAULT_CRUD,
   nesSync: DEFAULT_CRUD,
   aiAssistant: DEFAULT_CRUD,
-  showRoom: DEFAULT_CRUD,
-  qrScan: DEFAULT_CRUD,
-  salesIndicators: DEFAULT_CRUD,
 };
 
-const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
+export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
   'contentLevels',
   'contentTheories',
   'contentQuestions',
@@ -89,9 +83,6 @@ const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
   'logs',
   'nesSync',
   'aiAssistant',
-  'showRoom',
-  'qrScan',
-  'salesIndicators',
 ];
 
 /** Eski jsonb qatorlarida yangi modullar bo‘lmasa, default bilan to‘ldiradi. */

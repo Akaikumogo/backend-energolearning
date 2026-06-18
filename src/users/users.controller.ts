@@ -69,10 +69,12 @@ export class UsersController {
   @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'Moderatorlar ro`yxati (search + pagination)' })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   findModerators(
     @Query('search') search?: string,
+    @Query('orgId') orgId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -81,6 +83,7 @@ export class UsersController {
       search,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
+      organizationIds: orgId?.trim() ? [orgId.trim()] : undefined,
     });
   }
 
