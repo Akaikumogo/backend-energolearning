@@ -39,10 +39,12 @@ export class ModeratorPermissionsService {
 
   async setPermissions(
     moderatorUserId: string,
-    permissions: ModeratorPermissions,
+    permissions: unknown,
   ): Promise<ModeratorPermission> {
     const existing = await this.getOrCreate(moderatorUserId);
-    existing.permissions = mergeModeratorPermissions(permissions);
+    existing.permissions = mergeModeratorPermissions(
+      permissions as Partial<ModeratorPermissions>,
+    );
     return this.permRepo.save(existing);
   }
 

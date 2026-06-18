@@ -21,14 +21,14 @@ export class NesEmployeesController {
   constructor(private readonly nesEmployeesService: NesEmployeesService) {}
 
   @Get('filter-options')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Filtr uchun noyob tashkilot va bo`limlar ro`yxati' })
   filterOptions() {
     return this.nesEmployeesService.getFilterOptions();
   }
 
   @Get('sync-status')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Hozirgi sync holati va progressi' })
   syncStatus() {
     return this.nesEmployeesService.getSyncStatus();
@@ -42,7 +42,7 @@ export class NesEmployeesController {
   }
 
   @Get()
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'NESdan import qilingan xodimlar ro`yxati' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'organizationName', required: false })
@@ -66,21 +66,21 @@ export class NesEmployeesController {
   }
 
   @Get(':id/history')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'NES xodimining o`zgarish tarixi (employee UUID bo`yicha)' })
   history(@Param('id') id: string) {
     return this.nesEmployeesService.listHistory(id);
   }
 
   @Get(':id/positions')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'NES xodimining lavozim xronologiyasi (employee UUID bo`yicha)' })
   positions(@Param('id') id: string) {
     return this.nesEmployeesService.listPositionHistory(id);
   }
 
   @Post('sync')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'NES xodimlarini qo`lda sinxron qilish' })
   @ApiBody({ type: SyncNesEmployeesDto })
   sync(@Body() body: SyncNesEmployeesDto) {

@@ -110,6 +110,14 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
   if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
 
+  // NES / ENERGO ID
+  if (path === '/admin/nes-employees/sync' && m === 'POST') {
+    return { module: 'nesSync', action: 'create' };
+  }
+  if (path === '/admin/nes-employees' && m === 'DELETE') {
+    return { module: 'nesSync', action: 'delete' };
+  }
+
   return null;
 }
 
