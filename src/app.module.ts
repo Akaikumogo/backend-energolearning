@@ -71,6 +71,7 @@ import { UserActivityEvent } from './database/entities/user-activity-event.entit
 import { UserActivityModule } from './user-activity/user-activity.module';
 import { BranchAnalyticsModule } from './branch-analytics/branch-analytics.module';
 import { DailyPlan } from './database/entities/daily-plan.entity';
+import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -143,6 +144,7 @@ import { DailyPlan } from './database/entities/daily-plan.entity';
     NesEmployeesModule,
     UserActivityModule,
     BranchAnalyticsModule,
+    AdminScriptsModule,
   ],
   controllers: [AppController],
   providers: [

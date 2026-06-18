@@ -516,14 +516,13 @@ export class NesEmployeesService {
   }
 
   private buildLogin(data: NormalizedEmployee) {
-    const name =
-      data.firstName || data.fullName.split(/\s+/).filter(Boolean)[0] || 'user';
-    const divisionPrefix =
-      data.division.split(/\s+(?:МЭТ|MET)\b/i)[0] || data.division;
-    return [name, data.personnelNumber, divisionPrefix]
-      .map((part) => this.slug(this.cyrillicToLatin(part)))
-      .filter(Boolean)
-      .join('.');
+    const fullNameParts = data.fullName.split(/\s+/).filter(Boolean);
+    const lastNameSource =
+      data.lastName || fullNameParts[0] || data.firstName || 'user';
+    const lastSlug = this.slug(this.cyrillicToLatin(lastNameSource));
+    const numberSlug = this.slug(this.cyrillicToLatin(data.personnelNumber));
+    const base = `${lastSlug}${numberSlug}`.replace(/-/g, '');
+    return base || 'user';
   }
 
   private generatePassword() {
