@@ -11,7 +11,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { ApiErrorResponseDto } from '../common/dto/api-response.dto';
 import { UserProfileDto } from '../users/dto/user-profile.dto';
 import { UpdateProfileDto } from '../users/dto/update-profile.dto';
@@ -60,8 +60,8 @@ export class AuthController {
     description: 'Noto`g`ri body format',
     type: ApiErrorResponseDto,
   })
-  login(@Body() body: LoginDto): Promise<LoginSuccessResponseDto> {
-    return this.authService.login(body);
+  login(@Body() body: LoginDto, @Req() req: Request): Promise<LoginSuccessResponseDto> {
+    return this.authService.login(body, req);
   }
 
   @Post('admin/login')
