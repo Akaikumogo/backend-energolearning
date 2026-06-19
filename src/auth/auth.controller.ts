@@ -43,9 +43,9 @@ export class AuthController {
   @Post('login')
   @UseGuards(LoginThrottleGuard)
   @ApiOperation({
-    summary: 'Email + parol orqali login',
+    summary: 'Mobile / xodim login (Energo ID)',
     description:
-      'JWT access token qaytaradi. Superadmin default login: elektroLearn@admin.com / !Qw3rty',
+      'Xodimlar (USER) uchun. Energo ID orqali tekshiriladi. Admin panel uchun `/auth/admin/login` ishlating.',
   })
   @ApiBody({ type: LoginDto })
   @ApiOkResponse({
@@ -62,6 +62,30 @@ export class AuthController {
   })
   login(@Body() body: LoginDto): Promise<LoginSuccessResponseDto> {
     return this.authService.login(body);
+  }
+
+  @Post('admin/login')
+  @UseGuards(LoginThrottleGuard)
+  @ApiOperation({
+    summary: 'Admin panel login (ElektroLearn local)',
+    description:
+      'Faqat ElektroLearn bazasidagi SUPERADMIN va MODERATOR. Energo ID ishlatilmaydi.',
+  })
+  @ApiBody({ type: LoginDto })
+  @ApiOkResponse({
+    description: 'Muvaffaqiyatli login javobi',
+    type: LoginSuccessResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Noto`g`ri email yoki parol',
+    type: ApiErrorResponseDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Rol admin panel uchun ruxsat etilmagan',
+    type: ApiErrorResponseDto,
+  })
+  adminLogin(@Body() body: LoginDto): Promise<LoginSuccessResponseDto> {
+    return this.authService.adminLogin(body);
   }
 
   @Get('me')

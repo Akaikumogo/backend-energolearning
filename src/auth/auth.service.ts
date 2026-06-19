@@ -46,6 +46,7 @@ export class AuthService {
     private readonly employeeCheckRepo: Repository<EmployeeCheck>,
   ) {}
 
+  /** Mobile va xodimlar — Energo ID orqali (yoki fallback). */
   async login(dto: LoginDto): Promise<LoginSuccessResponseDto> {
     if (this.energoIdAuthClient.isConfigured()) {
       try {
@@ -59,6 +60,17 @@ export class AuthService {
     }
 
     return this.loginWithLocalPassword(dto);
+  }
+
+  /** Admin panel — faqat ElektroLearn bazasi, SUPERADMIN va MODERATOR. */
+  async adminLogin(dto: LoginDto): Promise<LoginSuccessResponseDto> {
+    const user = await this.resolveLocalUser(dto);
+    if (user.role !== Role.SUPERADMIN && user.role !== Role.MODERATOR) {
+      throw new ForbiddenException(
+        'Admin panelga faqat moderator yoki superadmin kira oladi',
+      );
+    }
+    return this.issueLoginResponse(user);
   }
 
   private async loginWithEnergoId(
@@ -80,13 +92,16 @@ export class AuthService {
   private async loginWithLocalPassword(
     dto: LoginDto,
   ): Promise<LoginSuccessResponseDto> {
+    const user = await this.resolveLocalUser(dto);
+    return this.issueLoginResponse(user);
+  }
+
+  private async resolveLocalUser(dto: LoginDto): Promise<User> {
     const identifier = (dto.login ?? dto.email ?? '').trim();
     if (!identifier) {
       throw new UnauthorizedException('Login yoki email kiritilmadi');
     }
 
-    // NES 1C dan sync qilingan foydalanuvchilarda login `users.email` ustunida saqlanadi.
-    // Shu sababli avval to'g'ridan-to'g'ri tekshiramiz, topilmasa lowercase variantini sinaymiz.
     let user = await this.usersService.findByEmail(identifier);
     if (!user) {
       user = await this.usersService.findByEmail(identifier.toLowerCase());
@@ -103,7 +118,7 @@ export class AuthService {
       throw new UnauthorizedException('Login yoki parol noto`g`ri');
     }
 
-    return this.issueLoginResponse(user);
+    return user;
   }
 
   private async issueLoginResponse(
