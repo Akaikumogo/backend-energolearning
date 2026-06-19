@@ -66,7 +66,7 @@ async function main() {
   }
 
   console.log('1) SuperAdmin login...');
-  const login = await api('/auth/login', {
+  const login = await api('/auth/admin/login', {
     method: 'POST',
     body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
   });
