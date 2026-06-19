@@ -28,6 +28,8 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { UserActivityService } from '../user-activity/user-activity.service';
 import { EnergoIdAuthClient } from './energo-id-auth.client';
+import { getClientIp } from '../common/client-ip.util';
+import type { Request } from 'express';
 
 @Injectable()
 export class AuthService {
@@ -47,10 +49,10 @@ export class AuthService {
   ) {}
 
   /** Mobile va xodimlar — Energo ID orqali (yoki fallback). */
-  async login(dto: LoginDto): Promise<LoginSuccessResponseDto> {
+  async login(dto: LoginDto, req?: Request): Promise<LoginSuccessResponseDto> {
     if (this.energoIdAuthClient.isConfigured()) {
       try {
-        return await this.loginWithEnergoId(dto);
+        return await this.loginWithEnergoId(dto, req);
       } catch (error) {
         if (process.env.AUTH_LOCAL_FALLBACK_ENABLED === 'true') {
           return this.loginWithLocalPassword(dto);
@@ -75,15 +77,18 @@ export class AuthService {
 
   private async loginWithEnergoId(
     dto: LoginDto,
+    req?: Request,
   ): Promise<LoginSuccessResponseDto> {
     const identifier = (dto.login ?? dto.email ?? '').trim();
     if (!identifier) {
       throw new UnauthorizedException('Login yoki email kiritilmadi');
     }
 
+    const clientIp = req ? getClientIp(req) : null;
     const energoUser = await this.energoIdAuthClient.verifyLogin(
       identifier,
       dto.password,
+      clientIp,
     );
     const user = await this.usersService.syncFromEnergoIdentity(energoUser);
     return this.issueLoginResponse(user);

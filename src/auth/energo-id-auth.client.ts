@@ -47,13 +47,22 @@ export class EnergoIdAuthClient {
     return !!process.env.ENERGO_ID_BASE_URL?.trim();
   }
 
-  async verifyLogin(login: string, password: string): Promise<EnergoIdUser> {
+  async verifyLogin(
+    login: string,
+    password: string,
+    clientIp?: string | null,
+  ): Promise<EnergoIdUser> {
     const config = this.getConfig();
+    const headers: Record<string, string> = { ...config.headers };
+    if (clientIp) {
+      headers['X-Client-Ip'] = clientIp;
+    }
+
     const response = await this.request(
       `${config.baseUrl}/internal/v1/auth/verify`,
       {
         method: 'POST',
-        headers: config.headers,
+        headers,
         body: JSON.stringify({
           platform: config.platform,
           login,
