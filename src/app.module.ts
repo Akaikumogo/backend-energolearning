@@ -73,7 +73,10 @@ import { UserActivityEvent } from './database/entities/user-activity-event.entit
 import { UserActivityModule } from './user-activity/user-activity.module';
 import { BranchAnalyticsModule } from './branch-analytics/branch-analytics.module';
 import { DailyPlan } from './database/entities/daily-plan.entity';
+import { EmployeeSyncSetting } from './database/entities/employee-sync-setting.entity';
+import { TerminatedEmployee } from './database/entities/terminated-employee.entity';
 import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
+import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -121,8 +124,10 @@ import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
         UserSession,
         UserActivityEvent,
         DailyPlan,
+        EmployeeSyncSetting,
+        TerminatedEmployee,
       ],
-      synchronize: true,
+      synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
     UsersModule,
     AuthModule,
@@ -147,6 +152,7 @@ import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
     UserActivityModule,
     BranchAnalyticsModule,
     AdminScriptsModule,
+    TelegramBotModule,
   ],
   controllers: [AppController],
   providers: [

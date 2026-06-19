@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -44,10 +45,15 @@ export class StudentsController {
   @ApiOperation({ summary: 'Xodim qo`shish (admin)' })
   @ApiBody({ type: CreateStudentDto })
   create(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Body() body: CreateStudentDto,
   ) {
-    return this.studentsService.createStudent(req.user, body);
+    void req;
+    void body;
+    throw new ForbiddenException('Xodimlar faqat Energo ID orqali qo`shiladi');
   }
 
   @Get()
@@ -59,7 +65,10 @@ export class StudentsController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiOkResponse({ description: 'Paginated xodimlar ro`yxati' })
   findAll(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Query('orgId') orgId?: string,
     @Query('levelId') levelId?: string,
     @Query('search') search?: string,
@@ -80,7 +89,10 @@ export class StudentsController {
   @ApiParam({ name: 'id', description: 'Employee ID' })
   @ApiOkResponse({ description: 'Xodim detali' })
   findOne(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id') id: string,
   ) {
     return this.studentsService.findOne(id, req.user);
@@ -90,10 +102,15 @@ export class StudentsController {
   @ApiOperation({ summary: 'Xodimni o`chirish (admin)' })
   @ApiParam({ name: 'id', description: 'Employee ID' })
   remove(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.studentsService.deleteStudent(id, req.user).then(() => ({ ok: true }));
+    return this.studentsService
+      .deleteStudent(id, req.user)
+      .then(() => ({ ok: true }));
   }
 
   @Get(':id/lost-questions')
@@ -101,7 +118,10 @@ export class StudentsController {
   @ApiParam({ name: 'id', description: 'Employee ID' })
   @ApiOkResponse({ description: 'Lost questions ro`yxati' })
   getLostQuestions(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id') id: string,
   ) {
     return this.studentsService.getLostQuestions(id, req.user);
@@ -112,7 +132,10 @@ export class StudentsController {
   @ApiParam({ name: 'id', description: 'Employee ID' })
   @ApiOkResponse({ description: 'Activity data: [{date, count}]' })
   getActivity(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id') id: string,
   ) {
     return this.studentsService.getActivity(id, req.user);
@@ -121,7 +144,10 @@ export class StudentsController {
   @Get(':id/employee-certificate')
   @ApiOperation({ summary: 'Xodim guvohnomasi (admin)' })
   getEmployeeCertificate(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.studentsService.getEmployeeCertificate(id, req.user);
@@ -131,7 +157,10 @@ export class StudentsController {
   @ApiOperation({ summary: 'Xodim guvohnomasini yaratish/yangilash (admin)' })
   @ApiBody({ type: UpsertEmployeeCertificateDto })
   upsertEmployeeCertificate(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: UpsertEmployeeCertificateDto,
   ) {
@@ -142,7 +171,10 @@ export class StudentsController {
   @ApiOperation({ summary: 'Xodim tekshiruvlari ro`yxati (admin)' })
   @ApiQuery({ name: 'type', required: false, enum: EmployeeCheckType })
   listChecks(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id', ParseUUIDPipe) id: string,
     @Query('type') type?: EmployeeCheckType,
   ) {
@@ -153,7 +185,10 @@ export class StudentsController {
   @ApiOperation({ summary: 'Tekshiruv qo`shish (admin)' })
   @ApiBody({ type: CreateEmployeeCheckDto })
   createCheck(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: CreateEmployeeCheckDto,
   ) {
@@ -164,21 +199,34 @@ export class StudentsController {
   @ApiOperation({ summary: 'Tekshiruvni yangilash (admin)' })
   @ApiBody({ type: UpdateEmployeeCheckDto })
   updateCheck(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id', ParseUUIDPipe) id: string,
     @Param('checkId', ParseUUIDPipe) checkId: string,
     @Body() body: UpdateEmployeeCheckDto,
   ) {
-    return this.studentsService.updateEmployeeCheck(id, checkId, req.user, body as any);
+    return this.studentsService.updateEmployeeCheck(
+      id,
+      checkId,
+      req.user,
+      body as any,
+    );
   }
 
   @Delete(':id/checks/:checkId')
   @ApiOperation({ summary: 'Tekshiruvni o`chirish (admin)' })
   removeCheck(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('id', ParseUUIDPipe) id: string,
     @Param('checkId', ParseUUIDPipe) checkId: string,
   ) {
-    return this.studentsService.deleteEmployeeCheck(id, checkId, req.user).then(() => ({ ok: true }));
+    return this.studentsService
+      .deleteEmployeeCheck(id, checkId, req.user)
+      .then(() => ({ ok: true }));
   }
 }

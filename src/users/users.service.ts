@@ -14,6 +14,20 @@ import { UserOrganization } from '../database/entities/user-organization.entity'
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
 
+export type EnergoIdentityUser = {
+  energoUserId: string;
+  login: string;
+  email: string | null;
+  firstName: string;
+  lastName: string;
+  role: string;
+  organization: {
+    externalId: string | null;
+    name: string;
+  } | null;
+  mustChangePassword: boolean;
+};
+
 @Injectable()
 export class UsersService implements OnModuleInit {
   constructor(
@@ -74,6 +88,13 @@ export class UsersService implements OnModuleInit {
     });
   }
 
+  async findByEnergoId(energoId: string): Promise<User | null> {
+    return this.usersRepo.findOne({
+      where: { energoId },
+      relations: ['organizations', 'organizations.organization'],
+    });
+  }
+
   async findById(id: string): Promise<User | null> {
     return this.usersRepo.findOne({
       where: { id },
@@ -87,6 +108,7 @@ export class UsersService implements OnModuleInit {
     page?: number;
     limit?: number;
     organizationIds?: string[];
+    organizationFilterMode?: 'include' | 'exclude';
   }): Promise<{ data: User[]; total: number; page: number; limit: number }> {
     const page = filters?.page ?? 1;
     const limit = filters?.limit ?? 20;
@@ -99,15 +121,32 @@ export class UsersService implements OnModuleInit {
 
     if (filters?.role) {
       qb.andWhere('u.role = :role', { role: filters.role });
+      if (filters.role === Role.USER) {
+        qb.andWhere('u.energo_id IS NOT NULL');
+      }
     }
 
     if (filters?.organizationIds) {
       if (filters.organizationIds.length === 0) {
         return { data: [], total: 0, page, limit };
       }
-      qb.andWhere('org.id IN (:...organizationIds)', {
-        organizationIds: filters.organizationIds,
-      });
+      if (filters.organizationFilterMode === 'exclude') {
+        qb.setParameter('organizationIds', filters.organizationIds);
+        qb.andWhere((subQb) => {
+          const subQuery = subQb
+            .subQuery()
+            .select('1')
+            .from(UserOrganization, 'filter_uo')
+            .where('"filter_uo"."userId" = u.id')
+            .andWhere('"filter_uo"."organizationId" IN (:...organizationIds)')
+            .getQuery();
+          return `NOT EXISTS ${subQuery}`;
+        });
+      } else {
+        qb.andWhere('org.id IN (:...organizationIds)', {
+          organizationIds: filters.organizationIds,
+        });
+      }
     }
     if (filters?.search) {
       qb.andWhere(
@@ -122,6 +161,81 @@ export class UsersService implements OnModuleInit {
       .getManyAndCount();
 
     return { data, total, page, limit };
+  }
+
+  async syncFromEnergoIdentity(data: EnergoIdentityUser): Promise<User> {
+    const login = data.login.trim();
+    const role = this.toLocalRole(data.role);
+    let user =
+      (await this.findByEnergoId(data.energoUserId)) ??
+      (await this.findByEmail(login));
+
+    if (!user) {
+      user = await this.usersRepo.save(
+        this.usersRepo.create({
+          email: login,
+          energoId: data.energoUserId,
+          passwordHash: null,
+          firstName: data.firstName,
+          lastName: data.lastName,
+          role,
+          mustChangePassword: data.mustChangePassword,
+        }),
+      );
+    } else {
+      await this.usersRepo.update(user.id, {
+        email: login,
+        energoId: data.energoUserId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        role,
+        mustChangePassword: data.mustChangePassword,
+      });
+    }
+
+    if (data.organization?.name) {
+      const organization = await this.ensureOrganization(
+        data.organization.name,
+      );
+      await this.attachUserToOrganization(user.id, organization.id);
+    }
+
+    return this.findByEnergoId(data.energoUserId) as Promise<User>;
+  }
+
+  async syncEmployeesFromEnergoIdentity(
+    employees: EnergoIdentityUser[],
+  ): Promise<{ total: number; upserted: number; hidden: number }> {
+    const activeEnergoIds: string[] = [];
+    let upserted = 0;
+
+    for (const employee of employees) {
+      if (employee.role !== Role.USER) continue;
+      await this.syncFromEnergoIdentity(employee);
+      activeEnergoIds.push(employee.energoUserId);
+      upserted += 1;
+    }
+
+    const qb = this.usersRepo
+      .createQueryBuilder()
+      .update(User)
+      .set({ energoId: null })
+      .where('role = :role', { role: Role.USER })
+      .andWhere('energo_id IS NOT NULL');
+
+    if (activeEnergoIds.length > 0) {
+      qb.andWhere('energo_id NOT IN (:...activeEnergoIds)', {
+        activeEnergoIds,
+      });
+    }
+
+    const hiddenResult = await qb.execute();
+
+    return {
+      total: employees.length,
+      upserted,
+      hidden: hiddenResult.affected ?? 0,
+    };
   }
 
   async createUser(data: {
@@ -142,9 +256,13 @@ export class UsersService implements OnModuleInit {
     );
 
     if (data.organizationId) {
-      const org = await this.orgRepo.findOne({ where: { id: data.organizationId } });
+      const org = await this.orgRepo.findOne({
+        where: { id: data.organizationId },
+      });
       if (org) {
-        await this.userOrgRepo.save(this.userOrgRepo.create({ user, organization: org }));
+        await this.userOrgRepo.save(
+          this.userOrgRepo.create({ user, organization: org }),
+        );
       }
     }
 
@@ -190,6 +308,37 @@ export class UsersService implements OnModuleInit {
     return this.findById(user.id) as Promise<User>;
   }
 
+  async bulkGenerateModeratorPasswords(userIds: string[]): Promise<{
+    updated: number;
+    users: Array<{ id: string; password: string }>;
+  }> {
+    const uniqueIds = [...new Set(userIds)];
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('Moderator tanlanmagan');
+    }
+
+    const users = await this.usersRepo.find({
+      where: uniqueIds.map((id) => ({ id, role: Role.MODERATOR })),
+    });
+    if (users.length !== uniqueIds.length) {
+      throw new BadRequestException(
+        'Tanlangan ro`yxatda moderator bo`lmagan user bor',
+      );
+    }
+
+    const results: Array<{ id: string; password: string }> = [];
+    for (const user of users) {
+      const password = this.generatePassword();
+      user.passwordHash = await bcrypt.hash(password, 10);
+      user.initialPassword = password;
+      user.mustChangePassword = true;
+      results.push({ id: user.id, password });
+    }
+
+    await this.usersRepo.save(users);
+    return { updated: users.length, users: results };
+  }
+
   async removeUser(id: string): Promise<void> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
@@ -220,6 +369,35 @@ export class UsersService implements OnModuleInit {
 
   async clearMustChangePassword(userId: string): Promise<void> {
     await this.usersRepo.update(userId, { mustChangePassword: false });
+  }
+
+  private toLocalRole(role: string): Role {
+    if (Object.values(Role).includes(role as Role)) return role as Role;
+    return Role.USER;
+  }
+
+  private async ensureOrganization(name: string) {
+    const existing = await this.orgRepo.findOne({ where: { name } });
+    if (existing) return existing;
+    return this.orgRepo.save(this.orgRepo.create({ name }));
+  }
+
+  private async attachUserToOrganization(
+    userId: string,
+    organizationId: string,
+  ) {
+    await this.userOrgRepo
+      .createQueryBuilder()
+      .delete()
+      .where('"userId" = :userId', { userId })
+      .execute();
+
+    await this.userOrgRepo.save(
+      this.userOrgRepo.create({
+        user: { id: userId } as User,
+        organization: { id: organizationId } as Organization,
+      }),
+    );
   }
 
   private generatePassword(): string {

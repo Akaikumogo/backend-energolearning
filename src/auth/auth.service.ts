@@ -27,6 +27,7 @@ import { LoginSuccessResponseDto } from './dto/login-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { UserActivityService } from '../user-activity/user-activity.service';
+import { EnergoIdAuthClient } from './energo-id-auth.client';
 
 @Injectable()
 export class AuthService {
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     @Inject(forwardRef(() => UserActivityService))
     private readonly userActivityService: UserActivityService,
+    private readonly energoIdAuthClient: EnergoIdAuthClient,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
     @InjectRepository(EmployeeCertificate)
@@ -45,6 +47,39 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto): Promise<LoginSuccessResponseDto> {
+    if (this.energoIdAuthClient.isConfigured()) {
+      try {
+        return await this.loginWithEnergoId(dto);
+      } catch (error) {
+        if (process.env.AUTH_LOCAL_FALLBACK_ENABLED === 'true') {
+          return this.loginWithLocalPassword(dto);
+        }
+        throw error;
+      }
+    }
+
+    return this.loginWithLocalPassword(dto);
+  }
+
+  private async loginWithEnergoId(
+    dto: LoginDto,
+  ): Promise<LoginSuccessResponseDto> {
+    const identifier = (dto.login ?? dto.email ?? '').trim();
+    if (!identifier) {
+      throw new UnauthorizedException('Login yoki email kiritilmadi');
+    }
+
+    const energoUser = await this.energoIdAuthClient.verifyLogin(
+      identifier,
+      dto.password,
+    );
+    const user = await this.usersService.syncFromEnergoIdentity(energoUser);
+    return this.issueLoginResponse(user);
+  }
+
+  private async loginWithLocalPassword(
+    dto: LoginDto,
+  ): Promise<LoginSuccessResponseDto> {
     const identifier = (dto.login ?? dto.email ?? '').trim();
     if (!identifier) {
       throw new UnauthorizedException('Login yoki email kiritilmadi');
@@ -68,6 +103,12 @@ export class AuthService {
       throw new UnauthorizedException('Login yoki parol noto`g`ri');
     }
 
+    return this.issueLoginResponse(user);
+  }
+
+  private async issueLoginResponse(
+    user: User,
+  ): Promise<LoginSuccessResponseDto> {
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -295,9 +336,7 @@ export class AuthService {
     return Array.from(new Set(ids));
   }
 
-  private getOrganizations(
-    user: User,
-  ): { id: string; name: string }[] {
+  private getOrganizations(user: User): { id: string; name: string }[] {
     const orgs = user.organizations ?? [];
     const mapped = orgs
       .map((uo) => {

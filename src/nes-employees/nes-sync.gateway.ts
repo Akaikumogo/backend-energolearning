@@ -13,13 +13,7 @@ export class NesSyncGateway {
     this.server.emit('sync:progress', { current, total, created });
   }
 
-  emitDone(result: {
-    total: number;
-    created: number;
-    updated: number;
-    unchanged: number;
-    date: string;
-  }) {
+  emitDone(result: Record<string, unknown>) {
     this.server.emit('sync:done', result);
   }
 

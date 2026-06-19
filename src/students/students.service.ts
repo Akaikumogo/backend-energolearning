@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -28,8 +33,10 @@ export class StudentsService {
     private readonly organizationsService: OrganizationsService,
     private readonly usersService: UsersService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(UserLevelCompletion) private readonly completionRepo: Repository<UserLevelCompletion>,
-    @InjectRepository(UserQuestionAttempt) private readonly attemptRepo: Repository<UserQuestionAttempt>,
+    @InjectRepository(UserLevelCompletion)
+    private readonly completionRepo: Repository<UserLevelCompletion>,
+    @InjectRepository(UserQuestionAttempt)
+    private readonly attemptRepo: Repository<UserQuestionAttempt>,
     @InjectRepository(Level) private readonly levelRepo: Repository<Level>,
     @InjectRepository(EmployeeCertificate)
     private readonly employeeCertRepo: Repository<EmployeeCertificate>,
@@ -107,6 +114,7 @@ export class StudentsService {
       .leftJoinAndSelect('u.organizations', 'uo')
       .leftJoinAndSelect('uo.organization', 'org')
       .where('u.role = :role', { role: Role.USER })
+      .andWhere('u.energo_id IS NOT NULL')
       .orderBy('u.createdAt', 'DESC');
 
     if (requestingUser.role === Role.MODERATOR) {
@@ -136,7 +144,10 @@ export class StudentsService {
     }
 
     const total = await qb.getCount();
-    const users = await qb.skip((page - 1) * limit).take(limit).getMany();
+    const users = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getMany();
 
     const data = await Promise.all(
       users.map((u) => this.toStudentSummary(u, requestingUser)),
@@ -158,7 +169,9 @@ export class StudentsService {
       where: { id, role: Role.USER },
       relations: ['organizations', 'organizations.organization'],
     });
-    if (!user) throw new NotFoundException('Xodim topilmadi');
+    if (!user || !user.energoId) {
+      throw new NotFoundException('Xodim topilmadi');
+    }
 
     const levels = await this.levelRepo.find({ order: { orderIndex: 'ASC' } });
     const orgIds =
@@ -263,7 +276,9 @@ export class StudentsService {
       where: { id: studentId, role: Role.USER },
       relations: ['organizations', 'organizations.organization'],
     });
-    if (!user) throw new NotFoundException('Xodim topilmadi');
+    if (!user || !user.energoId) {
+      throw new NotFoundException('Xodim topilmadi');
+    }
 
     const orgIds =
       requestingUser.role === Role.MODERATOR
@@ -289,7 +304,10 @@ export class StudentsService {
       .addSelect('l.title', 'levelTitle')
       .addSelect('t.title', 'theoryTitle')
       .addSelect('COUNT(*)', 'totalAttempts')
-      .addSelect('SUM(CASE WHEN a.is_correct = false THEN 1 ELSE 0 END)', 'wrongCount')
+      .addSelect(
+        'SUM(CASE WHEN a.is_correct = false THEN 1 ELSE 0 END)',
+        'wrongCount',
+      )
       .where('a.user_id = :userId', { userId: studentId })
       .andWhere(
         requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
@@ -323,7 +341,9 @@ export class StudentsService {
       where: { id: studentId, role: Role.USER },
       relations: ['organizations', 'organizations.organization'],
     });
-    if (!user) throw new NotFoundException('Xodim topilmadi');
+    if (!user || !user.energoId) {
+      throw new NotFoundException('Xodim topilmadi');
+    }
 
     const since = new Date();
     since.setDate(since.getDate() - 27);
