@@ -46,6 +46,10 @@ import { TheoryRole1744300000000 } from './migrations/0009-theory-role';
 import { AddAudioLibrary1746060000000 } from './migrations/0010-add-audio-library';
 import { AddNesEmployees1746070000000 } from './migrations/0011-add-nes-employees';
 import { AddActivityAndDailyPlan1746080000000 } from './migrations/0012-add-activity-and-daily-plan';
+import { AddEnergoIdToUsers1746090000000 } from './migrations/0013-add-energo-id-to-users';
+import { AddEmployeeSyncAndTerminationArchive1746100000000 } from './migrations/0014-add-employee-sync-and-termination-archive';
+import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
+import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { getPostgresConnectionOptions } from './postgres-env';
 
 export const AppDataSource = new DataSource({
@@ -87,6 +91,8 @@ export const AppDataSource = new DataSource({
     NesEmployee,
     NesEmployeeHistory,
     NesEmployeePositionHistory,
+    EmployeeSyncSetting,
+    TerminatedEmployee,
   ],
   migrations: [
     Init1743074000000,
@@ -101,6 +107,8 @@ export const AppDataSource = new DataSource({
     AddAudioLibrary1746060000000,
     AddNesEmployees1746070000000,
     AddActivityAndDailyPlan1746080000000,
+    AddEnergoIdToUsers1746090000000,
+    AddEmployeeSyncAndTerminationArchive1746100000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

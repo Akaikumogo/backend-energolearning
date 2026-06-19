@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -13,16 +22,25 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { SyncNesEmployeesDto } from './dto/sync-nes-employees.dto';
 import { NesEmployeesService } from './nes-employees.service';
 
-@ApiTags('NES Employees Sync')
+@ApiTags('Energo ID Employees')
 @Controller('admin/nes-employees')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('bearer')
 export class NesEmployeesController {
   constructor(private readonly nesEmployeesService: NesEmployeesService) {}
 
+  @Get('energo-id-health')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Energo ID ulanish holati' })
+  energoIdHealth() {
+    return this.nesEmployeesService.checkEnergoIdHealth();
+  }
+
   @Get('filter-options')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Filtr uchun noyob tashkilot va bo`limlar ro`yxati' })
+  @ApiOperation({
+    summary: 'Filtr uchun noyob tashkilot va bo`limlar ro`yxati',
+  })
   filterOptions() {
     return this.nesEmployeesService.getFilterOptions();
   }
@@ -34,16 +52,36 @@ export class NesEmployeesController {
     return this.nesEmployeesService.getSyncStatus();
   }
 
+  @Get('terminated')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Bo`shagan xodimlar arxivi (faqat SuperAdmin)' })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  terminated(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.nesEmployeesService.listTerminatedEmployees({
+      search,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Delete()
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'Barcha NES xodimlarini va ularning userlarini o`chirish' })
+  @ApiOperation({
+    summary: '[Deprecated] Barcha NES xodimlarini o`chirish — cutover scriptidan foydalaning',
+  })
   deleteAll() {
     return this.nesEmployeesService.deleteAll();
   }
 
   @Get()
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'NESdan import qilingan xodimlar ro`yxati' })
+  @ApiOperation({ summary: 'Energo ID dan sinxronlangan xodimlar ro`yxati' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'organizationName', required: false })
   @ApiQuery({ name: 'division', required: false })
@@ -67,23 +105,27 @@ export class NesEmployeesController {
 
   @Get(':id/history')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'NES xodimining o`zgarish tarixi (employee UUID bo`yicha)' })
+  @ApiOperation({
+    summary: 'Xodimning o`zgarish tarixi (employee UUID bo`yicha)',
+  })
   history(@Param('id') id: string) {
     return this.nesEmployeesService.listHistory(id);
   }
 
   @Get(':id/positions')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'NES xodimining lavozim xronologiyasi (employee UUID bo`yicha)' })
+  @ApiOperation({
+    summary: 'Xodimning lavozim xronologiyasi (employee UUID bo`yicha)',
+  })
   positions(@Param('id') id: string) {
     return this.nesEmployeesService.listPositionHistory(id);
   }
 
   @Post('sync')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'NES xodimlarini qo`lda sinxron qilish' })
+  @ApiOperation({ summary: 'Energo ID dan xodimlarni qo`lda sinxron qilish' })
   @ApiBody({ type: SyncNesEmployeesDto })
-  sync(@Body() body: SyncNesEmployeesDto) {
-    return this.nesEmployeesService.syncFromNes(body.date);
+  sync(@Body() _body: SyncNesEmployeesDto) {
+    return this.nesEmployeesService.syncFromNes();
   }
 }

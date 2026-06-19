@@ -18,6 +18,9 @@ export class User {
   @Column({ type: 'text', unique: true })
   email: string;
 
+  @Column({ type: 'uuid', nullable: true, unique: true, name: 'energo_id' })
+  energoId: string | null;
+
   @Column({ type: 'text', nullable: true, name: 'password_hash' })
   passwordHash: string | null;
 

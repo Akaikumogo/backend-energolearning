@@ -11,6 +11,7 @@ import {
   Req,
   UseGuards,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request } from 'express';
 import {
@@ -20,7 +21,6 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import * as bcrypt from 'bcrypt';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -30,6 +30,7 @@ import { UsersService } from './users.service';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { BulkGenerateModeratorPasswordsDto } from './dto/bulk-generate-moderator-passwords.dto';
 
 @ApiTags('Users (Admin)')
 @Controller('admin/users')
@@ -43,7 +44,9 @@ export class UsersController {
 
   @Get()
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Barcha foydalanuvchilar ro`yxati (search + pagination)' })
+  @ApiOperation({
+    summary: 'Barcha foydalanuvchilar ro`yxati (search + pagination)',
+  })
   @ApiQuery({ name: 'role', required: false, enum: Role })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false })
@@ -70,11 +73,17 @@ export class UsersController {
   @ApiOperation({ summary: 'Moderatorlar ro`yxati (search + pagination)' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'orgId', required: false })
+  @ApiQuery({
+    name: 'orgMode',
+    required: false,
+    enum: ['include', 'exclude'],
+  })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   findModerators(
     @Query('search') search?: string,
     @Query('orgId') orgId?: string,
+    @Query('orgMode') orgMode?: 'include' | 'exclude',
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -84,6 +93,7 @@ export class UsersController {
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
       organizationIds: orgId?.trim() ? [orgId.trim()] : undefined,
+      organizationFilterMode: orgMode === 'exclude' ? 'exclude' : 'include',
     });
   }
 
@@ -114,38 +124,34 @@ export class UsersController {
     return this.usersService.createModerator(dto);
   }
 
+  @Post('moderators/bulk-generate-passwords')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary: 'Tanlangan moderatorlarga yangi parol generatsiya qilish',
+  })
+  @ApiBody({ type: BulkGenerateModeratorPasswordsDto })
+  bulkGenerateModeratorPasswords(
+    @Body() dto: BulkGenerateModeratorPasswordsDto,
+  ) {
+    return this.usersService.bulkGenerateModeratorPasswords(dto.userIds);
+  }
+
   @Post()
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Yangi USER yaratish (admin)' })
   @ApiBody({ type: CreateUserDto })
   async createUser(
-    @Req() req: Request & { user: { id: string; role: Role; organizationIds: string[] } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Body() dto: CreateUserDto,
   ) {
-    if (req.user.role === Role.MODERATOR) {
-      if (!dto.organizationId) {
-        throw new NotFoundException('organizationId majburiy');
-      }
-      const scopedOrgIds =
-        (await this.organizationsService.resolveModeratorScope(
-          req.user.organizationIds,
-        )) ?? null;
-      if (scopedOrgIds && scopedOrgIds.length === 0) {
-        throw new NotFoundException('Ruxsat yo`q');
-      }
-      if (scopedOrgIds && !scopedOrgIds.includes(dto.organizationId)) {
-        throw new NotFoundException('Ruxsat yo`q');
-      }
-    }
-
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    return this.usersService.createUser({
-      email: dto.email,
-      passwordHash,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      organizationId: dto.organizationId,
-    });
+    void req;
+    void dto;
+    throw new ForbiddenException(
+      'USER/xodimlar faqat Energo ID orqali qo`shiladi. Qo`lda faqat moderator qo`shiladi.',
+    );
   }
 
   @Put(':id')

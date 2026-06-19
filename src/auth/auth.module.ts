@@ -8,6 +8,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { EnergoIdAuthClient } from './energo-id-auth.client';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LoginThrottleGuard } from './guards/login-throttle.guard';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
@@ -23,7 +24,11 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
     OrganizationsModule,
     forwardRef(() => UserActivityModule),
     PassportModule,
-    TypeOrmModule.forFeature([RefreshToken, EmployeeCertificate, EmployeeCheck]),
+    TypeOrmModule.forFeature([
+      RefreshToken,
+      EmployeeCertificate,
+      EmployeeCheck,
+    ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET ?? 'elektrolearn-dev-secret',
       signOptions: {
@@ -32,7 +37,7 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, LoginThrottleGuard],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, EnergoIdAuthClient, JwtStrategy, LoginThrottleGuard],
+  exports: [AuthService, EnergoIdAuthClient, JwtModule],
 })
 export class AuthModule {}
