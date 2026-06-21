@@ -375,21 +375,21 @@ export class AnalyticsService {
 
     const loginRows = (await this.sessionRepo.query(
       `
-      SELECT COALESCE(s.organization_id, uo.organization_id) AS "orgId",
+      SELECT COALESCE(s.organization_id, uo."organizationId") AS "orgId",
              to_char(date_trunc('week', s.login_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS "weekStart",
              COUNT(*)::int AS count
       FROM user_sessions s
       LEFT JOIN LATERAL (
-        SELECT uo2.organization_id
+        SELECT uo2."organizationId"
         FROM user_organizations uo2
-        WHERE uo2.user_id = s.user_id
+        WHERE uo2."userId" = s.user_id
         ORDER BY uo2.created_at ASC
         LIMIT 1
       ) uo ON true
       WHERE s.login_at >= $1
-        AND COALESCE(s.organization_id, uo.organization_id) IS NOT NULL
-        ${loginOrgFilter.replace('s.organization_id', 'COALESCE(s.organization_id, uo.organization_id)')}
-      GROUP BY COALESCE(s.organization_id, uo.organization_id), date_trunc('week', s.login_at AT TIME ZONE 'UTC')
+        AND COALESCE(s.organization_id, uo."organizationId") IS NOT NULL
+        ${loginOrgFilter.replace('s.organization_id', 'COALESCE(s.organization_id, uo."organizationId")')}
+      GROUP BY COALESCE(s.organization_id, uo."organizationId"), date_trunc('week', s.login_at AT TIME ZONE 'UTC')
       `,
       loginParams,
     )) as Array<{ orgId: string; weekStart: string; count: number }>;
