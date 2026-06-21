@@ -8,11 +8,14 @@ import { Level } from '../database/entities/level.entity';
 import { Question } from '../database/entities/question.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
+import { UserSession } from '../database/entities/user-session.entity';
+import { OrganizationsModule } from '../organizations/organizations.module';
 import { AnalyticsController } from './analytics.controller';
 import { AnalyticsService } from './analytics.service';
 
 @Module({
   imports: [
+    OrganizationsModule,
     TypeOrmModule.forFeature([
       User,
       Organization,
@@ -22,6 +25,7 @@ import { AnalyticsService } from './analytics.service';
       Question,
       UserLevelCompletion,
       UserQuestionAttempt,
+      UserSession,
     ]),
   ],
   controllers: [AnalyticsController],

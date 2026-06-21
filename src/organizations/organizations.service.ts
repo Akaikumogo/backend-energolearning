@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { Role } from '../common/enums/role.enum';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { User } from '../database/entities/user.entity';
@@ -73,6 +74,48 @@ export class OrganizationsService {
     return this.expandOrgScope(organizationIds);
   }
 
+  /** null = barcha tashkilotlar (superadmin yoki asosiy filial moderator). */
+  async getAllowedOrgIds(
+    role: Role,
+    organizationIds: string[] | undefined,
+  ): Promise<string[] | null> {
+    if (role === Role.SUPERADMIN) return null;
+    const scope = await this.resolveModeratorScope(organizationIds);
+    if (scope === undefined) return null;
+    return scope;
+  }
+
+  async resolveAnalyticsOrgId(
+    role: Role,
+    organizationIds: string[] | undefined,
+    requested?: string,
+  ): Promise<string> {
+    const req = requested?.trim();
+    if (role === Role.SUPERADMIN) {
+      return req && req !== 'all' ? req : 'all';
+    }
+    const scope = await this.resolveModeratorScope(organizationIds);
+    if (scope === undefined) {
+      return req && req !== 'all' ? req : 'all';
+    }
+    if (scope.length === 0) return 'all';
+    if (req && req !== 'all' && scope.includes(req)) return req;
+    return scope[0];
+  }
+
+  async assertModeratorOrgAccess(
+    role: Role,
+    organizationIds: string[] | undefined,
+    orgId: string,
+  ): Promise<void> {
+    if (role === Role.SUPERADMIN) return;
+    const allowed = await this.getAllowedOrgIds(role, organizationIds);
+    if (allowed === null) return;
+    if (!allowed.includes(orgId)) {
+      throw new NotFoundException('Tashkilot topilmadi');
+    }
+  }
+
   async findAll(
     filters?: { search?: string },
     organizationIds?: string[],
@@ -82,7 +125,8 @@ export class OrganizationsService {
       .createQueryBuilder('o')
       .leftJoinAndSelect('o.users', 'uo')
       .leftJoinAndSelect('uo.user', 'u')
-      .orderBy('o.createdAt', 'DESC');
+      .orderBy('o.isDefault', 'DESC')
+      .addOrderBy('o.name', 'ASC');
 
     if (scopedOrgIds) {
       if (scopedOrgIds.length === 0) return [];

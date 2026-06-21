@@ -6,6 +6,11 @@ import {
   LevelFunnelItemDto,
   QuestionErrorDto,
 } from './dto/analytics-summary.dto';
+import {
+  HomeBranchHeatmapRowDto,
+  HomeBranchRankDto,
+  HomeOverviewDto,
+} from './dto/home-overview.dto';
 import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
@@ -15,6 +20,7 @@ import { Level } from '../database/entities/level.entity';
 import { Question } from '../database/entities/question.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
+import { UserSession } from '../database/entities/user-session.entity';
 
 @Injectable()
 export class AnalyticsService {
@@ -34,6 +40,8 @@ export class AnalyticsService {
     private readonly ulcRepo: Repository<UserLevelCompletion>,
     @InjectRepository(UserQuestionAttempt)
     private readonly uqaRepo: Repository<UserQuestionAttempt>,
+    @InjectRepository(UserSession)
+    private readonly sessionRepo: Repository<UserSession>,
   ) {}
 
   /**
@@ -328,6 +336,135 @@ export class AnalyticsService {
         theoryTitle: r.theoryTitle ?? '',
         lostHearts: Number(r.lostHearts) || 0,
       })),
+    };
+  }
+
+  /** Bosh sahifa: filial bo'yicha GitHub-uslubidagi activity + reytinglar. */
+  async getHomeOverview(allowedOrgIds: string[] | null): Promise<HomeOverviewDto> {
+    const orgQb = this.orgRepo
+      .createQueryBuilder('o')
+      .select(['o.id', 'o.name', 'o.isDefault'])
+      .orderBy('o.isDefault', 'DESC')
+      .addOrderBy('o.name', 'ASC');
+    if (allowedOrgIds?.length) {
+      orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    }
+    const orgs = await orgQb.getMany();
+    const orgMap = new Map(orgs.map((o) => [o.id, o]));
+
+    const since12w = new Date(Date.now() - 84 * 24 * 60 * 60 * 1000);
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const weekLabels: string[] = [];
+    for (let i = 11; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - i * 7);
+      const day = d.getUTCDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      d.setUTCDate(d.getUTCDate() + diff);
+      weekLabels.push(d.toISOString().slice(0, 10));
+    }
+
+    const loginParams: unknown[] = [since12w];
+    let loginOrgFilter = '';
+    if (allowedOrgIds?.length) {
+      loginOrgFilter = 'AND s.organization_id = ANY($2::uuid[])';
+      loginParams.push(allowedOrgIds);
+    }
+
+    const loginRows = (await this.sessionRepo.query(
+      `
+      SELECT s.organization_id AS "orgId",
+             to_char(date_trunc('week', s.login_at)::date, 'YYYY-MM-DD') AS "weekStart",
+             COUNT(*)::int AS count
+      FROM user_sessions s
+      WHERE s.login_at >= $1
+        AND s.organization_id IS NOT NULL
+        ${loginOrgFilter}
+      GROUP BY s.organization_id, date_trunc('week', s.login_at)
+      `,
+      loginParams,
+    )) as Array<{ orgId: string; weekStart: string; count: number }>;
+
+    const loginIndex = new Map<string, number>();
+    for (const row of loginRows) {
+      loginIndex.set(`${row.orgId}:${row.weekStart}`, Number(row.count) || 0);
+    }
+
+    const branchHeatmap: HomeBranchHeatmapRowDto[] = orgs.map((org) => {
+      const weeks = weekLabels.map((weekStart) => ({
+        weekStart,
+        count: loginIndex.get(`${org.id}:${weekStart}`) ?? 0,
+      }));
+      const totalLogins = weeks.reduce((sum, w) => sum + w.count, 0);
+      return {
+        orgId: org.id,
+        orgName: org.name,
+        isDefault: !!org.isDefault,
+        weeks,
+        totalLogins,
+      };
+    });
+
+    branchHeatmap.sort(
+      (a, b) => b.totalLogins - a.totalLogins || a.orgName.localeCompare(b.orgName),
+    );
+
+    const activeQb = this.sessionRepo
+      .createQueryBuilder('s')
+      .select('s.organizationId', 'orgId')
+      .addSelect('COUNT(*)::int', 'value')
+      .where('s.loginAt >= :since', { since: since7d })
+      .andWhere('s.organizationId IS NOT NULL')
+      .groupBy('s.organizationId')
+      .orderBy('"value"', 'DESC')
+      .limit(1);
+    if (allowedOrgIds?.length) {
+      activeQb.andWhere('s.organizationId IN (:...ids)', { ids: allowedOrgIds });
+    }
+    const topActive = await activeQb.getRawOne<{ orgId: string; value: number }>();
+
+    const errorQb = this.uqaRepo
+      .createQueryBuilder('uqa')
+      .select('uqa.organizationId', 'orgId')
+      .addSelect('COUNT(*)::int', 'value')
+      .where('uqa.answeredAt >= :since', { since: since30d })
+      .andWhere('uqa.isCorrect = false')
+      .andWhere('uqa.organizationId IS NOT NULL')
+      .groupBy('uqa.organizationId')
+      .orderBy('"value"', 'DESC')
+      .limit(5);
+    if (allowedOrgIds?.length) {
+      errorQb.andWhere('uqa.organizationId IN (:...ids)', { ids: allowedOrgIds });
+    }
+    const errorRows = await errorQb.getRawMany<{ orgId: string; value: number }>();
+
+    const toRank = (row: { orgId: string; value: number }): HomeBranchRankDto | null => {
+      const org = orgMap.get(row.orgId);
+      if (!org) return null;
+      return {
+        orgId: org.id,
+        orgName: org.name,
+        isDefault: !!org.isDefault,
+        value: Number(row.value) || 0,
+      };
+    };
+
+    const scopeLabel =
+      allowedOrgIds === null
+        ? 'Barcha filiallar'
+        : orgs.length === 1
+          ? orgs[0].name
+          : `${orgs.length} ta filial`;
+
+    return {
+      scopeLabel,
+      branchHeatmap: branchHeatmap.slice(0, 12),
+      mostActiveBranch: topActive ? toRank(topActive) : null,
+      topErrorBranches: errorRows
+        .map(toRank)
+        .filter((v): v is HomeBranchRankDto => v !== null),
     };
   }
 

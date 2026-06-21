@@ -14,15 +14,37 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { ApiErrorResponseDto } from '../common/dto/api-response.dto';
 import { Role } from '../common/enums/role.enum';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { OrganizationsService } from '../organizations/organizations.service';
 import { AnalyticsService } from './analytics.service';
 import { AnalyticsSummaryDto } from './dto/analytics-summary.dto';
+import { HomeOverviewDto } from './dto/home-overview.dto';
 
 @ApiTags('Analytics (Admin)')
 @Controller('admin/analytics')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('bearer')
 export class AnalyticsController {
-  constructor(private readonly analyticsService: AnalyticsService) {}
+  constructor(
+    private readonly analyticsService: AnalyticsService,
+    private readonly organizationsService: OrganizationsService,
+  ) {}
+
+  @Get('home-overview')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Bosh sahifa — filial activity heatmap va reytinglar' })
+  @ApiOkResponse({ type: HomeOverviewDto })
+  async homeOverview(
+    @Req()
+    req: Request & {
+      user: { role: Role; organizationIds?: string[] };
+    },
+  ): Promise<HomeOverviewDto> {
+    const allowed = await this.organizationsService.getAllowedOrgIds(
+      req.user.role,
+      req.user.organizationIds,
+    );
+    return this.analyticsService.getHomeOverview(allowed);
+  }
 
   @Get('summary')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
@@ -48,29 +70,55 @@ export class AnalyticsController {
   })
   async summary(
     @Query('orgId') orgId: string,
-    @Req() req: Request & { user: { role: Role } },
+    @Req()
+    req: Request & {
+      user: { role: Role; organizationIds?: string[] };
+    },
   ): Promise<AnalyticsSummaryDto> {
-    const safeOrgId = orgId?.trim() || 'all';
-    if (safeOrgId === 'all' && req.user.role !== Role.SUPERADMIN) {
-      return this.analyticsService.getSummary('all');
-    }
-    return this.analyticsService.getSummary(safeOrgId);
+    const effectiveOrgId = await this.organizationsService.resolveAnalyticsOrgId(
+      req.user.role,
+      req.user.organizationIds,
+      orgId,
+    );
+    return this.analyticsService.getSummary(effectiveOrgId);
   }
 
   @Get('level-funnel')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Level funnel — har daraja uchun boshlagan/tugatgan' })
   @ApiQuery({ name: 'orgId', required: false, example: 'all' })
-  async levelFunnel(@Query('orgId') orgId?: string) {
-    return this.analyticsService.getLevelFunnel(orgId?.trim() || 'all');
+  async levelFunnel(
+    @Query('orgId') orgId: string | undefined,
+    @Req()
+    req: Request & {
+      user: { role: Role; organizationIds?: string[] };
+    },
+  ) {
+    const effectiveOrgId = await this.organizationsService.resolveAnalyticsOrgId(
+      req.user.role,
+      req.user.organizationIds,
+      orgId,
+    );
+    return this.analyticsService.getLevelFunnel(effectiveOrgId);
   }
 
   @Get('questions')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Eng ko`p xato qilingan savollar' })
   @ApiQuery({ name: 'orgId', required: false, example: 'all' })
-  async questionErrors(@Query('orgId') orgId?: string) {
-    return this.analyticsService.getQuestionErrors(orgId?.trim() || 'all');
+  async questionErrors(
+    @Query('orgId') orgId: string | undefined,
+    @Req()
+    req: Request & {
+      user: { role: Role; organizationIds?: string[] };
+    },
+  ) {
+    const effectiveOrgId = await this.organizationsService.resolveAnalyticsOrgId(
+      req.user.role,
+      req.user.organizationIds,
+      orgId,
+    );
+    return this.analyticsService.getQuestionErrors(effectiveOrgId);
   }
 
   @Get('hearts-lost')
@@ -90,11 +138,11 @@ export class AnalyticsController {
     },
   ) {
     const safeRange = range || 'today';
-    const requestedOrgId = (orgId?.trim() || 'all') as string;
-    const effectiveOrgId =
-      req.user.role === Role.SUPERADMIN
-        ? requestedOrgId
-        : req.user.organizationIds?.[0] ?? 'all';
+    const effectiveOrgId = await this.organizationsService.resolveAnalyticsOrgId(
+      req.user.role,
+      req.user.organizationIds,
+      orgId,
+    );
     return this.analyticsService.getHeartsLost(effectiveOrgId, safeRange);
   }
 }
