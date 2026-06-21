@@ -48,8 +48,9 @@ export class AnalyticsService {
       ? this.usersRepo.createQueryBuilder('u').select('COUNT(*)::int', 'c')
       : this.userOrgRepo
           .createQueryBuilder('uo')
-          .where('uo.organization_id = :orgId', { orgId })
-          .select('COUNT(DISTINCT uo.user_id)::int', 'c');
+          .innerJoin('uo.user', 'u')
+          .where('uo.organization = :orgId', { orgId })
+          .select('COUNT(DISTINCT u.id)::int', 'c');
 
     const orgCountQb = isAll
       ? this.orgRepo.createQueryBuilder('o').select('COUNT(*)::int', 'c')
@@ -64,7 +65,7 @@ export class AnalyticsService {
         .where('u.role = :role', { role: Role.MODERATOR });
       if (!isAll) {
         qb.innerJoin('u.organizations', 'uo').andWhere(
-          'uo.organization_id = :orgId',
+          'uo.organization = :orgId',
           { orgId },
         );
       }
@@ -80,16 +81,13 @@ export class AnalyticsService {
 
     const active7dQb = this.refreshRepo
       .createQueryBuilder('rt')
-      .where('rt.created_at >= :since', { since })
-      .select('COUNT(DISTINCT rt.user_id)::int', 'c');
+      .innerJoin('rt.user', 'u')
+      .where('rt.createdAt >= :since', { since })
+      .select('COUNT(DISTINCT u.id)::int', 'c');
     if (!isAll) {
       active7dQb
-        .innerJoin(
-          UserOrganization,
-          'uo',
-          'uo.user_id = rt.user_id AND uo.organization_id = :orgId',
-          { orgId },
-        );
+        .innerJoin('u.organizations', 'uo')
+        .andWhere('uo.organization = :orgId', { orgId });
     }
 
     const [
