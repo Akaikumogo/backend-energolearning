@@ -18,6 +18,17 @@ export class Organization {
   @Column({ type: 'text', unique: true })
   name: string;
 
+  /** Energo ID branches.id */
+  @Column({ type: 'uuid', name: 'energo_branch_id', nullable: true })
+  energoBranchId: string | null;
+
+  /** NES/1C tashqi id (branches.externalId) */
+  @Column({ type: 'text', name: 'energo_external_id', nullable: true })
+  energoExternalId: string | null;
+
+  @Column({ type: 'text', name: 'branch_code', nullable: true })
+  branchCode: string | null;
+
   @ManyToOne(() => Organization, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'parent_organization_id' })
   parentOrganization: Organization | null;

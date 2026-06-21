@@ -41,6 +41,20 @@ type EnergoIdEmployeesResponse = {
   data: EnergoIdUser[];
 };
 
+type EnergoIdBranch = {
+  id: string;
+  name: string;
+  code?: string | null;
+  externalId?: string | null;
+};
+
+type EnergoIdPlatformSyncResponse = {
+  success: boolean;
+  data?: {
+    branches?: EnergoIdBranch[];
+  };
+};
+
 @Injectable()
 export class EnergoIdAuthClient {
   isConfigured() {
@@ -114,6 +128,31 @@ export class EnergoIdAuthClient {
         timezone: payload.sync?.timezone ?? 'Asia/Tashkent',
       },
     };
+  }
+
+  async listBranches(): Promise<EnergoIdBranch[]> {
+    const config = this.getConfig();
+    const response = await this.request(
+      `${config.baseUrl}/internal/v1/platform-sync`,
+      {
+        method: 'POST',
+        headers: config.headers,
+        body: JSON.stringify({ resources: ['branches'] }),
+      },
+      config.timeoutMs,
+    );
+
+    if (!response.ok) {
+      this.throwMappedError(response.status);
+    }
+
+    const payload = (await response.json()) as EnergoIdPlatformSyncResponse;
+    if (!payload.success || !Array.isArray(payload.data?.branches)) {
+      throw new ServiceUnavailableException(
+        'Energo ID branches javobi noto`g`ri',
+      );
+    }
+    return payload.data.branches;
   }
 
   private getConfig() {

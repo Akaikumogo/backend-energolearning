@@ -216,6 +216,8 @@ export class NesEmployeesService {
 
   private async runSyncJob() {
     try {
+      await this.syncOrganizationsFromEnergoId();
+
       const response = await this.energoIdAuthClient.listEmployees();
       const employees = response.employees;
       if (employees.length === 0) {
@@ -439,9 +441,10 @@ export class NesEmployeesService {
   }
 
   private async upsertEnergoEmployeeMirror(user: User, employee: EnergoIdUser) {
-    const organizationName = employee.organization?.name?.trim() || 'Unknown';
-    const organization = await this.ensureOrganization(organizationName);
+    const organization = await this.resolveEmployeeOrganization(employee);
     await this.attachUserToOrganization(user.id, organization.id);
+
+    const organizationName = organization.name;
 
     const personnelNumber =
       employee.personnelNumber?.trim() || employee.login || user.id;
@@ -626,10 +629,81 @@ export class NesEmployeesService {
     }));
   }
 
-  private async ensureOrganization(name: string) {
-    const existing = await this.orgRepo.findOne({ where: { name } });
-    if (existing) return existing;
-    return this.orgRepo.save(this.orgRepo.create({ name }));
+  private async syncOrganizationsFromEnergoId() {
+    const branches = await this.energoIdAuthClient.listBranches();
+    for (const branch of branches) {
+      await this.upsertOrganizationMirror({
+        energoBranchId: String(branch.id),
+        name: String(branch.name ?? '').trim() || 'Unknown',
+        externalId: branch.externalId ? String(branch.externalId).trim() : null,
+        code: branch.code ? String(branch.code).trim() : null,
+      });
+    }
+    this.logger.log(
+      `Energo ID filiallar mirror: ${branches.length} ta organization`,
+    );
+  }
+
+  private async resolveEmployeeOrganization(employee: EnergoIdUser) {
+    const name = employee.organization?.name?.trim() || 'Unknown';
+    const externalId = employee.organization?.externalId?.trim() || null;
+    return this.upsertOrganizationMirror({ name, externalId });
+  }
+
+  private async upsertOrganizationMirror(input: {
+    energoBranchId?: string | null;
+    name: string;
+    externalId?: string | null;
+    code?: string | null;
+  }) {
+    const name = input.name.trim() || 'Unknown';
+    let org: Organization | null = null;
+
+    if (input.energoBranchId) {
+      org = await this.orgRepo.findOne({
+        where: { energoBranchId: input.energoBranchId },
+      });
+    }
+    if (!org && input.externalId) {
+      org = await this.orgRepo.findOne({
+        where: { energoExternalId: input.externalId },
+      });
+    }
+    if (!org) {
+      org = await this.orgRepo.findOne({ where: { name } });
+    }
+
+    if (!org) {
+      return this.orgRepo.save(
+        this.orgRepo.create({
+          name,
+          energoBranchId: input.energoBranchId ?? null,
+          energoExternalId: input.externalId ?? null,
+          branchCode: input.code ?? null,
+        }),
+      );
+    }
+
+    await this.releaseOrganizationName(name, org.id);
+
+    await this.orgRepo.update(org.id, {
+      name,
+      energoBranchId: input.energoBranchId ?? org.energoBranchId,
+      energoExternalId: input.externalId ?? org.energoExternalId,
+      branchCode: input.code ?? org.branchCode,
+    });
+
+    return this.orgRepo.findOne({
+      where: { id: org.id },
+    }) as Promise<Organization>;
+  }
+
+  private async releaseOrganizationName(name: string, keepOrgId: string) {
+    const conflict = await this.orgRepo.findOne({ where: { name } });
+    if (!conflict || conflict.id === keepOrgId) return;
+
+    const legacyName = `legacy-${conflict.id.slice(0, 8)}-${name}`.slice(0, 180);
+    await this.orgRepo.update(conflict.id, { name: legacyName });
   }
 
   private async attachUserToOrganization(userId: string, organizationId: string) {
