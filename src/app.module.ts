@@ -78,6 +78,7 @@ import { TerminatedEmployee } from './database/entities/terminated-employee.enti
 import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
 import { OneTimeCutoverModule } from './one-time-cutover/one-time-cutover.module';
 import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
+import { AdminImportExportModule } from './admin-import-export/admin-import-export.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -155,6 +156,7 @@ import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
     AdminScriptsModule,
     OneTimeCutoverModule,
     TelegramBotModule,
+    AdminImportExportModule,
   ],
   controllers: [AppController],
   providers: [
