@@ -52,6 +52,13 @@ export class NesEmployeesController {
     return this.nesEmployeesService.getSyncStatus();
   }
 
+  @Get('sync-health')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Ishlayotgan va oxirgi sync holati (polling uchun)' })
+  syncHealth() {
+    return this.nesEmployeesService.getSyncHealth();
+  }
+
   @Get('terminated')
   @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'Bo`shagan xodimlar arxivi (faqat SuperAdmin)' })

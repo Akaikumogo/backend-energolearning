@@ -31,11 +31,75 @@ export class NesEmployeesService {
     running: boolean;
     current: number;
     total: number;
+    upserted: number;
+    hidden: number;
     startedAt: Date | null;
-  } = { running: false, current: 0, total: 0, startedAt: null };
+    finishedAt: Date | null;
+    status: 'IDLE' | 'RUNNING' | 'SUCCESS' | 'FAILED';
+    errorMessage: string | null;
+  } = {
+    running: false,
+    current: 0,
+    total: 0,
+    upserted: 0,
+    hidden: 0,
+    startedAt: null,
+    finishedAt: null,
+    status: 'IDLE',
+    errorMessage: null,
+  };
+
+  private lastCompletedSync: ReturnType<
+    NesEmployeesService['buildSyncView']
+  > | null = null;
 
   getSyncStatus() {
-    return { ...this.syncState };
+    return this.buildSyncView();
+  }
+
+  getSyncHealth() {
+    const runningSync = this.syncState.running ? this.buildSyncView() : null;
+    return {
+      runningSync,
+      latestSync: runningSync ?? this.lastCompletedSync,
+    };
+  }
+
+  private buildSyncView() {
+    const {
+      current,
+      total,
+      upserted,
+      hidden,
+      startedAt,
+      finishedAt,
+      running,
+      status,
+      errorMessage,
+    } = this.syncState;
+    const progressPercent =
+      total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
+    const durationMs =
+      startedAt && finishedAt
+        ? finishedAt.getTime() - startedAt.getTime()
+        : startedAt && running
+          ? Date.now() - startedAt.getTime()
+          : null;
+
+    return {
+      running,
+      status,
+      processed: current,
+      current,
+      total,
+      upserted,
+      hidden,
+      progressPercent,
+      startedAt: startedAt?.toISOString() ?? null,
+      finishedAt: finishedAt?.toISOString() ?? null,
+      durationMs,
+      errorMessage,
+    };
   }
 
   constructor(
@@ -77,7 +141,27 @@ export class NesEmployeesService {
         'ENERGO_ID_BASE_URL sozlanmagan. Xodimlar faqat Energo ID orqali sinxronlanadi.',
       );
     }
-    return this.syncFromEnergoId();
+
+    if (this.syncState.running) {
+      return {
+        started: false,
+        running: true,
+        sync: this.buildSyncView(),
+      };
+    }
+
+    const lockAcquired = await this.trySyncLock();
+    if (!lockAcquired) {
+      return { success: false, skipped: true, reason: 'sync-lock-active' };
+    }
+
+    this.initSyncRun();
+    void this.runSyncJob();
+    return {
+      started: true,
+      running: true,
+      sync: this.buildSyncView(),
+    };
   }
 
   async checkEnergoIdHealth() {
@@ -106,23 +190,31 @@ export class NesEmployeesService {
   }
 
   private async syncFromEnergoId() {
-    if (this.syncState.running) {
-      throw new BadRequestException('Sync allaqachon ishlamoqda');
-    }
+    if (this.syncState.running) return;
 
     const lockAcquired = await this.trySyncLock();
-    if (!lockAcquired) {
-      return { success: false, skipped: true, reason: 'sync-lock-active' };
-    }
+    if (!lockAcquired) return;
 
+    this.initSyncRun();
+    await this.runSyncJob();
+  }
+
+  private initSyncRun() {
     this.syncState = {
       running: true,
       current: 0,
       total: 0,
+      upserted: 0,
+      hidden: 0,
       startedAt: new Date(),
+      finishedAt: null,
+      status: 'RUNNING',
+      errorMessage: null,
     };
-    this.nesSyncGateway.emitProgress(0, 0, 0);
+    this.emitProgressUpdate();
+  }
 
+  private async runSyncJob() {
     try {
       const response = await this.energoIdAuthClient.listEmployees();
       const employees = response.employees;
@@ -133,7 +225,7 @@ export class NesEmployeesService {
       }
       await this.upsertSyncSetting(response.sync);
       this.syncState.total = employees.length;
-      this.nesSyncGateway.emitProgress(0, employees.length, 0);
+      this.emitProgressUpdate();
 
       let upserted = 0;
       for (const employee of employees) {
@@ -141,8 +233,9 @@ export class NesEmployeesService {
         await this.upsertEnergoEmployeeMirror(user, employee);
         upserted += 1;
         this.syncState.current = upserted;
-        if (upserted % 50 === 0 || upserted === employees.length) {
-          this.nesSyncGateway.emitProgress(upserted, employees.length, upserted);
+        this.syncState.upserted = upserted;
+        if (upserted % 5 === 0 || upserted === employees.length) {
+          this.emitProgressUpdate();
         }
       }
 
@@ -154,19 +247,44 @@ export class NesEmployeesService {
         await this.usersService.syncEmployeesFromEnergoIdentity(employees);
       await this.removeMissingEnergoEmployeeMirrors();
 
+      this.syncState.hidden = visibility.hidden;
+      this.syncState.status = 'SUCCESS';
+      this.syncState.finishedAt = new Date();
+      this.syncState.running = false;
+      this.lastCompletedSync = this.buildSyncView();
+
       const result = {
         success: true,
         source: 'energo-id',
         total: employees.length,
+        processed: employees.length,
         upserted,
         hidden: visibility.hidden,
       };
       this.nesSyncGateway.emitDone(result);
-      return result;
-    } finally {
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Energo ID sync xatosi';
+      this.syncState.status = 'FAILED';
+      this.syncState.errorMessage = message;
+      this.syncState.finishedAt = new Date();
       this.syncState.running = false;
+      this.lastCompletedSync = this.buildSyncView();
+      this.nesSyncGateway.emitError(message);
+      this.logger.error('Energo ID employee sync failed', error as Error);
+    } finally {
       await this.releaseSyncLock();
     }
+  }
+
+  private emitProgressUpdate() {
+    const view = this.buildSyncView();
+    this.nesSyncGateway.emitProgress(
+      view.processed,
+      view.total,
+      view.upserted,
+      view.progressPercent,
+    );
   }
 
   private async trySyncLock() {
