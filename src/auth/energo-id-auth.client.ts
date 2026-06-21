@@ -122,11 +122,31 @@ export class EnergoIdAuthClient {
       );
     }
     return {
-      employees: payload.data,
+      employees: payload.data.map((row) => this.normalizeEmployee(row)),
       sync: {
         dailySyncTime: payload.sync?.dailySyncTime ?? '23:45',
         timezone: payload.sync?.timezone ?? 'Asia/Tashkent',
       },
+    };
+  }
+
+  /** Energo ID ba'zan `id` yuboradi, `energoUserId` emas — sync uchun normalizatsiya. */
+  private normalizeEmployee(
+    row: EnergoIdUser & { id?: string },
+  ): EnergoIdUser {
+    const energoUserId = (row.energoUserId ?? row.id ?? '').trim();
+    const login = (row.login ?? row.email ?? '').trim();
+    return {
+      ...row,
+      energoUserId,
+      login,
+      email: row.email ?? null,
+      firstName: row.firstName ?? '',
+      lastName: row.lastName ?? '',
+      role: row.role ?? 'USER',
+      permissions: row.permissions ?? [],
+      mustChangePassword: row.mustChangePassword ?? false,
+      status: row.status ?? 'ACTIVE',
     };
   }
 
