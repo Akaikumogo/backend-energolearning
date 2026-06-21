@@ -94,8 +94,9 @@ export class BranchAnalyticsService {
   > {
     return this.userRepo
       .createQueryBuilder('u')
-      .innerJoin(UserOrganization, 'uo', 'uo.user_id = u.id')
-      .where('uo.organization_id = :orgId', { orgId })
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id = :orgId', { orgId })
       .andWhere('u.role = :role', { role: Role.USER })
       .select([
         'u.id AS "userId"',

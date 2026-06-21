@@ -419,8 +419,9 @@ export class AiChatService {
 
     const totalEmployeesRow = await this.userOrgRepo
       .createQueryBuilder('uo')
-      .innerJoin(User, 'u', 'u.id = uo.user_id')
-      .where('uo.organization_id = :orgId', { orgId })
+      .innerJoin('uo.user', 'u')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id = :orgId', { orgId })
       .andWhere('u.role = :role', { role: Role.USER })
       .select('COUNT(*)::int', 'count')
       .getRawOne<{ count: number }>();
