@@ -13,8 +13,6 @@ import {
   EnergoIdUser,
 } from '../auth/energo-id-auth.client';
 import { UsersService } from '../users/users.service';
-import { NesEmployeeHistory } from '../database/entities/nes-employee-history.entity';
-import { NesEmployeePositionHistory } from '../database/entities/nes-employee-position-history.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
@@ -29,6 +27,7 @@ export class NesEmployeesService {
 
   private syncState: {
     running: boolean;
+    phase: 'UPSERT' | 'FINALIZING';
     current: number;
     total: number;
     upserted: number;
@@ -39,6 +38,7 @@ export class NesEmployeesService {
     errorMessage: string | null;
   } = {
     running: false,
+    phase: 'UPSERT',
     current: 0,
     total: 0,
     upserted: 0,
@@ -74,6 +74,7 @@ export class NesEmployeesService {
       startedAt,
       finishedAt,
       running,
+      phase,
       status,
       errorMessage,
     } = this.syncState;
@@ -88,6 +89,7 @@ export class NesEmployeesService {
 
     return {
       running,
+      phase,
       status,
       processed: current,
       current,
@@ -105,10 +107,6 @@ export class NesEmployeesService {
   constructor(
     @InjectRepository(NesEmployee)
     private readonly employeeRepo: Repository<NesEmployee>,
-    @InjectRepository(NesEmployeeHistory)
-    private readonly historyRepo: Repository<NesEmployeeHistory>,
-    @InjectRepository(NesEmployeePositionHistory)
-    private readonly positionHistoryRepo: Repository<NesEmployeePositionHistory>,
     @InjectRepository(Organization)
     private readonly orgRepo: Repository<Organization>,
     @InjectRepository(User)
@@ -202,6 +200,7 @@ export class NesEmployeesService {
   private initSyncRun() {
     this.syncState = {
       running: true,
+      phase: 'UPSERT',
       current: 0,
       total: 0,
       upserted: 0,
@@ -241,15 +240,17 @@ export class NesEmployeesService {
         }
       }
 
-      await this.archiveMissingEnergoEmployees(
-        employees.map((employee) => employee.energoUserId),
-      );
+      const activeEnergoIds = employees.map((employee) => employee.energoUserId);
 
-      const visibility =
-        await this.usersService.syncEmployeesFromEnergoIdentity(employees);
+      this.syncState.phase = 'FINALIZING';
+      this.emitProgressUpdate();
+
+      await this.archiveMissingEnergoEmployees(activeEnergoIds);
+      const hidden =
+        await this.usersService.hideStaleEnergoUsers(activeEnergoIds);
       await this.removeMissingEnergoEmployeeMirrors();
 
-      this.syncState.hidden = visibility.hidden;
+      this.syncState.hidden = hidden;
       this.syncState.status = 'SUCCESS';
       this.syncState.finishedAt = new Date();
       this.syncState.running = false;
@@ -261,7 +262,7 @@ export class NesEmployeesService {
         total: employees.length,
         processed: employees.length,
         upserted,
-        hidden: visibility.hidden,
+        hidden,
       };
       this.nesSyncGateway.emitDone(result);
     } catch (error) {
@@ -476,10 +477,7 @@ export class NesEmployeesService {
 
     if (!existing) {
       try {
-        const saved = await this.employeeRepo.save(
-          this.employeeRepo.create(payload),
-        );
-        await this.writeHistory(saved, 'created', {}, payload);
+        await this.employeeRepo.save(this.employeeRepo.create(payload));
         await this.syncUserInitialPassword(user.id, employee.initialPassword);
         return;
       } catch (error) {
@@ -625,24 +623,6 @@ export class NesEmployeesService {
     return { success: true, deleted: employees.length };
   }
 
-  async listHistory(employeeId: string) {
-    return this.historyRepo.find({
-      where: { employeeId },
-      order: { createdAt: 'DESC' },
-    });
-  }
-
-  async listPositionHistory(employeeId: string) {
-    const items = await this.positionHistoryRepo.find({
-      where: { employeeId },
-      order: { effectiveAt: 'ASC', createdAt: 'ASC' },
-    });
-    return items.map((item, idx) => ({
-      ...item,
-      isCurrent: idx === items.length - 1,
-    }));
-  }
-
   private async syncOrganizationsFromEnergoId() {
     const branches = await this.energoIdAuthClient.listBranches();
     for (const branch of branches) {
@@ -730,27 +710,6 @@ export class NesEmployeesService {
       this.userOrgRepo.create({
         user: { id: userId } as User,
         organization: { id: organizationId } as Organization,
-      }),
-    );
-  }
-
-  private async writeHistory(
-    employee: NesEmployee,
-    event: 'created' | 'updated',
-    changes: Record<string, { old: unknown; new: unknown }>,
-    snapshot: Record<string, unknown>,
-  ) {
-    await this.historyRepo.save(
-      this.historyRepo.create({
-        employeeId: employee.id,
-        personnelNumber: employee.personnelNumber,
-        event,
-        changes,
-        snapshot: {
-          ...snapshot,
-          login: employee.login,
-          organizationId: employee.organizationId,
-        },
       }),
     );
   }

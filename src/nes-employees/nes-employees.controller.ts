@@ -3,7 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  Param,
   Post,
   Query,
   Res,
@@ -114,24 +113,6 @@ export class NesEmployeesController {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
-  }
-
-  @Get(':id/history')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({
-    summary: 'Xodimning o`zgarish tarixi (employee UUID bo`yicha)',
-  })
-  history(@Param('id') id: string) {
-    return this.nesEmployeesService.listHistory(id);
-  }
-
-  @Get(':id/positions')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({
-    summary: 'Xodimning lavozim xronologiyasi (employee UUID bo`yicha)',
-  })
-  positions(@Param('id') id: string) {
-    return this.nesEmployeesService.listPositionHistory(id);
   }
 
   @Post('sync')
