@@ -36,86 +36,141 @@ export class AnalyticsService {
     private readonly uqaRepo: Repository<UserQuestionAttempt>,
   ) {}
 
+  /**
+   * Hamma KPI larni bitta runda parallel COUNT() bilan yig'amiz.
+   * Avval ketma-ket 6 ta await edi — endi Promise.all.
+   */
   async getSummary(orgId: string): Promise<AnalyticsSummaryDto> {
     const isAll = orgId === 'all';
-
-    const totalOrganizations = isAll
-      ? await this.orgRepo.count()
-      : await this.orgRepo.count({ where: { id: orgId } });
-
-    const totalUsers = isAll
-      ? await this.usersRepo.count()
-      : await this.userOrgRepo.count({
-          where: { organization: { id: orgId } },
-        });
-
-    const totalModerators = await this.usersRepo.count({
-      where: { role: Role.MODERATOR },
-    });
-
-    const totalLevels = await this.levelRepo.count();
-    const totalQuestions = await this.questionRepo.count();
-
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const activeUsers7d = await this.refreshRepo
+
+    const usersCountQb = isAll
+      ? this.usersRepo.createQueryBuilder('u').select('COUNT(*)::int', 'c')
+      : this.userOrgRepo
+          .createQueryBuilder('uo')
+          .where('uo.organization_id = :orgId', { orgId })
+          .select('COUNT(DISTINCT uo.user_id)::int', 'c');
+
+    const orgCountQb = isAll
+      ? this.orgRepo.createQueryBuilder('o').select('COUNT(*)::int', 'c')
+      : this.orgRepo
+          .createQueryBuilder('o')
+          .where('o.id = :orgId', { orgId })
+          .select('COUNT(*)::int', 'c');
+
+    const modCountQb = (() => {
+      const qb = this.usersRepo
+        .createQueryBuilder('u')
+        .where('u.role = :role', { role: Role.MODERATOR });
+      if (!isAll) {
+        qb.innerJoin('u.organizations', 'uo').andWhere(
+          'uo.organization_id = :orgId',
+          { orgId },
+        );
+      }
+      return qb.select('COUNT(DISTINCT u.id)::int', 'c');
+    })();
+
+    const levelCountQb = this.levelRepo
+      .createQueryBuilder('l')
+      .select('COUNT(*)::int', 'c');
+    const questionCountQb = this.questionRepo
+      .createQueryBuilder('q')
+      .select('COUNT(*)::int', 'c');
+
+    const active7dQb = this.refreshRepo
       .createQueryBuilder('rt')
-      .leftJoin('rt.user', 'u')
-      .leftJoin('u.organizations', 'uo')
-      .leftJoin('uo.organization', 'o')
       .where('rt.created_at >= :since', { since })
-      .andWhere(isAll ? '1=1' : 'o.id = :orgId', { orgId })
-      .select('u.id', 'userId')
-      .distinct(true)
-      .getRawMany()
-      .then((rows) => rows.length);
+      .select('COUNT(DISTINCT rt.user_id)::int', 'c');
+    if (!isAll) {
+      active7dQb
+        .innerJoin(
+          UserOrganization,
+          'uo',
+          'uo.user_id = rt.user_id AND uo.organization_id = :orgId',
+          { orgId },
+        );
+    }
+
+    const [
+      usersRow,
+      orgRow,
+      modRow,
+      levelRow,
+      questionRow,
+      activeRow,
+    ] = await Promise.all([
+      usersCountQb.getRawOne<{ c: number }>(),
+      orgCountQb.getRawOne<{ c: number }>(),
+      modCountQb.getRawOne<{ c: number }>(),
+      levelCountQb.getRawOne<{ c: number }>(),
+      questionCountQb.getRawOne<{ c: number }>(),
+      active7dQb.getRawOne<{ c: number }>(),
+    ]);
 
     return {
-      totalUsers,
-      activeUsers7d,
-      totalOrganizations,
-      totalModerators,
-      totalLevels,
-      totalQuestions,
+      totalUsers: Number(usersRow?.c) || 0,
+      activeUsers7d: Number(activeRow?.c) || 0,
+      totalOrganizations: Number(orgRow?.c) || 0,
+      totalModerators: Number(modRow?.c) || 0,
+      totalLevels: Number(levelRow?.c) || 0,
+      totalQuestions: Number(questionRow?.c) || 0,
       orgId,
     };
   }
 
+  /**
+   * Asl kod har level uchun 2 ta query qilardi (N+1).
+   * Endi bitta GROUP BY query — barcha leveller uchun.
+   */
   async getLevelFunnel(orgId: string): Promise<LevelFunnelItemDto[]> {
     const isAll = orgId === 'all';
-    const levels = await this.levelRepo.find({
-      order: { orderIndex: 'ASC' },
-    });
 
-    const result: LevelFunnelItemDto[] = [];
+    const qb = this.ulcRepo
+      .createQueryBuilder('ulc')
+      .innerJoin('ulc.level', 'l')
+      .select('l.id', 'levelId')
+      .addSelect('l.title', 'levelTitle')
+      .addSelect('l.order_index', 'orderIndex')
+      .addSelect('COUNT(ulc.id)::int', 'totalStarted')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE ulc.completion_percent = 100)::int`,
+        'totalCompleted',
+      )
+      .groupBy('l.id')
+      .addGroupBy('l.title')
+      .addGroupBy('l.order_index')
+      .orderBy('l.order_index', 'ASC');
 
-    for (const level of levels) {
-      const startedQb = this.ulcRepo
-        .createQueryBuilder('ulc')
-        .where('ulc.level_id = :levelId', { levelId: level.id });
-      if (!isAll) {
-        startedQb.andWhere('ulc.organization_id = :orgId', { orgId });
-      }
-      const totalStarted = await startedQb.getCount();
-
-      const completedQb = this.ulcRepo
-        .createQueryBuilder('ulc')
-        .where('ulc.level_id = :levelId', { levelId: level.id })
-        .andWhere('ulc.completion_percent = 100');
-      if (!isAll) {
-        completedQb.andWhere('ulc.organization_id = :orgId', { orgId });
-      }
-      const totalCompleted = await completedQb.getCount();
-
-      result.push({
-        levelId: level.id,
-        levelTitle: level.title,
-        orderIndex: level.orderIndex,
-        totalStarted,
-        totalCompleted,
-      });
+    if (!isAll) {
+      qb.where('ulc.organization_id = :orgId', { orgId });
     }
 
-    return result;
+    const aggregated = await qb.getRawMany<{
+      levelId: string;
+      levelTitle: string;
+      orderIndex: number;
+      totalStarted: number;
+      totalCompleted: number;
+    }>();
+
+    // Hech kim boshlamagan levellar ham ko'rinishi uchun, barcha levellar
+    // bilan birlashtiramiz (LEFT OUTER ma'nosida).
+    const allLevels = await this.levelRepo.find({
+      order: { orderIndex: 'ASC' },
+    });
+    const map = new Map(aggregated.map((r) => [r.levelId, r]));
+
+    return allLevels.map((l) => {
+      const a = map.get(l.id);
+      return {
+        levelId: l.id,
+        levelTitle: l.title,
+        orderIndex: l.orderIndex,
+        totalStarted: Number(a?.totalStarted) || 0,
+        totalCompleted: Number(a?.totalCompleted) || 0,
+      };
+    });
   }
 
   async getQuestionErrors(orgId: string): Promise<QuestionErrorDto[]> {
@@ -123,7 +178,7 @@ export class AnalyticsService {
 
     const qb = this.uqaRepo
       .createQueryBuilder('uqa')
-      .leftJoin('uqa.question', 'q')
+      .innerJoin('uqa.question', 'q')
       .leftJoin('q.level', 'l')
       .leftJoin('q.theory', 't')
       .select('q.id', 'questionId')
@@ -139,27 +194,34 @@ export class AnalyticsService {
       .addGroupBy('q.prompt')
       .addGroupBy('l.title')
       .addGroupBy('t.title')
+      // Faqat kamida 1 marta xato bo'lgan savollar
+      .having('COUNT(*) FILTER (WHERE uqa.is_correct = false) > 0')
       .orderBy('"wrongAttempts"', 'DESC')
       .limit(20);
 
     if (!isAll) {
-      qb.andWhere('uqa.organization_id = :orgId', { orgId });
+      qb.where('uqa.organization_id = :orgId', { orgId });
     }
 
-    const raw: {
+    const raw = await qb.getRawMany<{
       questionId: string;
       prompt: string;
       levelTitle: string;
       theoryTitle: string;
       totalAttempts: number;
       wrongAttempts: number;
-    }[] = await qb.getRawMany();
+    }>();
 
     return raw.map((r) => ({
-      ...r,
+      questionId: r.questionId,
+      prompt: r.prompt,
+      levelTitle: r.levelTitle,
+      theoryTitle: r.theoryTitle,
+      totalAttempts: Number(r.totalAttempts) || 0,
+      wrongAttempts: Number(r.wrongAttempts) || 0,
       errorRate:
         r.totalAttempts > 0
-          ? Math.round((r.wrongAttempts / r.totalAttempts) * 100)
+          ? Math.round((Number(r.wrongAttempts) / Number(r.totalAttempts)) * 100)
           : 0,
     }));
   }
@@ -186,28 +248,18 @@ export class AnalyticsService {
     }>;
   }> {
     const isAll = orgId === 'all';
-    const now = new Date();
-    const from = new Date(now);
-    if (range === 'today') {
-      from.setHours(0, 0, 0, 0);
-    } else if (range === 'month') {
-      from.setDate(1);
-      from.setHours(0, 0, 0, 0);
-    } else {
-      from.setMonth(0, 1);
-      from.setHours(0, 0, 0, 0);
-    }
-    const to = new Date(now);
+    const { from, to } = this.rangeBoundsTashkent(range);
 
     const byUserQb = this.uqaRepo
       .createQueryBuilder('uqa')
-      .leftJoin('uqa.user', 'u')
+      .innerJoin('uqa.user', 'u')
       .select('u.id', 'userId')
       .addSelect('u.first_name', 'firstName')
       .addSelect('u.last_name', 'lastName')
       .addSelect('u.email', 'email')
       .addSelect('COUNT(*)::int', 'lostHearts')
-      .where('uqa.answered_at >= :from AND uqa.answered_at <= :to', { from, to })
+      .where('uqa.answered_at >= :from', { from })
+      .andWhere('uqa.answered_at < :to', { to })
       .andWhere('uqa.is_correct = false')
       .groupBy('u.id')
       .addGroupBy('u.first_name')
@@ -222,7 +274,7 @@ export class AnalyticsService {
 
     const byQuestionQb = this.uqaRepo
       .createQueryBuilder('uqa')
-      .leftJoin('uqa.question', 'q')
+      .innerJoin('uqa.question', 'q')
       .leftJoin('q.level', 'l')
       .leftJoin('q.theory', 't')
       .select('q.id', 'questionId')
@@ -230,7 +282,8 @@ export class AnalyticsService {
       .addSelect('l.title', 'levelTitle')
       .addSelect('t.title', 'theoryTitle')
       .addSelect('COUNT(*)::int', 'lostHearts')
-      .where('uqa.answered_at >= :from AND uqa.answered_at <= :to', { from, to })
+      .where('uqa.answered_at >= :from', { from })
+      .andWhere('uqa.answered_at < :to', { to })
       .andWhere('uqa.is_correct = false')
       .groupBy('q.id')
       .addGroupBy('q.prompt')
@@ -265,18 +318,50 @@ export class AnalyticsService {
       range: { from: from.toISOString(), to: to.toISOString() },
       byUser: byUser.map((r) => ({
         userId: r.userId,
-        firstName: r.firstName,
-        lastName: r.lastName,
-        email: r.email,
+        firstName: r.firstName ?? '',
+        lastName: r.lastName ?? '',
+        email: r.email ?? '',
         lostHearts: Number(r.lostHearts) || 0,
       })),
       byQuestion: byQuestion.map((r) => ({
         questionId: r.questionId,
-        prompt: r.prompt,
-        levelTitle: r.levelTitle,
-        theoryTitle: r.theoryTitle,
+        prompt: r.prompt ?? '',
+        levelTitle: r.levelTitle ?? '',
+        theoryTitle: r.theoryTitle ?? '',
         lostHearts: Number(r.lostHearts) || 0,
       })),
+    };
+  }
+
+  /**
+   * Toshkent (UTC+5) kun chegaralari. Asl kod server timezone'i bilan
+   * `setHours(0,0,0,0)` qilardi — UTC serverda noto'g'ri natija.
+   */
+  private rangeBoundsTashkent(range: 'today' | 'month' | 'year') {
+    const offsetMs = 5 * 3600 * 1000;
+    const now = new Date();
+    const t = new Date(now.getTime() + offsetMs); // "Tashkent-fake-UTC"
+
+    let fromT: Date;
+    let toT: Date;
+    if (range === 'today') {
+      fromT = new Date(
+        Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate()),
+      );
+      toT = new Date(
+        Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate() + 1),
+      );
+    } else if (range === 'month') {
+      fromT = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), 1));
+      toT = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 1));
+    } else {
+      fromT = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+      toT = new Date(Date.UTC(t.getUTCFullYear() + 1, 0, 1));
+    }
+
+    return {
+      from: new Date(fromT.getTime() - offsetMs),
+      to: new Date(toT.getTime() - offsetMs),
     };
   }
 }

@@ -77,20 +77,19 @@ export class ExportService {
 
   async buildModeratorsCredentialsExcel(): Promise<Buffer> {
     const accounts = await this.userRepo.find({
-      where: [{ role: Role.MODERATOR }, { role: Role.SUPERADMIN }],
+      // SUPERADMIN parolini Excel'ga chiqarmaymiz — moderatorlar uchun
+      // initialPassword zarur (xodimga parol berish uchun), SUPERADMIN
+      // esa env'da sozlanadi va plain ko'rsatilmasligi kerak.
+      where: [{ role: Role.MODERATOR }],
       relations: ['organizations', 'organizations.organization'],
-      order: { role: 'ASC', lastName: 'ASC', firstName: 'ASC' },
+      order: { lastName: 'ASC', firstName: 'ASC' },
     });
 
-    // SUPERADMIN birinchi, keyin moderatorlar
-    accounts.sort((a, b) => {
-      if (a.role === b.role) {
-        return `${a.lastName} ${a.firstName}`.localeCompare(
-          `${b.lastName} ${b.firstName}`,
-        );
-      }
-      return a.role === Role.SUPERADMIN ? -1 : 1;
-    });
+    accounts.sort((a, b) =>
+      `${a.lastName} ${a.firstName}`.localeCompare(
+        `${b.lastName} ${b.firstName}`,
+      ),
+    );
 
     return this.toExcelBuffer(
       'Moderatorlar — login parollar',

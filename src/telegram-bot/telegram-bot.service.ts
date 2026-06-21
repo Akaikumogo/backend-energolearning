@@ -1,7 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 
-const TELEGRAM_BOT_TOKEN = '8582817987:AAHgksthfkoBVn7jlPCeR5lozbtv_HNUIGY';
-const WEB_APP_URL = 'https://t.me/elektrolearnbot/Elektro_learn';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
+const WEB_APP_URL =
+  process.env.TELEGRAM_WEB_APP_URL ?? 'https://t.me/elektrolearnbot/Elektro_learn';
 const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
 interface TelegramUser {
@@ -30,6 +31,12 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private stopRequested = false;
 
   async onModuleInit() {
+    if (!TELEGRAM_BOT_TOKEN) {
+      this.logger.warn(
+        'TELEGRAM_BOT_TOKEN o`rnatilmagan — telegram bot o`chirilgan.',
+      );
+      return;
+    }
     this.logger.log('Telegram bot ishga tushmoqda...');
     void this.startPolling();
   }

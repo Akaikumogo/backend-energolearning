@@ -207,8 +207,17 @@ export class ExamLiveService {
       tbScorePercent: number | null;
     }> = [];
 
+    // Batch: bitta query bilan barcha attemptlarni olamiz (N+1 yo'q).
+    const sessionIds = rows.map((s) => s.id);
+    const attempts = sessionIds.length
+      ? await this.attemptRepo.find({
+          where: { sessionId: In(sessionIds) },
+        })
+      : [];
+    const attemptBySession = new Map(attempts.map((at) => [at.sessionId, at]));
+
     for (const s of rows) {
-      const attempt = await this.attemptRepo.findOne({ where: { sessionId: s.id } });
+      const attempt = attemptBySession.get(s.id) ?? null;
       const a = s.assignment;
       out.push({
         sessionId: s.id,

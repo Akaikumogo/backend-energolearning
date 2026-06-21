@@ -41,16 +41,30 @@ export class UsersService implements OnModuleInit {
   async onModuleInit() {
     const superAdminEmail =
       process.env.SUPERADMIN_EMAIL ?? 'elektroLearn@admin.com';
-    const superAdminPassword = process.env.SUPERADMIN_PASSWORD ?? '!Qw3rty';
+    const superAdminPassword = process.env.SUPERADMIN_PASSWORD;
+
+    // Productionda env yo'q bo'lsa, default zaif parol bilan boot qilmaymiz.
+    if (!superAdminPassword) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+          'SUPERADMIN_PASSWORD env o`rnatilishi shart (production).',
+        );
+      }
+      // Lokal dev uchun ogohlantirish bilan davom etamiz.
+      console.warn(
+        '[users] SUPERADMIN_PASSWORD env yo`q — superadmin yaratish o`tkazib yuborildi.',
+      );
+      return;
+    }
 
     const existing = await this.usersRepo.findOne({
       where: { email: superAdminEmail },
     });
     if (existing) {
-      // Excel export superadmin parolini ham ko'rsata olishi uchun env'dagi
-      // parolni initialPassword'ga yozib qo'yamiz (bo'sh bo'lsa)
-      if (!existing.initialPassword) {
-        existing.initialPassword = superAdminPassword;
+      // SUPERADMIN parolini DB'da plain saqlamaymiz — Excel export'da ham
+      // bu rol ko'rinmaydi (faqat moderatorlar uchun initialPassword bor).
+      if (existing.initialPassword) {
+        existing.initialPassword = null;
         await this.usersRepo.save(existing);
       }
       return;
@@ -72,7 +86,8 @@ export class UsersService implements OnModuleInit {
         firstName: 'Elektro',
         lastName: 'Admin',
         role: Role.SUPERADMIN,
-        initialPassword: superAdminPassword,
+        // SUPERADMIN uchun plain parol DB'da saqlanmaydi.
+        initialPassword: null,
       }),
     );
 
