@@ -231,6 +231,7 @@ export class UsersService implements OnModuleInit {
     if (data.organization?.name) {
       const organization = await this.ensureOrganization(
         data.organization.name,
+        data.organization.externalId,
       );
       await this.attachUserToOrganization(user.id, organization.id);
     }
@@ -454,10 +455,31 @@ export class UsersService implements OnModuleInit {
     return Role.USER;
   }
 
-  private async ensureOrganization(name: string) {
-    const existing = await this.orgRepo.findOne({ where: { name } });
-    if (existing) return existing;
-    return this.orgRepo.save(this.orgRepo.create({ name }));
+  private async ensureOrganization(name: string, externalId?: string | null) {
+    const trimmed = name.trim() || 'Unknown';
+    const ext = externalId?.trim() || null;
+
+    if (ext) {
+      const byExternal = await this.orgRepo.findOne({
+        where: { energoExternalId: ext },
+      });
+      if (byExternal) return byExternal;
+    }
+
+    const existing = await this.orgRepo.findOne({ where: { name: trimmed } });
+    if (existing) {
+      if (ext && !existing.energoExternalId) {
+        await this.orgRepo.update(existing.id, { energoExternalId: ext });
+      }
+      return existing;
+    }
+
+    return this.orgRepo.save(
+      this.orgRepo.create({
+        name: trimmed,
+        energoExternalId: ext,
+      }),
+    );
   }
 
   private async attachUserToOrganization(
