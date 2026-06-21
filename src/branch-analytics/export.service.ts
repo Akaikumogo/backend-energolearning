@@ -26,14 +26,15 @@ export class ExportService {
 
     const users = await this.userRepo
       .createQueryBuilder('u')
-      .innerJoin(UserOrganization, 'uo', 'uo.user_id = u.id')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
       .leftJoin(
         NesEmployee,
         'ne',
         'ne.user_id = u.id AND ne.organization_id = :orgId',
         { orgId },
       )
-      .where('uo.organization_id = :orgId', { orgId })
+      .where('org.id = :orgId', { orgId })
       .andWhere('u.role = :role', { role: Role.USER })
       .select([
         'u.first_name AS "firstName"',
