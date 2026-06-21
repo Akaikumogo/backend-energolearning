@@ -76,6 +76,7 @@ import { DailyPlan } from './database/entities/daily-plan.entity';
 import { EmployeeSyncSetting } from './database/entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './database/entities/terminated-employee.entity';
 import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
+import { OneTimeCutoverModule } from './one-time-cutover/one-time-cutover.module';
 import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
 @Module({
   imports: [
@@ -152,6 +153,7 @@ import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
     UserActivityModule,
     BranchAnalyticsModule,
     AdminScriptsModule,
+    OneTimeCutoverModule,
     TelegramBotModule,
   ],
   controllers: [AppController],

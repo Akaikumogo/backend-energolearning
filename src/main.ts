@@ -5,9 +5,11 @@ import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-option
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { webcrypto } from 'crypto';
+import * as fs from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
 import { SWAGGER_RELATIVE_PATH } from './swagger.constants';
+import { ONE_TIME_CUTOVER_FLAG_PATH } from './one-time-cutover/one-time-cutover.constants';
 import 'dotenv/config';
 
 // Workaround for environments where globalThis.crypto is missing.
@@ -168,6 +170,13 @@ async function bootstrap() {
       .build();
 
     const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+
+    const cutoverUnavailable =
+      (process.env.ONE_TIME_CUTOVER_ENABLED ?? '').toLowerCase() !== 'true' ||
+      fs.existsSync(ONE_TIME_CUTOVER_FLAG_PATH);
+    if (cutoverUnavailable && swaggerDocument.paths) {
+      delete swaggerDocument.paths['/api/admin/one-time/energo-id-cutover'];
+    }
 
     SwaggerModule.setup(SWAGGER_RELATIVE_PATH, app, swaggerDocument, {
       customSiteTitle: 'ElektroLearn API Docs',
