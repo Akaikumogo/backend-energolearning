@@ -98,16 +98,35 @@ export class AdminScriptsService {
       throw new BadRequestException('Path traversal aniqlandi');
     }
 
-    return this.spawnNode(resolvedPath, env);
+    return this.spawnNode(
+      resolvedPath,
+      env,
+      this.cutoverArgs(baseName, env),
+    );
+  }
+
+  private cutoverArgs(
+    scriptName: string,
+    extraEnv?: Record<string, string>,
+  ): string[] {
+    const base = scriptName.replace(/\.(mjs|cjs|js)$/, '');
+    if (base !== 'cutover-energo-id-fresh-start') return [];
+    const confirm = extraEnv?.CUTOVER_CONFIRM;
+    if (confirm === '1' || confirm === 'true') return ['--confirm'];
+    return [];
   }
 
   private spawnNode(
     scriptPath: string,
     extraEnv?: Record<string, string>,
+    extraArgs: string[] = [],
   ): Promise<RunResult> {
     return new Promise((resolve) => {
       const startedAt = Date.now();
-      const child = spawn(process.execPath, [scriptPath], {
+      const child = spawn(
+        process.execPath,
+        ['-r', 'dotenv/config', scriptPath, ...extraArgs],
+        {
         env: {
           ...process.env,
           ...(extraEnv ?? {}),
