@@ -53,6 +53,7 @@ import { AddOrganizationEnergoMirror1746110000000 } from './migrations/0016-add-
 import { AddAnalyticsIndexes1746200000000 } from './migrations/0015-add-analytics-indexes';
 import { FixNesEmployeeUnique1746310000000 } from './migrations/0017-fix-nes-employee-unique';
 import { AddAudioBookAudioUrl1746400000000 } from './migrations/0018-add-audio-book-audio-url';
+import { AddHeartLostFlag1746500000000 } from './migrations/0019-add-heart-lost-flag';
 import { AddOrganizationParentAndDefault1746300000000 } from './migrations/0017-add-organization-parent-and-default';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
@@ -121,6 +122,7 @@ export const AppDataSource = new DataSource({
     AddOrganizationParentAndDefault1746300000000,
     FixNesEmployeeUnique1746310000000,
     AddAudioBookAudioUrl1746400000000,
+    AddHeartLostFlag1746500000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

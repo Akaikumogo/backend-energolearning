@@ -260,22 +260,22 @@ export class AnalyticsService {
       .createQueryBuilder('uqa')
       .innerJoin('uqa.user', 'u')
       .select('u.id', 'userId')
-      .addSelect('u.first_name', 'firstName')
-      .addSelect('u.last_name', 'lastName')
+      .addSelect('u.firstName', 'firstName')
+      .addSelect('u.lastName', 'lastName')
       .addSelect('u.email', 'email')
       .addSelect('COUNT(*)::int', 'lostHearts')
-      .where('uqa.answered_at >= :from', { from })
-      .andWhere('uqa.answered_at < :to', { to })
-      .andWhere('uqa.is_correct = false')
+      .where('uqa.answeredAt >= :from', { from })
+      .andWhere('uqa.answeredAt < :to', { to })
+      .andWhere('uqa.heartLost = true')
       .groupBy('u.id')
-      .addGroupBy('u.first_name')
-      .addGroupBy('u.last_name')
+      .addGroupBy('u.firstName')
+      .addGroupBy('u.lastName')
       .addGroupBy('u.email')
       .orderBy('"lostHearts"', 'DESC')
       .limit(50);
 
     if (!isAll) {
-      byUserQb.andWhere('uqa.organization_id = :orgId', { orgId });
+      byUserQb.andWhere('uqa.organizationId = :orgId', { orgId });
     }
 
     const byQuestionQb = this.uqaRepo
@@ -288,9 +288,9 @@ export class AnalyticsService {
       .addSelect('l.title', 'levelTitle')
       .addSelect('t.title', 'theoryTitle')
       .addSelect('COUNT(*)::int', 'lostHearts')
-      .where('uqa.answered_at >= :from', { from })
-      .andWhere('uqa.answered_at < :to', { to })
-      .andWhere('uqa.is_correct = false')
+      .where('uqa.answeredAt >= :from', { from })
+      .andWhere('uqa.answeredAt < :to', { to })
+      .andWhere('uqa.heartLost = true')
       .groupBy('q.id')
       .addGroupBy('q.prompt')
       .addGroupBy('l.title')
@@ -299,7 +299,7 @@ export class AnalyticsService {
       .limit(50);
 
     if (!isAll) {
-      byQuestionQb.andWhere('uqa.organization_id = :orgId', { orgId });
+      byQuestionQb.andWhere('uqa.organizationId = :orgId', { orgId });
     }
 
     const [byUser, byQuestion] = await Promise.all([
@@ -375,14 +375,21 @@ export class AnalyticsService {
 
     const loginRows = (await this.sessionRepo.query(
       `
-      SELECT s.organization_id AS "orgId",
-             to_char(date_trunc('week', s.login_at)::date, 'YYYY-MM-DD') AS "weekStart",
+      SELECT COALESCE(s.organization_id, uo.organization_id) AS "orgId",
+             to_char(date_trunc('week', s.login_at AT TIME ZONE 'UTC')::date, 'YYYY-MM-DD') AS "weekStart",
              COUNT(*)::int AS count
       FROM user_sessions s
+      LEFT JOIN LATERAL (
+        SELECT uo2.organization_id
+        FROM user_organizations uo2
+        WHERE uo2.user_id = s.user_id
+        ORDER BY uo2.created_at ASC
+        LIMIT 1
+      ) uo ON true
       WHERE s.login_at >= $1
-        AND s.organization_id IS NOT NULL
-        ${loginOrgFilter}
-      GROUP BY s.organization_id, date_trunc('week', s.login_at)
+        AND COALESCE(s.organization_id, uo.organization_id) IS NOT NULL
+        ${loginOrgFilter.replace('s.organization_id', 'COALESCE(s.organization_id, uo.organization_id)')}
+      GROUP BY COALESCE(s.organization_id, uo.organization_id), date_trunc('week', s.login_at AT TIME ZONE 'UTC')
       `,
       loginParams,
     )) as Array<{ orgId: string; weekStart: string; count: number }>;

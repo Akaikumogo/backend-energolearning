@@ -21,7 +21,7 @@ import { RecordEventDto } from './dto/record-event.dto';
 import { ActivityQueryDto, ActivityRange } from './dto/activity-query.dto';
 
 type AuthedRequest = Request & {
-  user: { sub: string; role: Role; organizationIds?: string[] };
+  user: { id: string; sub: string; role: Role; organizationIds?: string[] };
 };
 
 @ApiTags('User Activity')
@@ -37,7 +37,7 @@ export class UserActivityController {
   @Post('heartbeat')
   @ApiOperation({ summary: 'HTTP fallback heartbeat (WS afzal)' })
   async heartbeat(@Req() req: AuthedRequest) {
-    await this.service.heartbeat(req.user.sub);
+    await this.service.heartbeat(req.user.id);
     return { ok: true };
   }
 
@@ -45,7 +45,7 @@ export class UserActivityController {
   @ApiOperation({ summary: 'Activity event yozish (theory open, test boshlash...)' })
   async event(@Req() req: AuthedRequest, @Body() dto: RecordEventDto) {
     await this.service.recordEvent({
-      userId: req.user.sub,
+      userId: req.user.id,
       eventType: dto.eventType,
       entityType: dto.entityType,
       entityId: dto.entityId,
