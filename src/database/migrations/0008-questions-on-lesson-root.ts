@@ -4,6 +4,15 @@ export class QuestionsOnLessonRoot1744200000000 implements MigrationInterface {
   name = 'QuestionsOnLessonRoot1744200000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    const col = await queryRunner.query(`
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'theories' AND column_name = 'parent_theory_id'
+      LIMIT 1;
+    `);
+    if (!col.length) {
+      return;
+    }
     await queryRunner.query(`
       UPDATE questions q
       SET theory_id = t.parent_theory_id

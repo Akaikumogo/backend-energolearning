@@ -103,7 +103,14 @@ export class AddContentTables1743078000000 implements MigrationInterface {
       );
     `);
 
+    await queryRunner.query(`
+      ALTER TABLE "theories"
+      ADD COLUMN IF NOT EXISTS "parent_theory_id" uuid NULL
+        REFERENCES "theories"("id") ON DELETE CASCADE;
+    `);
+
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_theories_level" ON "theories"("level_id");`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_theories_parent" ON "theories"("parent_theory_id");`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_questions_level" ON "questions"("level_id");`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_questions_theory" ON "questions"("theory_id");`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_qoptions_question" ON "question_options"("question_id");`);

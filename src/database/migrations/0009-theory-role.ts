@@ -8,6 +8,15 @@ export class TheoryRole1744300000000 implements MigrationInterface {
       ALTER TABLE "theories"
       ADD COLUMN IF NOT EXISTS "theory_role" text NULL;
     `);
+    const col = await queryRunner.query(`
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'theories' AND column_name = 'parent_theory_id'
+      LIMIT 1;
+    `);
+    if (!col.length) {
+      return;
+    }
     await queryRunner.query(`
       UPDATE "theories" SET "theory_role" = 'nazariya'
       WHERE "parent_theory_id" IS NOT NULL AND "title" LIKE '% · Nazariya';
