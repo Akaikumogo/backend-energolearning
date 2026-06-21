@@ -181,15 +181,35 @@ export class UsersService implements OnModuleInit {
   async syncFromEnergoIdentity(data: EnergoIdentityUser): Promise<User> {
     const login = data.login.trim();
     const role = this.toLocalRole(data.role);
-    let user =
-      (await this.findByEnergoId(data.energoUserId)) ??
-      (await this.findByEmail(login));
+    const energoUserId = data.energoUserId;
+
+    if (!login || !energoUserId) {
+      throw new BadRequestException('Energo ID user login yoki id yo`q');
+    }
+
+    const byEnergo = await this.findByEnergoId(energoUserId);
+    const byEmail = await this.findByEmail(login);
+
+    let user = byEnergo ?? byEmail ?? null;
+
+    if (byEnergo && byEmail && byEnergo.id !== byEmail.id) {
+      await this.releaseStaleIdentityHolder(byEmail, energoUserId);
+      user = byEnergo;
+    }
+
+    const resolvedEmail = await this.resolveSyncEmail(
+      login,
+      energoUserId,
+      user?.id ?? null,
+    );
+
+    await this.releaseEnergoIdFromOthers(energoUserId, user?.id ?? null);
 
     if (!user) {
       user = await this.usersRepo.save(
         this.usersRepo.create({
-          email: login,
-          energoId: data.energoUserId,
+          email: resolvedEmail,
+          energoId: energoUserId,
           passwordHash: null,
           firstName: data.firstName,
           lastName: data.lastName,
@@ -199,8 +219,8 @@ export class UsersService implements OnModuleInit {
       );
     } else {
       await this.usersRepo.update(user.id, {
-        email: login,
-        energoId: data.energoUserId,
+        email: resolvedEmail,
+        energoId: energoUserId,
         firstName: data.firstName,
         lastName: data.lastName,
         role,
@@ -215,7 +235,50 @@ export class UsersService implements OnModuleInit {
       await this.attachUserToOrganization(user.id, organization.id);
     }
 
-    return this.findByEnergoId(data.energoUserId) as Promise<User>;
+    return this.findByEnergoId(energoUserId) as Promise<User>;
+  }
+
+  /** Boshqa user shu email/energo_id ni ushlab turgan bo'lsa, sync oldin bo'shatiladi. */
+  private async resolveSyncEmail(
+    login: string,
+    energoUserId: string,
+    keepUserId: string | null,
+  ): Promise<string> {
+    const holder = await this.findByEmail(login);
+    if (!holder || (keepUserId && holder.id === keepUserId)) {
+      return login;
+    }
+
+    if (holder.role !== Role.USER) {
+      return `energo.${energoUserId.slice(0, 8)}@workers.elektrolearn.local`;
+    }
+
+    await this.releaseStaleIdentityHolder(holder, energoUserId);
+    return login;
+  }
+
+  private async releaseEnergoIdFromOthers(
+    energoUserId: string,
+    keepUserId: string | null,
+  ) {
+    const holder = await this.usersRepo.findOne({ where: { energoId: energoUserId } });
+    if (!holder || (keepUserId && holder.id === keepUserId)) return;
+    await this.usersRepo.update(holder.id, { energoId: null });
+  }
+
+  private async releaseStaleIdentityHolder(stale: User, energoUserId: string) {
+    if (stale.role !== Role.USER) return;
+
+    const patch: Partial<User> = {
+      email: this.legacyEmailForUser(stale.id),
+      energoId: stale.energoId === energoUserId ? null : stale.energoId,
+    };
+
+    await this.usersRepo.update(stale.id, patch);
+  }
+
+  private legacyEmailForUser(userId: string) {
+    return `legacy+${userId.replace(/-/g, '').slice(0, 12)}@elektrolearn.local`;
   }
 
   async syncEmployeesFromEnergoIdentity(

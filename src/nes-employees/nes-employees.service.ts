@@ -445,12 +445,13 @@ export class NesEmployeesService {
 
     const personnelNumber =
       employee.personnelNumber?.trim() || employee.login || user.id;
-    const existing = await this.employeeRepo.findOne({
-      where: {
-        personnelNumber,
-        organizationName,
-      },
-    });
+    let existing =
+      (await this.employeeRepo.findOne({
+        where: { personnelNumber, organizationName },
+      })) ??
+      (await this.employeeRepo.findOne({
+        where: { userId: user.id, organizationName },
+      }));
 
     const payload = {
       personnelNumber,
@@ -472,11 +473,26 @@ export class NesEmployeesService {
     };
 
     if (!existing) {
-      const saved = await this.employeeRepo.save(
-        this.employeeRepo.create(payload),
-      );
-      await this.writeHistory(saved, 'created', {}, payload);
-      return;
+      try {
+        const saved = await this.employeeRepo.save(
+          this.employeeRepo.create(payload),
+        );
+        await this.writeHistory(saved, 'created', {}, payload);
+        return;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : String(error);
+        if (
+          !message.includes('duplicate key') &&
+          !message.includes('UQ_nes_employee_number_org')
+        ) {
+          throw error;
+        }
+        existing = await this.employeeRepo.findOne({
+          where: { personnelNumber, organizationName },
+        });
+        if (!existing) throw error;
+      }
     }
 
     Object.assign(existing, payload);
