@@ -49,13 +49,13 @@ export class AddAnalyticsIndexes1746200000000 implements MigrationInterface {
     `);
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_refresh_tokens_user_id"
-        ON "refresh_tokens" ("user_id")
+        ON "refresh_tokens" ("userId")
     `);
 
     // user_organizations: getSummary org filter
     await queryRunner.query(`
       CREATE INDEX IF NOT EXISTS "idx_user_orgs_org_user"
-        ON "user_organizations" ("organization_id", "user_id")
+        ON "user_organizations" ("organizationId", "userId")
     `);
 
     // user_progress: hearts. UNIQUE — race-safe upsert (ON CONFLICT) uchun.
