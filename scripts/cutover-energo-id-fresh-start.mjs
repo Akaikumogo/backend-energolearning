@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 /**
  * ElektroLearn — Energo ID cutover fresh-start tozalash.
  *
