@@ -127,7 +127,22 @@ export class ProgressService {
       where: { id: userId },
       relations: ['organizations', 'organizations.organization'],
     });
-    const orgId = user?.organizations?.[0]?.organization?.id ?? '';
+    const orgId = user?.organizations?.[0]?.organization?.id ?? null;
+    if (!orgId) {
+      throw new ForbiddenException(
+        'Foydalanuvchi hech qanday tashkilotga biriktirilmagan',
+      );
+    }
+
+    // 0 yurakda javob qabul qilinmaydi.
+    const heartsBefore = await this.heartsService.getMyHearts(userId, orgId);
+    if (heartsBefore.heartsCount <= 0) {
+      throw new ForbiddenException({
+        code: 'NO_HEARTS_LEFT',
+        message: 'Yuraklar tugadi. Ertaga 00:00 dan keyin yangilanadi.',
+        state: heartsBefore,
+      });
+    }
 
     const attempt = this.attemptRepo.create({
       userId,
@@ -138,7 +153,7 @@ export class ProgressService {
     });
     await this.attemptRepo.save(attempt);
 
-    if (!isCorrect && orgId) {
+    if (!isCorrect) {
       await this.heartsService.consumeHeart(userId, orgId, 1);
     }
 
@@ -193,7 +208,21 @@ export class ProgressService {
       where: { id: userId },
       relations: ['organizations', 'organizations.organization'],
     });
-    const orgId = user?.organizations?.[0]?.organization?.id ?? '';
+    const orgId = user?.organizations?.[0]?.organization?.id ?? null;
+    if (!orgId) {
+      throw new ForbiddenException(
+        'Foydalanuvchi hech qanday tashkilotga biriktirilmagan',
+      );
+    }
+
+    const heartsBefore = await this.heartsService.getMyHearts(userId, orgId);
+    if (heartsBefore.heartsCount <= 0) {
+      throw new ForbiddenException({
+        code: 'NO_HEARTS_LEFT',
+        message: 'Yuraklar tugadi. Ertaga 00:00 dan keyin yangilanadi.',
+        state: heartsBefore,
+      });
+    }
 
     const attempt = this.attemptRepo.create({
       userId,
@@ -204,7 +233,7 @@ export class ProgressService {
     });
     await this.attemptRepo.save(attempt);
 
-    if (!isCorrect && orgId) {
+    if (!isCorrect) {
       await this.heartsService.consumeHeart(userId, orgId, 1);
     }
 

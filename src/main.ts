@@ -51,8 +51,25 @@ function parseOllamaInfo() {
 }
 
 function buildCorsConfig(): CorsOptions {
+  const raw = process.env.CORS_ALLOWED_ORIGINS?.trim() ?? '';
+  const allowAll =
+    raw === '*' ||
+    (process.env.NODE_ENV !== 'production' && raw === '');
+
+  const allowlist = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   return {
-    origin: true,
+    origin: allowAll
+      ? true
+      : (origin, callback) => {
+          // Same-origin / Postman / curl — origin undefined bo'lishi mumkin.
+          if (!origin) return callback(null, true);
+          if (allowlist.includes(origin)) return callback(null, true);
+          return callback(new Error(`CORS: origin "${origin}" ruxsat etilmagan`), false);
+        },
     credentials: true,
     methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
     exposedHeaders: ['Content-Disposition'],
@@ -231,9 +248,9 @@ async function bootstrap() {
     }
 
     console.log(`Admin email: ${adminEmail ?? '-'}`);
-    console.log(
-      `Admin pass:  ${showFull ? (adminPassword ?? '-') : maskSecret(adminPassword) || '-'}`,
-    );
+    // Parol hech qachon clear ko'rsatilmaydi — faqat mask. `full` rejimi
+    // boshqa secret'larni ochsa ham, parol uchun amal qilmaydi.
+    console.log(`Admin pass:  ${maskSecret(adminPassword) || '-'}`);
     console.log(`AI base:     ${ollamaInfo.baseUrl || '-'}`);
     console.log(`AI model:    ${ollamaInfo.model || '-'}`);
     console.log(`AI timeout:  ${ollamaInfo.timeoutMs || '-'} ms`);
