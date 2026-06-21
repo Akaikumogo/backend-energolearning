@@ -75,6 +75,70 @@ export class ExportService {
     );
   }
 
+  async buildAllNesEmployeesCredentialsExcel(filters?: {
+    organizationName?: string;
+  }): Promise<Buffer> {
+    const qb = this.nesRepo
+      .createQueryBuilder('ne')
+      .innerJoin(User, 'u', 'u.id = ne.user_id')
+      .where('u.role = :role', { role: Role.USER })
+      .orderBy('ne.organization_name', 'ASC')
+      .addOrderBy('ne.last_name', 'ASC')
+      .addOrderBy('ne.first_name', 'ASC');
+
+    if (filters?.organizationName?.trim()) {
+      qb.andWhere('LOWER(ne.organization_name) = :org', {
+        org: filters.organizationName.trim().toLowerCase(),
+      });
+    }
+
+    const rows = await qb
+      .select([
+        'ne.first_name AS "firstName"',
+        'ne.last_name AS "lastName"',
+        'ne.login AS "login"',
+        'COALESCE(ne.initial_password, u.initial_password) AS "password"',
+        'ne.personnel_number AS "personnelNumber"',
+        'ne.organization_name AS "organizationName"',
+        'ne.division AS "division"',
+        'u.energo_id AS "energoId"',
+      ])
+      .getRawMany<{
+        firstName: string;
+        lastName: string;
+        login: string;
+        password: string | null;
+        personnelNumber: string;
+        organizationName: string;
+        division: string;
+        energoId: string | null;
+      }>();
+
+    return this.toExcelBuffer(
+      'ENERGO ID xodimlar — login parollar',
+      [
+        '№',
+        'F.I.O',
+        'Tabel',
+        'Login (Energo ID)',
+        'Parol',
+        'Filial',
+        'Bo`lim',
+        'Energo ID',
+      ],
+      rows.map((r, i) => [
+        i + 1,
+        `${r.lastName} ${r.firstName}`.trim(),
+        r.personnelNumber ?? '',
+        r.login,
+        r.password ?? '—',
+        r.organizationName,
+        r.division ?? '',
+        r.energoId ?? '',
+      ]),
+    );
+  }
+
   async buildModeratorsCredentialsExcel(): Promise<Buffer> {
     const accounts = await this.userRepo.find({
       // SUPERADMIN parolini Excel'ga chiqarmaymiz — moderatorlar uchun
