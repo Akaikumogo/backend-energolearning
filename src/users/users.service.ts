@@ -225,19 +225,7 @@ export class UsersService {
     return `legacy+${userId.replace(/-/g, '').slice(0, 12)}@elektrolearn.local`;
   }
 
-  async syncEmployeesFromEnergoIdentity(
-    employees: EnergoIdentityUser[],
-  ): Promise<{ total: number; upserted: number; hidden: number }> {
-    const activeEnergoIds: string[] = [];
-    let upserted = 0;
-
-    for (const employee of employees) {
-      if (employee.role !== Role.USER) continue;
-      await this.syncFromEnergoIdentity(employee);
-      activeEnergoIds.push(employee.energoUserId);
-      upserted += 1;
-    }
-
+  async hideStaleEnergoUsers(activeEnergoIds: string[]): Promise<number> {
     const qb = this.usersRepo
       .createQueryBuilder()
       .update(User)
@@ -252,11 +240,28 @@ export class UsersService {
     }
 
     const hiddenResult = await qb.execute();
+    return hiddenResult.affected ?? 0;
+  }
+
+  async syncEmployeesFromEnergoIdentity(
+    employees: EnergoIdentityUser[],
+  ): Promise<{ total: number; upserted: number; hidden: number }> {
+    const activeEnergoIds: string[] = [];
+    let upserted = 0;
+
+    for (const employee of employees) {
+      if (employee.role !== Role.USER) continue;
+      await this.syncFromEnergoIdentity(employee);
+      activeEnergoIds.push(employee.energoUserId);
+      upserted += 1;
+    }
+
+    const hidden = await this.hideStaleEnergoUsers(activeEnergoIds);
 
     return {
       total: employees.length,
       upserted,
-      hidden: hiddenResult.affected ?? 0,
+      hidden,
     };
   }
 
