@@ -39,6 +39,7 @@ import { AddUserAvatar1743076000000 } from './migrations/0002-add-user-avatar';
 import { AddContentTables1743078000000 } from './migrations/0003-add-content-tables';
 import { AddQuestionType1743080000000 } from './migrations/0004-add-question-type';
 import { AddModeratorPermissionsAndViolations1743600000000 } from './migrations/0005-add-moderator-permissions-and-violations';
+import { AddExamAndSystemTables1743950000000 } from './migrations/00055-add-exam-and-system-tables';
 import { ExamQuestionCatalogs1744000000000 } from './migrations/0006-exam-question-catalogs';
 import { TheorySlidesJsonb1744108800000 } from './migrations/0007-theory-slides-jsonb';
 import { QuestionsOnLessonRoot1744200000000 } from './migrations/0008-questions-on-lesson-root';
@@ -49,6 +50,7 @@ import { AddActivityAndDailyPlan1746080000000 } from './migrations/0012-add-acti
 import { AddEnergoIdToUsers1746090000000 } from './migrations/0013-add-energo-id-to-users';
 import { AddEmployeeSyncAndTerminationArchive1746100000000 } from './migrations/0014-add-employee-sync-and-termination-archive';
 import { AddOrganizationEnergoMirror1746110000000 } from './migrations/0016-add-organization-energo-mirror';
+import { AddAnalyticsIndexes1746200000000 } from './migrations/0015-add-analytics-indexes';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { getPostgresConnectionOptions } from './postgres-env';
@@ -101,6 +103,7 @@ export const AppDataSource = new DataSource({
     AddContentTables1743078000000,
     AddQuestionType1743080000000,
     AddModeratorPermissionsAndViolations1743600000000,
+    AddExamAndSystemTables1743950000000,
     ExamQuestionCatalogs1744000000000,
     TheorySlidesJsonb1744108800000,
     QuestionsOnLessonRoot1744200000000,
@@ -111,6 +114,7 @@ export const AppDataSource = new DataSource({
     AddEnergoIdToUsers1746090000000,
     AddEmployeeSyncAndTerminationArchive1746100000000,
     AddOrganizationEnergoMirror1746110000000,
+    AddAnalyticsIndexes1746200000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
