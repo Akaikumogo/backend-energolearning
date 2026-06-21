@@ -179,9 +179,10 @@ export class UsersService implements OnModuleInit {
   }
 
   async syncFromEnergoIdentity(data: EnergoIdentityUser): Promise<User> {
-    const login = data.login.trim();
-    const role = this.toLocalRole(data.role);
-    const energoUserId = data.energoUserId;
+    const raw = data as EnergoIdentityUser & { id?: string };
+    const energoUserId = (raw.energoUserId ?? raw.id ?? '').trim();
+    const login = (raw.login ?? raw.email ?? '').trim();
+    const role = this.toLocalRole(raw.role);
 
     if (!login || !energoUserId) {
       throw new BadRequestException('Energo ID user login yoki id yo`q');
