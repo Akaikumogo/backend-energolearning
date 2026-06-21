@@ -9,8 +9,18 @@ export class NesSyncGateway {
   @WebSocketServer()
   server!: Server;
 
-  emitProgress(current: number, total: number, created: number) {
-    this.server.emit('sync:progress', { current, total, created });
+  emitProgress(
+    current: number,
+    total: number,
+    upserted: number,
+    progressPercent: number,
+  ) {
+    this.server.emit('sync:progress', {
+      current,
+      total,
+      upserted,
+      progressPercent,
+    });
   }
 
   emitDone(result: Record<string, unknown>) {
