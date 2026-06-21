@@ -46,6 +46,10 @@ export class UserQuestionAttempt {
   @Column({ type: 'boolean', name: 'is_correct', default: false })
   isCorrect: boolean;
 
+  /** Haqiqatan yurak kamaygan urinish (noto'g'ri javob + consumeHeart muvaffaq). */
+  @Column({ type: 'boolean', name: 'heart_lost', default: false })
+  heartLost: boolean;
+
   @Column({ type: 'timestamptz', name: 'answered_at', default: () => 'NOW()' })
   answeredAt: Date;
 }

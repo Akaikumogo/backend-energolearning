@@ -150,11 +150,13 @@ export class ProgressService {
       questionId: dto.questionId,
       selectedOptionId: dto.selectedOptionId,
       isCorrect,
+      heartLost: false,
     });
     await this.attemptRepo.save(attempt);
 
     if (!isCorrect) {
       await this.heartsService.consumeHeart(userId, orgId, 1);
+      await this.attemptRepo.update(attempt.id, { heartLost: true });
     }
 
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
@@ -230,11 +232,13 @@ export class ProgressService {
       questionId: dto.questionId,
       selectedOptionId: dto.pairs[0]?.leftOptionId ?? options[0].id,
       isCorrect,
+      heartLost: false,
     });
     await this.attemptRepo.save(attempt);
 
     if (!isCorrect) {
       await this.heartsService.consumeHeart(userId, orgId, 1);
+      await this.attemptRepo.update(attempt.id, { heartLost: true });
     }
 
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
