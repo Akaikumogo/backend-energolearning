@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Role } from '../common/enums/role.enum';
+import { OrganizationsService } from '../organizations/organizations.service';
 import { UserActivityService } from './user-activity.service';
 import { RecordEventDto } from './dto/record-event.dto';
 import { ActivityQueryDto, ActivityRange } from './dto/activity-query.dto';
@@ -28,9 +29,10 @@ type AuthedRequest = Request & {
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('bearer')
 export class UserActivityController {
-  constructor(private readonly service: UserActivityService) {}
-
-  // -------- USER side --------
+  constructor(
+    private readonly service: UserActivityService,
+    private readonly organizationsService: OrganizationsService,
+  ) {}
 
   @Post('heartbeat')
   @ApiOperation({ summary: 'HTTP fallback heartbeat (WS afzal)' })
@@ -52,14 +54,12 @@ export class UserActivityController {
     return { ok: true };
   }
 
-  // -------- MODERATOR/ADMIN read-only --------
-
   @Get('online')
   @UseGuards(RolesGuard)
   @Roles(Role.MODERATOR, Role.SUPERADMIN)
   @ApiOperation({ summary: 'Hozir online userlar' })
   async online(@Query() q: ActivityQueryDto, @Req() req: AuthedRequest) {
-    const orgId = this.scopeOrgId(req, q.organizationId);
+    const orgId = await this.scopeOrgId(req, q.organizationId);
     return this.service.getOnlineUsers({
       group: q.group,
       organizationId: orgId,
@@ -73,7 +73,7 @@ export class UserActivityController {
     summary: 'Userlar ro\'yxati + activity (table uchun)',
   })
   async users(@Query() q: ActivityQueryDto, @Req() req: AuthedRequest) {
-    const orgId = this.scopeOrgId(req, q.organizationId);
+    const orgId = await this.scopeOrgId(req, q.organizationId);
     return this.service.listUsersWithActivity({
       group: q.group,
       organizationId: orgId,
@@ -86,7 +86,7 @@ export class UserActivityController {
   @Roles(Role.MODERATOR, Role.SUPERADMIN)
   @ApiOperation({ summary: 'Stat cards uchun aggregate' })
   async stats(@Query() q: ActivityQueryDto, @Req() req: AuthedRequest) {
-    const orgId = this.scopeOrgId(req, q.organizationId);
+    const orgId = await this.scopeOrgId(req, q.organizationId);
     return this.service.getActivityStats({
       group: q.group,
       organizationId: orgId,
@@ -123,7 +123,7 @@ export class UserActivityController {
     @Query() q: ActivityQueryDto,
     @Req() req: AuthedRequest,
   ) {
-    const orgId = this.scopeOrgId(req, q.organizationId);
+    const orgId = await this.scopeOrgId(req, q.organizationId);
     return this.service.getQuestionStats({
       userId: q.userId,
       organizationId: orgId,
@@ -141,20 +141,26 @@ export class UserActivityController {
     return this.service.getUserQuestionAttempts(userId, questionId);
   }
 
-  // Moderator faqat o'z filialini ko'radi (main moderator hammasini).
-  // organizationIds.length === 0 yoki user SUPERADMIN bo'lsa 'all' ruxsat etiladi.
-  private scopeOrgId(
+  private async scopeOrgId(
     req: AuthedRequest,
     requested?: string,
-  ): string | null {
+  ): Promise<string | null> {
     if (req.user.role === Role.SUPERADMIN) {
       return requested && requested !== 'all' ? requested : null;
     }
-    const myOrgs = req.user.organizationIds ?? [];
-    if (myOrgs.length === 0) return null;
-    if (requested && requested !== 'all' && myOrgs.includes(requested)) {
-      return requested;
+
+    const scope = await this.organizationsService.resolveModeratorScope(
+      req.user.organizationIds,
+    );
+    const reqOrg = requested?.trim();
+
+    if (scope === undefined) {
+      return reqOrg && reqOrg !== 'all' ? reqOrg : null;
     }
-    return myOrgs[0];
+    if (scope.length === 0) return null;
+    if (reqOrg && reqOrg !== 'all' && scope.includes(reqOrg)) {
+      return reqOrg;
+    }
+    return scope.length === 1 ? scope[0] : scope[0];
   }
 }

@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
 import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
@@ -15,6 +16,7 @@ import { UserActivityGateway } from './user-activity.gateway';
 @Module({
   imports: [
     forwardRef(() => AuthModule),
+    OrganizationsModule,
     TypeOrmModule.forFeature([
       User,
       Organization,
