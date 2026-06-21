@@ -21,7 +21,10 @@ import 'dotenv/config';
 
 import { Client } from 'pg';
 
-const CONFIRM = process.argv.includes('--confirm');
+const CONFIRM =
+  process.argv.includes('--confirm') ||
+  process.env.CUTOVER_CONFIRM === '1' ||
+  process.env.CUTOVER_CONFIRM === 'true';
 
 function buildConnString() {
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
