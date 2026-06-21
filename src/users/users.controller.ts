@@ -30,6 +30,7 @@ import { UsersService } from './users.service';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UpdateModeratorDto } from './dto/update-moderator.dto';
 import { BulkGenerateModeratorPasswordsDto } from './dto/bulk-generate-moderator-passwords.dto';
 
 @ApiTags('Users (Admin)')
@@ -122,6 +123,17 @@ export class UsersController {
   @ApiBody({ type: CreateModeratorDto })
   createModerator(@Body() dto: CreateModeratorDto) {
     return this.usersService.createModerator(dto);
+  }
+
+  @Put('moderators/:id')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Moderatorni tahrirlash (faqat SuperAdmin)' })
+  @ApiBody({ type: UpdateModeratorDto })
+  updateModerator(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateModeratorDto,
+  ) {
+    return this.usersService.updateModerator(id, dto);
   }
 
   @Post('moderators/bulk-generate-passwords')

@@ -25,6 +25,8 @@ export type EnergoIdUser = {
   division?: string;
   post?: string;
   lastSyncedAt?: string | null;
+  /** Faqat server-to-server employee sync — admin Excel export uchun */
+  initialPassword?: string | null;
 };
 
 type EnergoIdVerifyResponse = {
@@ -147,6 +149,9 @@ export class EnergoIdAuthClient {
       permissions: row.permissions ?? [],
       mustChangePassword: row.mustChangePassword ?? false,
       status: row.status ?? 'ACTIVE',
+      initialPassword:
+        (row as EnergoIdUser & { initialPassword?: string | null })
+          .initialPassword ?? null,
     };
   }
 

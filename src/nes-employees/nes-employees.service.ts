@@ -449,12 +449,11 @@ export class NesEmployeesService {
     const personnelNumber =
       employee.personnelNumber?.trim() || employee.login || user.id;
     let existing =
+      (await this.employeeRepo.findOne({ where: { userId: user.id } })) ??
       (await this.employeeRepo.findOne({
         where: { personnelNumber, organizationName },
       })) ??
-      (await this.employeeRepo.findOne({
-        where: { userId: user.id, organizationName },
-      }));
+      (await this.employeeRepo.findOne({ where: { personnelNumber } }));
 
     const payload = {
       personnelNumber,
@@ -470,7 +469,7 @@ export class NesEmployeesService {
       modifiedAt: null,
       hiredAt: null,
       login: employee.login,
-      initialPassword: null,
+      initialPassword: employee.initialPassword ?? existing?.initialPassword ?? null,
       rawPayload: employee as unknown as Record<string, unknown>,
       lastSyncedAt: new Date(),
     };
@@ -481,25 +480,40 @@ export class NesEmployeesService {
           this.employeeRepo.create(payload),
         );
         await this.writeHistory(saved, 'created', {}, payload);
+        await this.syncUserInitialPassword(user.id, employee.initialPassword);
         return;
       } catch (error) {
         const message =
           error instanceof Error ? error.message : String(error);
         if (
           !message.includes('duplicate key') &&
-          !message.includes('UQ_nes_employee_number_org')
+          !message.includes('UQ_nes_employee_number_org') &&
+          !message.includes('nes_employees_personnel_number_key')
         ) {
           throw error;
         }
-        existing = await this.employeeRepo.findOne({
-          where: { personnelNumber, organizationName },
-        });
+        existing =
+          (await this.employeeRepo.findOne({ where: { userId: user.id } })) ??
+          (await this.employeeRepo.findOne({
+            where: { personnelNumber, organizationName },
+          })) ??
+          (await this.employeeRepo.findOne({ where: { personnelNumber } }));
         if (!existing) throw error;
       }
     }
 
     Object.assign(existing, payload);
     await this.employeeRepo.save(existing);
+    await this.syncUserInitialPassword(user.id, employee.initialPassword);
+  }
+
+  private async syncUserInitialPassword(
+    userId: string,
+    initialPassword?: string | null,
+  ) {
+    const plain = initialPassword?.trim();
+    if (!plain) return;
+    await this.userRepo.update(userId, { initialPassword: plain });
   }
 
   private async removeMissingEnergoEmployeeMirrors() {

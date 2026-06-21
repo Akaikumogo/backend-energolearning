@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-  OnModuleInit,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -13,6 +12,7 @@ import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
+import { UpdateModeratorDto } from './dto/update-moderator.dto';
 
 export type EnergoIdentityUser = {
   energoUserId: string;
@@ -29,7 +29,7 @@ export type EnergoIdentityUser = {
 };
 
 @Injectable()
-export class UsersService implements OnModuleInit {
+export class UsersService {
   constructor(
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     @InjectRepository(Organization)
@@ -37,64 +37,6 @@ export class UsersService implements OnModuleInit {
     @InjectRepository(UserOrganization)
     private readonly userOrgRepo: Repository<UserOrganization>,
   ) {}
-
-  async onModuleInit() {
-    const superAdminEmail =
-      process.env.SUPERADMIN_EMAIL ?? 'elektroLearn@admin.com';
-    const superAdminPassword = process.env.SUPERADMIN_PASSWORD;
-
-    // Productionda env yo'q bo'lsa, default zaif parol bilan boot qilmaymiz.
-    if (!superAdminPassword) {
-      if (process.env.NODE_ENV === 'production') {
-        throw new Error(
-          'SUPERADMIN_PASSWORD env o`rnatilishi shart (production).',
-        );
-      }
-      // Lokal dev uchun ogohlantirish bilan davom etamiz.
-      console.warn(
-        '[users] SUPERADMIN_PASSWORD env yo`q — superadmin yaratish o`tkazib yuborildi.',
-      );
-      return;
-    }
-
-    const existing = await this.usersRepo.findOne({
-      where: { email: superAdminEmail },
-    });
-    if (existing) {
-      // SUPERADMIN parolini DB'da plain saqlamaymiz — Excel export'da ham
-      // bu rol ko'rinmaydi (faqat moderatorlar uchun initialPassword bor).
-      if (existing.initialPassword) {
-        existing.initialPassword = null;
-        await this.usersRepo.save(existing);
-      }
-      return;
-    }
-
-    const orgName = 'Default Organization';
-    let org = await this.orgRepo.findOne({ where: { name: orgName } });
-    if (!org) {
-      org = await this.orgRepo.save(this.orgRepo.create({ name: orgName }));
-    }
-
-    const passwordHash = await bcrypt.hash(superAdminPassword, 10);
-
-    const user = await this.usersRepo.save(
-      this.usersRepo.create({
-        email: superAdminEmail,
-        passwordHash,
-        googleId: null,
-        firstName: 'Elektro',
-        lastName: 'Admin',
-        role: Role.SUPERADMIN,
-        // SUPERADMIN uchun plain parol DB'da saqlanmaydi.
-        initialPassword: null,
-      }),
-    );
-
-    await this.userOrgRepo.save(
-      this.userOrgRepo.create({ user, organization: org }),
-    );
-  }
 
   async findByEmail(email: string): Promise<User | null> {
     return this.usersRepo.findOne({
@@ -383,6 +325,53 @@ export class UsersService implements OnModuleInit {
           this.userOrgRepo.create({ user, organization: org }),
         );
       }
+    }
+
+    return this.findById(user.id) as Promise<User>;
+  }
+
+  async updateModerator(id: string, dto: UpdateModeratorDto): Promise<User> {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException('Moderator topilmadi');
+    if (user.role !== Role.MODERATOR) {
+      throw new BadRequestException('Faqat moderator yangilanadi');
+    }
+
+    if (dto.email && dto.email.trim().toLowerCase() !== user.email.toLowerCase()) {
+      const taken = await this.usersRepo.findOne({
+        where: { email: dto.email.trim().toLowerCase() },
+      });
+      if (taken && taken.id !== id) {
+        throw new BadRequestException('Bu email allaqachon mavjud');
+      }
+      user.email = dto.email.trim();
+    }
+
+    if (dto.firstName !== undefined) user.firstName = dto.firstName;
+    if (dto.lastName !== undefined) user.lastName = dto.lastName;
+
+    if (dto.password?.trim()) {
+      const plain = dto.password.trim();
+      user.passwordHash = await bcrypt.hash(plain, 10);
+      user.initialPassword = plain;
+      user.mustChangePassword = false;
+    }
+
+    await this.usersRepo.save(user);
+
+    if (dto.organizationId) {
+      const org = await this.orgRepo.findOne({
+        where: { id: dto.organizationId },
+      });
+      if (org) {
+        await this.attachUserToOrganization(user.id, org.id);
+      }
+    } else if (dto.organizationId === null) {
+      await this.userOrgRepo
+        .createQueryBuilder()
+        .delete()
+        .where('"userId" = :userId', { userId: user.id })
+        .execute();
     }
 
     return this.findById(user.id) as Promise<User>;
