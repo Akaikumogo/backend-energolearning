@@ -62,37 +62,43 @@ export class AuthService {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
     }
-    const effective = await this.oauthIntegrationSettings.getEffective();
-    const redirectUri = this.oauthIntegrationSettings.getRedirectUri(
-      client,
-      effective,
+    const normalizedClient = client === 'web' ? 'web' : 'mobile';
+    const oauthConfig = await this.energoIdAuthClient.fetchOAuthClientConfig(
+      normalizedClient,
     );
     const state = this.energoIdAuthClient.createOAuthState();
+    const scopes =
+      oauthConfig.scopes?.join(' ') || 'employee.auth profile.read';
     const authorizeUrl = this.energoIdAuthClient.buildAuthorizeUrl(
-      redirectUri,
+      oauthConfig.redirectUri,
       state,
-      effective.scopes,
+      scopes,
+      normalizedClient,
     );
-    return { authorizeUrl, redirectUri, state, client };
+    return {
+      authorizeUrl,
+      redirectUri: oauthConfig.redirectUri,
+      state,
+      client: normalizedClient,
+      platform: oauthConfig.platform,
+    };
   }
 
   async loginWithEnergoIdCode(
     code: string,
     redirectUri?: string,
+    client: 'mobile' | 'web' = 'mobile',
   ): Promise<LoginSuccessResponseDto> {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
     }
-    const effective = await this.oauthIntegrationSettings.getEffective();
+    const normalizedClient = client === 'web' ? 'web' : 'mobile';
+    const oauthConfig = await this.energoIdAuthClient.fetchOAuthClientConfig(
+      normalizedClient,
+    );
     const effectiveRedirect =
-      redirectUri?.trim() ||
-      this.oauthIntegrationSettings.getRedirectUri('mobile', effective);
-    if (
-      !this.oauthIntegrationSettings.isAllowedRedirectUri(
-        effectiveRedirect,
-        effective,
-      )
-    ) {
+      redirectUri?.trim() || oauthConfig.redirectUri;
+    if (effectiveRedirect !== oauthConfig.redirectUri) {
       throw new BadRequestException('Redirect URI ruxsat etilmagan');
     }
     const energoUser = await this.energoIdAuthClient.exchangeAuthorizationCode(

@@ -77,6 +77,15 @@ type EnergoIdUserInfo = {
   status: string;
 };
 
+type EnergoIdOAuthClientConfig = {
+  clientId: string;
+  clientType: 'web' | 'mobile';
+  platform: { code: string; name: string };
+  redirectUri: string;
+  routes: { web?: string; mobile?: string };
+  scopes: string[];
+};
+
 @Injectable()
 export class EnergoIdAuthClient {
   isConfigured() {
@@ -96,7 +105,12 @@ export class EnergoIdAuthClient {
     );
   }
 
-  buildAuthorizeUrl(redirectUri: string, state: string, scope?: string) {
+  buildAuthorizeUrl(
+    redirectUri: string,
+    state: string,
+    scope?: string,
+    clientType: 'mobile' | 'web' = 'mobile',
+  ) {
     const config = this.getConfig();
     const params = new URLSearchParams({
       client_id: config.clientId,
@@ -104,8 +118,28 @@ export class EnergoIdAuthClient {
       response_type: 'code',
       state,
       scope: scope?.trim() || 'employee.auth profile.read',
+      client_type: clientType,
     });
     return `${config.baseUrl}/oauth/authorize?${params.toString()}`;
+  }
+
+  async fetchOAuthClientConfig(
+    clientType: 'mobile' | 'web' = 'mobile',
+  ): Promise<EnergoIdOAuthClientConfig> {
+    const config = this.getConfig();
+    const params = new URLSearchParams({
+      client_id: config.clientId,
+      client_type: clientType,
+    });
+    const response = await this.request(
+      `${config.baseUrl}/oauth/client-config?${params.toString()}`,
+      { method: 'GET' },
+      config.timeoutMs,
+    );
+    if (!response.ok) {
+      this.throwMappedError(response.status);
+    }
+    return (await response.json()) as EnergoIdOAuthClientConfig;
   }
 
   async checkHealth(): Promise<boolean> {
@@ -147,6 +181,7 @@ export class EnergoIdAuthClient {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           grant_type: 'authorization_code',
+          onetime: code,
           code,
           client_id: config.clientId,
           client_secret: config.clientSecret,
