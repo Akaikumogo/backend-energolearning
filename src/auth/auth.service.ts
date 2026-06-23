@@ -28,6 +28,8 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { UserActivityService } from '../user-activity/user-activity.service';
 import { EnergoIdAuthClient } from './energo-id-auth.client';
+import { OAuthPendingService } from './oauth-pending.service';
+import { createPkcePair } from './pkce.util';
 import { OAuthIntegrationSettingsService } from '../oauth-integration/oauth-integration-settings.service';
 import { resolveOAuthClientType } from './oauth-client-type.util';
 
@@ -40,6 +42,7 @@ export class AuthService {
     @Inject(forwardRef(() => UserActivityService))
     private readonly userActivityService: UserActivityService,
     private readonly energoIdAuthClient: EnergoIdAuthClient,
+    private readonly oauthPendingService: OAuthPendingService,
     private readonly oauthIntegrationSettings: OAuthIntegrationSettingsService,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
@@ -70,16 +73,31 @@ export class AuthService {
     const state = this.energoIdAuthClient.createOAuthState();
     const scopes =
       oauthConfig.scopes?.join(' ') || 'employee.auth profile.read';
+    const pkce =
+      normalizedClient === 'mobile' ? createPkcePair() : undefined;
     const authorizeUrl = this.energoIdAuthClient.buildAuthorizeUrl(
       oauthConfig.redirectUri,
       state,
       scopes,
       normalizedClient,
+      pkce
+        ? {
+            codeChallenge: pkce.codeChallenge,
+            codeChallengeMethod: 'S256',
+          }
+        : undefined,
     );
+    this.oauthPendingService.register({
+      state,
+      redirectUri: oauthConfig.redirectUri,
+      client: normalizedClient,
+      codeVerifier: pkce?.codeVerifier,
+    });
     return {
       authorizeUrl,
       redirectUri: oauthConfig.redirectUri,
       state,
+      codeVerifier: pkce?.codeVerifier,
       client: normalizedClient,
       platform: oauthConfig.platform,
     };
@@ -88,10 +106,15 @@ export class AuthService {
   async loginWithEnergoIdCode(
     code: string,
     redirectUri?: string,
+    state?: string,
     client?: 'mobile' | 'web',
+    codeVerifier?: string,
   ): Promise<LoginSuccessResponseDto> {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
+    }
+    if (!state?.trim()) {
+      throw new BadRequestException('OAuth state talab qilinadi');
     }
     const normalizedClient = resolveOAuthClientType(redirectUri, client);
     const oauthConfig = await this.energoIdAuthClient.fetchOAuthClientConfig(
@@ -104,9 +127,20 @@ export class AuthService {
         `Redirect URI mos kelmadi. Kutilgan: ${oauthConfig.redirectUri}`,
       );
     }
+    const pending = this.oauthPendingService.consume(
+      state.trim(),
+      effectiveRedirect,
+      normalizedClient,
+    );
+    const effectiveVerifier =
+      codeVerifier?.trim() || pending.codeVerifier?.trim();
+    if (normalizedClient === 'mobile' && !effectiveVerifier) {
+      throw new BadRequestException('PKCE code_verifier talab qilinadi');
+    }
     const energoUser = await this.energoIdAuthClient.exchangeAuthorizationCode(
       code.trim(),
       effectiveRedirect,
+      effectiveVerifier,
     );
     const user = await this.usersService.syncFromEnergoIdentity(energoUser);
     return this.issueLoginResponse(user);

@@ -110,6 +110,7 @@ export class EnergoIdAuthClient {
     state: string,
     scope?: string,
     clientType: 'mobile' | 'web' = 'mobile',
+    pkce?: { codeChallenge: string; codeChallengeMethod?: string },
   ) {
     const config = this.getConfig();
     const params = new URLSearchParams({
@@ -120,6 +121,10 @@ export class EnergoIdAuthClient {
       scope: scope?.trim() || 'employee.auth profile.read',
       client_type: clientType,
     });
+    if (pkce?.codeChallenge) {
+      params.set('code_challenge', pkce.codeChallenge);
+      params.set('code_challenge_method', pkce.codeChallengeMethod ?? 'S256');
+    }
     return `${config.baseUrl}/oauth/authorize?${params.toString()}`;
   }
 
@@ -172,6 +177,7 @@ export class EnergoIdAuthClient {
   async exchangeAuthorizationCode(
     code: string,
     redirectUri: string,
+    codeVerifier?: string,
   ): Promise<EnergoIdUser> {
     const config = this.getConfig();
     const tokenResponse = await this.request(
@@ -186,6 +192,7 @@ export class EnergoIdAuthClient {
           client_id: config.clientId,
           client_secret: config.clientSecret,
           redirect_uri: redirectUri,
+          ...(codeVerifier ? { code_verifier: codeVerifier } : {}),
         }),
       },
       config.timeoutMs,
