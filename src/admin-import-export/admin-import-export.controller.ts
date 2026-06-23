@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
+  Patch,
   Post,
   Query,
   Req,
@@ -26,6 +28,8 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { ContentImportExportService } from './content-import-export.service';
 import { ModeratorsImportExportService } from './moderators-import-export.service';
+import { OAuthIntegrationSettingsService } from '../oauth-integration/oauth-integration-settings.service';
+import { UpdateOAuthIntegrationDto } from '../oauth-integration/dto/update-oauth-integration.dto';
 
 const jsonUpload = FileInterceptor('file', {
   storage: memoryStorage(),
@@ -47,7 +51,35 @@ export class AdminImportExportController {
   constructor(
     private readonly contentService: ContentImportExportService,
     private readonly moderatorsService: ModeratorsImportExportService,
+    private readonly oauthIntegrationService: OAuthIntegrationSettingsService,
   ) {}
+
+  @Get('oauth/integration')
+  @ApiOperation({ summary: 'Energo ID OAuth integratsiya sozlamalari va shablonlar' })
+  async getOAuthIntegration() {
+    return this.oauthIntegrationService.getAdminView();
+  }
+
+  @Patch('oauth/integration')
+  @ApiOperation({ summary: 'OAuth redirect URI va scope tahrirlash' })
+  async updateOAuthIntegration(
+    @Body() dto: UpdateOAuthIntegrationDto,
+    @Req() req: Request & { user: { id: string } },
+  ) {
+    return this.oauthIntegrationService.update(dto, req.user.id);
+  }
+
+  @Get('oauth/integration/env-export')
+  @ApiOperation({ summary: 'OAuth .env namunasi (secretsiz)' })
+  async exportOAuthEnv(@Res() res: Response) {
+    const content = await this.oauthIntegrationService.buildEnvExport();
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="elektrolearn-energo-id-oauth.env"',
+    );
+    res.send(content + '\n');
+  }
 
   @Get('content/export')
   @ApiOperation({ summary: 'Modullar (level→theory→question) JSON export' })

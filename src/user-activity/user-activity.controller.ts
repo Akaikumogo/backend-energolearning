@@ -66,6 +66,18 @@ export class UserActivityController {
     });
   }
 
+  @Get('online-summary')
+  @UseGuards(RolesGuard)
+  @Roles(Role.MODERATOR, Role.SUPERADMIN)
+  @ApiOperation({
+    summary:
+      'Filial xodimlari online xulosasi (hozir online, oxirgi online, bugun/kecha/hafta/oy)',
+  })
+  async onlineSummary(@Query() q: ActivityQueryDto, @Req() req: AuthedRequest) {
+    const orgId = await this.scopeOrgId(req, q.organizationId);
+    return this.service.getEmployeesOnlineSummary({ organizationId: orgId });
+  }
+
   @Get('users')
   @UseGuards(RolesGuard)
   @Roles(Role.MODERATOR, Role.SUPERADMIN)

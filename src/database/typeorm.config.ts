@@ -54,9 +54,11 @@ import { AddAnalyticsIndexes1746200000000 } from './migrations/0015-add-analytic
 import { FixNesEmployeeUnique1746310000000 } from './migrations/0017-fix-nes-employee-unique';
 import { AddAudioBookAudioUrl1746400000000 } from './migrations/0018-add-audio-book-audio-url';
 import { AddHeartLostFlag1746500000000 } from './migrations/0019-add-heart-lost-flag';
+import { OauthIntegrationSettings1746600000000 } from './migrations/0020-oauth-integration-settings';
 import { AddOrganizationParentAndDefault1746300000000 } from './migrations/0017-add-organization-parent-and-default';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
+import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
 import { getPostgresConnectionOptions } from './postgres-env';
 
 export const AppDataSource = new DataSource({
@@ -100,6 +102,7 @@ export const AppDataSource = new DataSource({
     NesEmployeePositionHistory,
     EmployeeSyncSetting,
     TerminatedEmployee,
+    OAuthIntegrationSetting,
   ],
   migrations: [
     Init1743074000000,
@@ -123,6 +126,7 @@ export const AppDataSource = new DataSource({
     FixNesEmployeeUnique1746310000000,
     AddAudioBookAudioUrl1746400000000,
     AddHeartLostFlag1746500000000,
+    OauthIntegrationSettings1746600000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

@@ -96,16 +96,37 @@ export class EnergoIdAuthClient {
     );
   }
 
-  buildAuthorizeUrl(redirectUri: string, state: string) {
+  buildAuthorizeUrl(redirectUri: string, state: string, scope?: string) {
     const config = this.getConfig();
     const params = new URLSearchParams({
       client_id: config.clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
       state,
-      scope: 'employee.auth profile.read',
+      scope: scope?.trim() || 'employee.auth profile.read',
     });
     return `${config.baseUrl}/oauth/authorize?${params.toString()}`;
+  }
+
+  async checkHealth(): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      const config = this.getConfig();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const response = await fetch(`${config.baseUrl}/oauth/authorize`, {
+          method: 'GET',
+          signal: controller.signal,
+          redirect: 'manual',
+        });
+        return response.status < 500;
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch {
+      return false;
+    }
   }
 
   createOAuthState() {
