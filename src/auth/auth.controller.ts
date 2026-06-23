@@ -20,6 +20,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginSuccessResponseDto } from './dto/login-response.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { EnergoIdExchangeDto } from './dto/energo-id-oauth.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LoginThrottleGuard } from './guards/login-throttle.guard';
@@ -43,9 +44,9 @@ export class AuthController {
   @Post('login')
   @UseGuards(LoginThrottleGuard)
   @ApiOperation({
-    summary: 'Mobile / xodim login (Energo ID)',
+    summary: 'Mobile / xodim login (Energo ID OAuth)',
     description:
-      'Xodimlar (USER) uchun. Energo ID orqali tekshiriladi. Admin panel uchun `/auth/admin/login` ishlating.',
+      'Legacy login o‘chirilgan. Avval /auth/energo-id/authorize-url, keyin /auth/energo-id/exchange.',
   })
   @ApiBody({ type: LoginDto })
   @ApiOkResponse({
@@ -60,8 +61,41 @@ export class AuthController {
     description: 'Noto`g`ri body format',
     type: ApiErrorResponseDto,
   })
-  login(@Body() body: LoginDto, @Req() req: Request): Promise<LoginSuccessResponseDto> {
-    return this.authService.login(body, req);
+  login(@Body() body: LoginDto): Promise<LoginSuccessResponseDto> {
+    return this.authService.login(body);
+  }
+
+  @Get('energo-id/authorize-url')
+  @ApiOperation({
+    summary: 'Energo ID OAuth authorize URL',
+    description:
+      'Mobil ilova shu URL ni ochadi. Foydalanuvchi Energo ID da login + ruxsat beradi, keyin code qaytadi.',
+  })
+  @ApiQuery({
+    name: 'client',
+    required: false,
+    enum: ['mobile', 'web'],
+    description: 'redirect_uri tanlash uchun',
+  })
+  getEnergoIdAuthorizeUrl(@Query('client') client?: 'mobile' | 'web') {
+    return this.authService.getEnergoIdAuthorizeUrl(client ?? 'mobile');
+  }
+
+  @Post('energo-id/exchange')
+  @ApiOperation({
+    summary: 'OAuth code ni ElektroLearn tokeniga almashtirish',
+    description:
+      'Bir martalik `code` ni Energo ID ga yuborib, ElektroLearn access/refresh token oladi.',
+  })
+  @ApiBody({ type: EnergoIdExchangeDto })
+  @ApiOkResponse({ type: LoginSuccessResponseDto })
+  exchangeEnergoIdCode(
+    @Body() body: EnergoIdExchangeDto,
+  ): Promise<LoginSuccessResponseDto> {
+    return this.authService.loginWithEnergoIdCode(
+      body.code,
+      body.redirect_uri,
+    );
   }
 
   @Post('admin/login')

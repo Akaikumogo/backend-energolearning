@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -6,6 +7,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { createHash, randomBytes } from 'crypto';
 
 export type EnergoIdUser = {
   energoUserId: string;
@@ -25,13 +27,7 @@ export type EnergoIdUser = {
   division?: string;
   post?: string;
   lastSyncedAt?: string | null;
-  /** Faqat server-to-server employee sync — admin Excel export uchun */
   initialPassword?: string | null;
-};
-
-type EnergoIdVerifyResponse = {
-  success: boolean;
-  user: EnergoIdUser;
 };
 
 type EnergoIdEmployeesResponse = {
@@ -57,46 +53,114 @@ type EnergoIdPlatformSyncResponse = {
   };
 };
 
+type EnergoIdTokenResponse = {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  scope?: string;
+};
+
+type EnergoIdUserInfo = {
+  sub: string;
+  energoUserId?: string;
+  login: string;
+  email: string | null;
+  firstName: string;
+  lastName: string;
+  middleName?: string;
+  role: string;
+  permissions: string[];
+  organization: {
+    externalId: string | null;
+    name: string;
+  } | null;
+  status: string;
+};
+
 @Injectable()
 export class EnergoIdAuthClient {
   isConfigured() {
     return !!process.env.ENERGO_ID_BASE_URL?.trim();
   }
 
-  async verifyLogin(
-    login: string,
-    password: string,
-    clientIp?: string | null,
+  getDefaultRedirectUri(client: 'mobile' | 'web' = 'mobile') {
+    if (client === 'web') {
+      return (
+        process.env.ENERGO_ID_OAUTH_REDIRECT_URI_WEB?.trim() ||
+        'http://localhost:5173/oauth/callback'
+      );
+    }
+    return (
+      process.env.ENERGO_ID_OAUTH_REDIRECT_URI_MOBILE?.trim() ||
+      'uz.elektroxavfsizlik.app://oauth/callback'
+    );
+  }
+
+  buildAuthorizeUrl(redirectUri: string, state: string) {
+    const config = this.getConfig();
+    const params = new URLSearchParams({
+      client_id: config.clientId,
+      redirect_uri: redirectUri,
+      response_type: 'code',
+      state,
+      scope: 'employee.auth profile.read',
+    });
+    return `${config.baseUrl}/oauth/authorize?${params.toString()}`;
+  }
+
+  createOAuthState() {
+    return createHash('sha256')
+      .update(randomBytes(32))
+      .digest('base64url');
+  }
+
+  async exchangeAuthorizationCode(
+    code: string,
+    redirectUri: string,
   ): Promise<EnergoIdUser> {
     const config = this.getConfig();
-    const headers: Record<string, string> = { ...config.headers };
-    if (clientIp) {
-      headers['X-Client-Ip'] = clientIp;
-    }
-
-    const response = await this.request(
-      `${config.baseUrl}/internal/v1/auth/verify`,
+    const tokenResponse = await this.request(
+      `${config.baseUrl}/oauth/token`,
       {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          platform: config.platform,
-          login,
-          password,
+          grant_type: 'authorization_code',
+          code,
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
+          redirect_uri: redirectUri,
         }),
       },
       config.timeoutMs,
     );
 
-    if (!response.ok) {
-      this.throwMappedError(response.status);
+    if (!tokenResponse.ok) {
+      this.throwMappedError(tokenResponse.status);
     }
 
-    const payload = (await response.json()) as EnergoIdVerifyResponse;
-    if (!payload.success || !payload.user?.energoUserId) {
-      throw new ServiceUnavailableException('Energo ID javobi noto`g`ri');
+    const tokenPayload = (await tokenResponse.json()) as EnergoIdTokenResponse;
+    if (!tokenPayload.access_token) {
+      throw new BadRequestException('Energo ID token javobi noto`g`ri');
     }
-    return payload.user;
+
+    const userInfoResponse = await this.request(
+      `${config.baseUrl}/oauth/userinfo`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${tokenPayload.access_token}`,
+        },
+      },
+      config.timeoutMs,
+    );
+
+    if (!userInfoResponse.ok) {
+      this.throwMappedError(userInfoResponse.status);
+    }
+
+    const userInfo = (await userInfoResponse.json()) as EnergoIdUserInfo;
+    return this.normalizeUserInfo(userInfo);
   }
 
   async listEmployees(): Promise<{
@@ -132,7 +196,26 @@ export class EnergoIdAuthClient {
     };
   }
 
-  /** Energo ID ba'zan `id` yuboradi, `energoUserId` emas — sync uchun normalizatsiya. */
+  private normalizeUserInfo(row: EnergoIdUserInfo): EnergoIdUser {
+    const energoUserId = (row.energoUserId ?? row.sub ?? '').trim();
+    const login = (row.login ?? row.email ?? '').trim();
+    if (!energoUserId || !login) {
+      throw new ServiceUnavailableException('Energo ID userinfo noto`g`ri');
+    }
+    return {
+      energoUserId,
+      login,
+      email: row.email ?? null,
+      firstName: row.firstName ?? '',
+      lastName: row.lastName ?? '',
+      role: row.role ?? 'USER',
+      permissions: row.permissions ?? [],
+      organization: row.organization ?? null,
+      mustChangePassword: false,
+      status: row.status ?? 'ACTIVE',
+    };
+  }
+
   private normalizeEmployee(
     row: EnergoIdUser & { id?: string },
   ): EnergoIdUser {
@@ -199,6 +282,8 @@ export class EnergoIdAuthClient {
     return {
       baseUrl,
       platform,
+      clientId,
+      clientSecret,
       timeoutMs,
       headers: {
         'Content-Type': 'application/json',
@@ -239,7 +324,7 @@ export class EnergoIdAuthClient {
 
   private throwMappedError(status: number): never {
     if (status === 401) {
-      throw new UnauthorizedException('Login yoki parol noto`g`ri');
+      throw new UnauthorizedException('Avtorizatsiya rad etildi');
     }
     if (status === 403) {
       throw new ForbiddenException('Platformaga kirish rad etildi');
