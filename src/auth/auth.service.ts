@@ -28,8 +28,6 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { UserActivityService } from '../user-activity/user-activity.service';
 import { EnergoIdAuthClient } from './energo-id-auth.client';
-import { getClientIp } from '../common/client-ip.util';
-import type { Request } from 'express';
 
 @Injectable()
 export class AuthService {
@@ -48,20 +46,45 @@ export class AuthService {
     private readonly employeeCheckRepo: Repository<EmployeeCheck>,
   ) {}
 
-  /** Mobile va xodimlar — Energo ID orqali (yoki fallback). */
-  async login(dto: LoginDto, req?: Request): Promise<LoginSuccessResponseDto> {
+  /** Mobile — faqat OAuth orqali; legacy login/password o‘chirilgan. */
+  async login(dto: LoginDto): Promise<LoginSuccessResponseDto> {
     if (this.energoIdAuthClient.isConfigured()) {
-      try {
-        return await this.loginWithEnergoId(dto, req);
-      } catch (error) {
-        if (process.env.AUTH_LOCAL_FALLBACK_ENABLED === 'true') {
-          return this.loginWithLocalPassword(dto);
-        }
-        throw error;
-      }
+      throw new BadRequestException(
+        'Mobil ilova uchun /auth/energo-id/authorize-url va /auth/energo-id/exchange ishlating',
+      );
     }
-
     return this.loginWithLocalPassword(dto);
+  }
+
+  getEnergoIdAuthorizeUrl(client: 'mobile' | 'web' = 'mobile') {
+    if (!this.energoIdAuthClient.isConfigured()) {
+      throw new BadRequestException('Energo ID sozlanmagan');
+    }
+    const redirectUri = this.energoIdAuthClient.getDefaultRedirectUri(client);
+    const state = this.energoIdAuthClient.createOAuthState();
+    const authorizeUrl = this.energoIdAuthClient.buildAuthorizeUrl(
+      redirectUri,
+      state,
+    );
+    return { authorizeUrl, redirectUri, state, client };
+  }
+
+  async loginWithEnergoIdCode(
+    code: string,
+    redirectUri?: string,
+  ): Promise<LoginSuccessResponseDto> {
+    if (!this.energoIdAuthClient.isConfigured()) {
+      throw new BadRequestException('Energo ID sozlanmagan');
+    }
+    const effectiveRedirect =
+      redirectUri?.trim() ||
+      this.energoIdAuthClient.getDefaultRedirectUri('mobile');
+    const energoUser = await this.energoIdAuthClient.exchangeAuthorizationCode(
+      code.trim(),
+      effectiveRedirect,
+    );
+    const user = await this.usersService.syncFromEnergoIdentity(energoUser);
+    return this.issueLoginResponse(user);
   }
 
   /** Admin panel — faqat ElektroLearn bazasi, SUPERADMIN va MODERATOR. */
@@ -72,25 +95,6 @@ export class AuthService {
         'Admin panelga faqat moderator yoki superadmin kira oladi',
       );
     }
-    return this.issueLoginResponse(user);
-  }
-
-  private async loginWithEnergoId(
-    dto: LoginDto,
-    req?: Request,
-  ): Promise<LoginSuccessResponseDto> {
-    const identifier = (dto.login ?? dto.email ?? '').trim();
-    if (!identifier) {
-      throw new UnauthorizedException('Login yoki email kiritilmadi');
-    }
-
-    const clientIp = req ? getClientIp(req) : null;
-    const energoUser = await this.energoIdAuthClient.verifyLogin(
-      identifier,
-      dto.password,
-      clientIp,
-    );
-    const user = await this.usersService.syncFromEnergoIdentity(energoUser);
     return this.issueLoginResponse(user);
   }
 
