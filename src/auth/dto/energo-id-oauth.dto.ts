@@ -30,8 +30,16 @@ export class EnergoIdExchangeDto {
   @IsString()
   client?: 'mobile' | 'web';
 
-  @ApiPropertyOptional({ description: 'OAuth state (client tekshiruvi uchun)' })
+  @ApiProperty({ description: 'OAuth state (majburiy)' })
+  @IsString()
+  @MinLength(16)
+  state: string;
+
+  @ApiPropertyOptional({
+    description: 'PKCE code_verifier (mobil client uchun majburiy)',
+  })
   @IsOptional()
   @IsString()
-  state?: string;
+  @MinLength(43)
+  code_verifier?: string;
 }

@@ -99,7 +99,9 @@ export class AuthController {
     return this.authService.loginWithEnergoIdCode(
       code,
       body.redirect_uri,
+      body.state,
       body.client,
+      body.code_verifier,
     );
   }
 

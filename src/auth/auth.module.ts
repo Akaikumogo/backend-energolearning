@@ -9,6 +9,7 @@ import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { EnergoIdAuthClient } from './energo-id-auth.client';
+import { OAuthPendingService } from './oauth-pending.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LoginThrottleGuard } from './guards/login-throttle.guard';
 import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
@@ -39,7 +40,7 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, EnergoIdAuthClient, JwtStrategy, LoginThrottleGuard],
+  providers: [AuthService, EnergoIdAuthClient, OAuthPendingService, JwtStrategy, LoginThrottleGuard],
   exports: [AuthService, EnergoIdAuthClient, JwtModule],
 })
 export class AuthModule {}
