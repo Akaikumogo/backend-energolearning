@@ -30,6 +30,16 @@ export interface OnlineUserDto {
   durationSeconds: number;
 }
 
+export interface EmployeeOnlineSummary {
+  userId: string;
+  isOnline: boolean;
+  lastSeenAt: Date | null;
+  todaySeconds: number;
+  yesterdaySeconds: number;
+  weekSeconds: number;
+  monthSeconds: number;
+}
+
 @Injectable()
 export class UserActivityService {
   private readonly logger = new Logger(UserActivityService.name);
@@ -214,6 +224,88 @@ export class UserActivityService {
     }
     qb.orderBy('s.last_seen_at', 'DESC');
     return qb.getRawMany();
+  }
+
+  /**
+   * Bitta filial xodimlari uchun online xulosa: hozir online holati, oxirgi
+   * online vaqti va bugun / kecha / hafta / oy davomida jami online soniyalar.
+   * Bitta grouped query bilan hisoblanadi. Sessiyasi yo'q xodimlar natijada
+   * bo'lmaydi — frontend ularni default (offline / 0) sifatida ko'rsatadi.
+   */
+  async getEmployeesOnlineSummary(filter: {
+    organizationId?: string | null;
+  }): Promise<EmployeeOnlineSummary[]> {
+    const orgId = filter.organizationId;
+    if (!orgId || orgId === 'all') return [];
+
+    const now = new Date();
+    const todayFrom = new Date(now);
+    todayFrom.setHours(0, 0, 0, 0);
+    const yesterdayFrom = new Date(todayFrom);
+    yesterdayFrom.setDate(yesterdayFrom.getDate() - 1);
+    const weekFrom = new Date(now);
+    weekFrom.setDate(weekFrom.getDate() - 7);
+    const monthFrom = new Date(now);
+    monthFrom.setMonth(monthFrom.getMonth() - 1);
+    const onlineThreshold = new Date(now.getTime() - OFFLINE_THRESHOLD_MS);
+
+    const rows = await this.sessionRepo
+      .createQueryBuilder('s')
+      .innerJoin(
+        UserOrganization,
+        'uo',
+        'uo.userId = s.user_id AND uo.organizationId = :orgId',
+      )
+      .select('s.user_id', 'userId')
+      .addSelect(
+        'BOOL_OR(s.is_online AND s.last_seen_at >= :onlineThreshold)',
+        'isOnline',
+      )
+      .addSelect('MAX(s.last_seen_at)', 'lastSeenAt')
+      .addSelect(
+        'COALESCE(SUM(CASE WHEN s.login_at >= :todayFrom THEN s.duration_seconds ELSE 0 END), 0)',
+        'todaySeconds',
+      )
+      .addSelect(
+        'COALESCE(SUM(CASE WHEN s.login_at >= :yesterdayFrom AND s.login_at < :todayFrom THEN s.duration_seconds ELSE 0 END), 0)',
+        'yesterdaySeconds',
+      )
+      .addSelect(
+        'COALESCE(SUM(CASE WHEN s.login_at >= :weekFrom THEN s.duration_seconds ELSE 0 END), 0)',
+        'weekSeconds',
+      )
+      .addSelect(
+        'COALESCE(SUM(CASE WHEN s.login_at >= :monthFrom THEN s.duration_seconds ELSE 0 END), 0)',
+        'monthSeconds',
+      )
+      .groupBy('s.user_id')
+      .setParameters({
+        orgId,
+        onlineThreshold,
+        todayFrom,
+        yesterdayFrom,
+        weekFrom,
+        monthFrom,
+      })
+      .getRawMany<{
+        userId: string;
+        isOnline: boolean;
+        lastSeenAt: Date | null;
+        todaySeconds: string;
+        yesterdaySeconds: string;
+        weekSeconds: string;
+        monthSeconds: string;
+      }>();
+
+    return rows.map((r) => ({
+      userId: r.userId,
+      isOnline: Boolean(r.isOnline),
+      lastSeenAt: r.lastSeenAt ?? null,
+      todaySeconds: Number(r.todaySeconds) || 0,
+      yesterdaySeconds: Number(r.yesterdaySeconds) || 0,
+      weekSeconds: Number(r.weekSeconds) || 0,
+      monthSeconds: Number(r.monthSeconds) || 0,
+    }));
   }
 
   async listUsersWithActivity(filter: {

@@ -28,6 +28,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { UserActivityService } from '../user-activity/user-activity.service';
 import { EnergoIdAuthClient } from './energo-id-auth.client';
+import { OAuthIntegrationSettingsService } from '../oauth-integration/oauth-integration-settings.service';
 
 @Injectable()
 export class AuthService {
@@ -38,6 +39,7 @@ export class AuthService {
     @Inject(forwardRef(() => UserActivityService))
     private readonly userActivityService: UserActivityService,
     private readonly energoIdAuthClient: EnergoIdAuthClient,
+    private readonly oauthIntegrationSettings: OAuthIntegrationSettingsService,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
     @InjectRepository(EmployeeCertificate)
@@ -56,15 +58,20 @@ export class AuthService {
     return this.loginWithLocalPassword(dto);
   }
 
-  getEnergoIdAuthorizeUrl(client: 'mobile' | 'web' = 'mobile') {
+  async getEnergoIdAuthorizeUrl(client: 'mobile' | 'web' = 'mobile') {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
     }
-    const redirectUri = this.energoIdAuthClient.getDefaultRedirectUri(client);
+    const effective = await this.oauthIntegrationSettings.getEffective();
+    const redirectUri = this.oauthIntegrationSettings.getRedirectUri(
+      client,
+      effective,
+    );
     const state = this.energoIdAuthClient.createOAuthState();
     const authorizeUrl = this.energoIdAuthClient.buildAuthorizeUrl(
       redirectUri,
       state,
+      effective.scopes,
     );
     return { authorizeUrl, redirectUri, state, client };
   }
@@ -76,9 +83,18 @@ export class AuthService {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
     }
+    const effective = await this.oauthIntegrationSettings.getEffective();
     const effectiveRedirect =
       redirectUri?.trim() ||
-      this.energoIdAuthClient.getDefaultRedirectUri('mobile');
+      this.oauthIntegrationSettings.getRedirectUri('mobile', effective);
+    if (
+      !this.oauthIntegrationSettings.isAllowedRedirectUri(
+        effectiveRedirect,
+        effective,
+      )
+    ) {
+      throw new BadRequestException('Redirect URI ruxsat etilmagan');
+    }
     const energoUser = await this.energoIdAuthClient.exchangeAuthorizationCode(
       code.trim(),
       effectiveRedirect,
