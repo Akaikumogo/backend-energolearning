@@ -29,6 +29,7 @@ import { JwtPayload } from './interfaces/jwt-payload.interface';
 import { UserActivityService } from '../user-activity/user-activity.service';
 import { EnergoIdAuthClient } from './energo-id-auth.client';
 import { OAuthIntegrationSettingsService } from '../oauth-integration/oauth-integration-settings.service';
+import { resolveOAuthClientType } from './oauth-client-type.util';
 
 @Injectable()
 export class AuthService {
@@ -87,19 +88,21 @@ export class AuthService {
   async loginWithEnergoIdCode(
     code: string,
     redirectUri?: string,
-    client: 'mobile' | 'web' = 'mobile',
+    client?: 'mobile' | 'web',
   ): Promise<LoginSuccessResponseDto> {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
     }
-    const normalizedClient = client === 'web' ? 'web' : 'mobile';
+    const normalizedClient = resolveOAuthClientType(redirectUri, client);
     const oauthConfig = await this.energoIdAuthClient.fetchOAuthClientConfig(
       normalizedClient,
     );
     const effectiveRedirect =
       redirectUri?.trim() || oauthConfig.redirectUri;
     if (effectiveRedirect !== oauthConfig.redirectUri) {
-      throw new BadRequestException('Redirect URI ruxsat etilmagan');
+      throw new BadRequestException(
+        `Redirect URI mos kelmadi. Kutilgan: ${oauthConfig.redirectUri}`,
+      );
     }
     const energoUser = await this.energoIdAuthClient.exchangeAuthorizationCode(
       code.trim(),

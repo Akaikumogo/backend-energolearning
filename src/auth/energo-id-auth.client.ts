@@ -137,7 +137,7 @@ export class EnergoIdAuthClient {
       config.timeoutMs,
     );
     if (!response.ok) {
-      this.throwMappedError(response.status);
+      await this.throwMappedError(response);
     }
     return (await response.json()) as EnergoIdOAuthClientConfig;
   }
@@ -192,7 +192,7 @@ export class EnergoIdAuthClient {
     );
 
     if (!tokenResponse.ok) {
-      this.throwMappedError(tokenResponse.status);
+      await this.throwMappedError(tokenResponse);
     }
 
     const tokenPayload = (await tokenResponse.json()) as EnergoIdTokenResponse;
@@ -212,7 +212,7 @@ export class EnergoIdAuthClient {
     );
 
     if (!userInfoResponse.ok) {
-      this.throwMappedError(userInfoResponse.status);
+      await this.throwMappedError(userInfoResponse);
     }
 
     const userInfo = (await userInfoResponse.json()) as EnergoIdUserInfo;
@@ -234,7 +234,7 @@ export class EnergoIdAuthClient {
     );
 
     if (!response.ok) {
-      this.throwMappedError(response.status);
+      await this.throwMappedError(response);
     }
 
     const payload = (await response.json()) as EnergoIdEmployeesResponse;
@@ -307,7 +307,7 @@ export class EnergoIdAuthClient {
     );
 
     if (!response.ok) {
-      this.throwMappedError(response.status);
+      await this.throwMappedError(response);
     }
 
     const payload = (await response.json()) as EnergoIdPlatformSyncResponse;
@@ -378,19 +378,35 @@ export class EnergoIdAuthClient {
     }
   }
 
-  private throwMappedError(status: number): never {
+  private async throwMappedError(response: Response): Promise<never> {
+    const status = response.status;
+    let message = 'Auth service unavailable';
+    try {
+      const payload = (await response.json()) as { message?: string | string[] };
+      if (typeof payload.message === 'string') {
+        message = payload.message;
+      } else if (Array.isArray(payload.message)) {
+        message = payload.message.join(', ');
+      }
+    } catch {
+      /* ignore */
+    }
+
+    if (status === 400) {
+      throw new BadRequestException(message);
+    }
     if (status === 401) {
-      throw new UnauthorizedException('Avtorizatsiya rad etildi');
+      throw new UnauthorizedException(message || 'Avtorizatsiya rad etildi');
     }
     if (status === 403) {
-      throw new ForbiddenException('Platformaga kirish rad etildi');
+      throw new ForbiddenException(message || 'Platformaga kirish rad etildi');
     }
     if (status === 429) {
       throw new HttpException(
-        'Login urinishlari juda ko`p',
+        message || 'Login urinishlari juda ko`p',
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    throw new ServiceUnavailableException('Auth service unavailable');
+    throw new ServiceUnavailableException(message);
   }
 }
