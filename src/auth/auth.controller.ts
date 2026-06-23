@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards, BadRequestException } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -92,9 +92,14 @@ export class AuthController {
   exchangeEnergoIdCode(
     @Body() body: EnergoIdExchangeDto,
   ): Promise<LoginSuccessResponseDto> {
+    const code = (body.onetime ?? body.code)?.trim();
+    if (!code) {
+      throw new BadRequestException('OAuth code topilmadi');
+    }
     return this.authService.loginWithEnergoIdCode(
-      body.code,
+      code,
       body.redirect_uri,
+      body.client,
     );
   }
 

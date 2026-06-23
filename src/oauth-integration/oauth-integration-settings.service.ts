@@ -128,11 +128,8 @@ export class OAuthIntegrationSettingsService {
       energoIdHealth: { configured, reachable },
       deployChecklist: {
         message:
-          'Energo ID admin panelida elektrolearn platformasining redirect_urls ro‘yxatida shu mobile va web URI lar bo‘lishi kerak.',
-        requiredRedirectUrls: [
-          effective.mobileRedirectUri,
-          effective.webRedirectUri,
-        ],
+          'Redirect URI lar Energo ID platforma adminidan boshqariladi. ElektroLearn /oauth/client-config orqali oladi.',
+        source: 'energo-id-platform-admin',
       },
       updatedAt: effective.updatedAt,
       updatedBy: effective.updatedBy,

@@ -2,10 +2,17 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, MinLength } from 'class-validator';
 
 export class EnergoIdExchangeDto {
-  @ApiProperty({ description: 'OAuth authorization code (bir martalik)' })
+  @ApiPropertyOptional({ description: 'OAuth authorization code (bir martalik)' })
+  @IsOptional()
   @IsString()
   @MinLength(8)
-  code!: string;
+  code?: string;
+
+  @ApiPropertyOptional({ description: 'OAuth bir martalik kod (onetime alias)' })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  onetime?: string;
 
   @ApiPropertyOptional({
     description:
@@ -15,8 +22,11 @@ export class EnergoIdExchangeDto {
   @IsString()
   redirect_uri?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({
+    enum: ['mobile', 'web'],
+    description: 'Authorize paytida ishlatilgan client turi',
+  })
   @IsOptional()
   @IsString()
-  state?: string;
+  client?: 'mobile' | 'web';
 }
