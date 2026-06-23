@@ -29,4 +29,9 @@ export class EnergoIdExchangeDto {
   @IsOptional()
   @IsString()
   client?: 'mobile' | 'web';
+
+  @ApiPropertyOptional({ description: 'OAuth state (client tekshiruvi uchun)' })
+  @IsOptional()
+  @IsString()
+  state?: string;
 }
