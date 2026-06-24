@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
+import { resolveEnergoIdBaseUrl } from './energo-id-env.util';
 
 export type EnergoIdUser = {
   energoUserId: string;
@@ -89,7 +90,7 @@ type EnergoIdOAuthClientConfig = {
 @Injectable()
 export class EnergoIdAuthClient {
   isConfigured() {
-    return !!process.env.ENERGO_ID_BASE_URL?.trim();
+    return !!resolveEnergoIdBaseUrl();
   }
 
   getDefaultRedirectUri(client: 'mobile' | 'web' = 'mobile') {
@@ -154,6 +155,19 @@ export class EnergoIdAuthClient {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
       try {
+        const healthResponse = await fetch(`${config.baseUrl}/health`, {
+          method: 'GET',
+          signal: controller.signal,
+        });
+        if (healthResponse.ok) {
+          const payload = (await healthResponse.json()) as {
+            service?: string;
+          };
+          if (payload.service === 'energo-id-portal-api') {
+            return true;
+          }
+        }
+
         const response = await fetch(`${config.baseUrl}/oauth/authorize`, {
           method: 'GET',
           signal: controller.signal,
@@ -327,7 +341,7 @@ export class EnergoIdAuthClient {
   }
 
   private getConfig() {
-    const baseUrl = process.env.ENERGO_ID_BASE_URL?.replace(/\/+$/, '');
+    const baseUrl = resolveEnergoIdBaseUrl();
     if (!baseUrl) {
       throw new ServiceUnavailableException('Energo ID sozlanmagan');
     }
@@ -406,7 +420,10 @@ export class EnergoIdAuthClient {
       throw new UnauthorizedException(message || 'Avtorizatsiya rad etildi');
     }
     if (status === 403) {
-      throw new ForbiddenException(message || 'Platformaga kirish rad etildi');
+      throw new ForbiddenException(
+        message ||
+          `Energo ID rad etildi. ENERGO_ID_BASE_URL portal API (:8081) bo‘lishi kerak — masalan https://cabinetid-api.uzbekistonmet.uz`,
+      );
     }
     if (status === 429) {
       throw new HttpException(
