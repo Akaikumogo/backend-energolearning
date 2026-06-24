@@ -32,6 +32,10 @@ import { OAuthPendingService } from './oauth-pending.service';
 import { createPkcePair } from './pkce.util';
 import { OAuthIntegrationSettingsService } from '../oauth-integration/oauth-integration-settings.service';
 import { resolveOAuthClientType } from './oauth-client-type.util';
+import {
+  isAllowedOAuthRedirectUri,
+  resolveOAuthRedirectUri,
+} from './oauth-redirect.util';
 
 @Injectable()
 export class AuthService {
@@ -62,7 +66,10 @@ export class AuthService {
     return this.loginWithLocalPassword(dto);
   }
 
-  async getEnergoIdAuthorizeUrl(client: 'mobile' | 'web' = 'mobile') {
+  async getEnergoIdAuthorizeUrl(
+    client: 'mobile' | 'web' = 'mobile',
+    requestOrigin?: string,
+  ) {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
     }
@@ -70,13 +77,18 @@ export class AuthService {
     const oauthConfig = await this.energoIdAuthClient.fetchOAuthClientConfig(
       normalizedClient,
     );
+    const redirectUri = resolveOAuthRedirectUri(
+      oauthConfig,
+      normalizedClient,
+      requestOrigin,
+    );
     const state = this.energoIdAuthClient.createOAuthState();
     const scopes =
       oauthConfig.scopes?.join(' ') || 'employee.auth profile.read';
     const pkce =
       normalizedClient === 'mobile' ? createPkcePair() : undefined;
     const authorizeUrl = this.energoIdAuthClient.buildAuthorizeUrl(
-      oauthConfig.redirectUri,
+      redirectUri,
       state,
       scopes,
       normalizedClient,
@@ -89,13 +101,13 @@ export class AuthService {
     );
     this.oauthPendingService.register({
       state,
-      redirectUri: oauthConfig.redirectUri,
+      redirectUri,
       client: normalizedClient,
       codeVerifier: pkce?.codeVerifier,
     });
     return {
       authorizeUrl,
-      redirectUri: oauthConfig.redirectUri,
+      redirectUri,
       state,
       codeVerifier: pkce?.codeVerifier,
       client: normalizedClient,
@@ -122,9 +134,9 @@ export class AuthService {
     );
     const effectiveRedirect =
       redirectUri?.trim() || oauthConfig.redirectUri;
-    if (effectiveRedirect !== oauthConfig.redirectUri) {
+    if (!isAllowedOAuthRedirectUri(oauthConfig, effectiveRedirect)) {
       throw new BadRequestException(
-        `Redirect URI mos kelmadi. Kutilgan: ${oauthConfig.redirectUri}`,
+        `Redirect URI ruxsat etilmagan: ${effectiveRedirect}`,
       );
     }
     const pending = this.oauthPendingService.consume(

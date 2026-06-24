@@ -77,8 +77,21 @@ export class AuthController {
     enum: ['mobile', 'web'],
     description: 'redirect_uri tanlash uchun',
   })
-  getEnergoIdAuthorizeUrl(@Query('client') client?: 'mobile' | 'web') {
-    return this.authService.getEnergoIdAuthorizeUrl(client ?? 'mobile');
+  @ApiQuery({
+    name: 'callback_origin',
+    required: false,
+    description: 'Web: joriy domen (masalan https://elektrolearn-mobile.uzbekistonmet.uz)',
+  })
+  getEnergoIdAuthorizeUrl(
+    @Query('client') client?: 'mobile' | 'web',
+    @Query('callback_origin') callbackOrigin?: string,
+    @Req() req?: Request,
+  ) {
+    const origin =
+      callbackOrigin?.trim() ||
+      req?.headers.origin?.trim() ||
+      undefined;
+    return this.authService.getEnergoIdAuthorizeUrl(client ?? 'mobile', origin);
   }
 
   @Post('energo-id/exchange')

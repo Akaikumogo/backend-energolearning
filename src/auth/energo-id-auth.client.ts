@@ -84,6 +84,7 @@ type EnergoIdOAuthClientConfig = {
   platform: { code: string; name: string };
   redirectUri: string;
   routes: { web?: string; mobile?: string };
+  allowedRedirectUrls?: string[];
   scopes: string[];
 };
 
