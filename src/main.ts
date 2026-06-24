@@ -8,6 +8,7 @@ import { webcrypto } from 'crypto';
 import * as fs from 'fs';
 import { join } from 'path';
 import { AppModule } from './app.module';
+import { resolveEnergoIdBaseUrl, warnIfLegacyEnergoIdEnv } from './auth/energo-id-env.util';
 import { SWAGGER_RELATIVE_PATH } from './swagger.constants';
 import { ONE_TIME_CUTOVER_FLAG_PATH } from './one-time-cutover/one-time-cutover.constants';
 import 'dotenv/config';
@@ -127,6 +128,7 @@ async function probeOllamaOnBoot() {
 }
 
 async function bootstrap() {
+  warnIfLegacyEnergoIdEnv();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useWebSocketAdapter(new IoAdapter(app));
 
@@ -263,6 +265,8 @@ async function bootstrap() {
     console.log(`AI base:     ${ollamaInfo.baseUrl || '-'}`);
     console.log(`AI model:    ${ollamaInfo.model || '-'}`);
     console.log(`AI timeout:  ${ollamaInfo.timeoutMs || '-'} ms`);
+    const energoIdUrl = resolveEnergoIdBaseUrl();
+    console.log(`Energo ID:   ${energoIdUrl || '(sozlanmagan)'}`);
     console.log('SHOW_BOOT_INFO: true (mask) | full (no mask)');
     console.log('==========================================================\n');
   }

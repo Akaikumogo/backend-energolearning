@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { OAuthIntegrationSetting } from '../database/entities/oauth-integration-setting.entity';
 import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
+import { resolveEnergoIdBaseUrl } from '../auth/energo-id-env.util';
 import { UpdateOAuthIntegrationDto } from './dto/update-oauth-integration.dto';
 
 const SOURCE = 'energo-id';
@@ -84,7 +85,7 @@ export class OAuthIntegrationSettingsService {
     redirectUri: string,
     scopes: string,
   ) {
-    const baseUrl = process.env.ENERGO_ID_BASE_URL?.replace(/\/+$/, '') ?? '';
+    const baseUrl = resolveEnergoIdBaseUrl();
     const clientId =
       process.env.ENERGO_ID_CLIENT_ID?.trim() || 'elektrolearn_backend';
     if (!baseUrl) {
@@ -113,6 +114,7 @@ export class OAuthIntegrationSettingsService {
       webRedirectUri: effective.webRedirectUri,
       callbackPath: effective.callbackPath,
       scopes: effective.scopes,
+      energoIdBaseUrl: resolveEnergoIdBaseUrl(),
       templates: {
         authorizeUrl: this.buildAuthorizeTemplate(
           effective.mobileRedirectUri,
@@ -168,11 +170,12 @@ export class OAuthIntegrationSettingsService {
 
   async buildEnvExport() {
     const effective = await this.getEffective();
-    const baseUrl = process.env.ENERGO_ID_BASE_URL?.replace(/\/+$/, '') ?? '';
+    const baseUrl = resolveEnergoIdBaseUrl();
     const platform = process.env.ENERGO_ID_PLATFORM ?? 'elektrolearn';
     const clientId =
       process.env.ENERGO_ID_CLIENT_ID ?? 'elektrolearn_backend';
     return [
+      `ENERGO_ID_PORTAL_BASE_URL=${baseUrl}`,
       `ENERGO_ID_BASE_URL=${baseUrl}`,
       `ENERGO_ID_PLATFORM=${platform}`,
       `ENERGO_ID_CLIENT_ID=${clientId}`,
