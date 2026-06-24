@@ -1,9 +1,17 @@
 /**
- * Energo ID portal API (:8081) — production domen.
- * ElektroLearn serverdan faqat shu orqali ulanish kerak (8080 emas).
+ * Energo ID — ikki alohida domen:
+ *
+ *   cabinetid.uzbekistonmet.uz      → foydalanuvchi portali (login UI, 5175)
+ *   cabinetid-api.uzbekistonmet.uz  → platforma backend API (:8081)
+ *
+ * ElektroLearn SERVER faqat cabinetid-api ga zapros yuboradi.
+ * Foydalanuvchi brauzeri OAuth da cabinetid (login sahifasi) ga yo‘naltiriladi.
  */
-export const ENERGO_ID_DEFAULT_PORTAL_URL =
+export const ENERGO_ID_DEFAULT_PORTAL_API_URL =
   'https://cabinetid-api.uzbekistonmet.uz';
+
+/** @deprecated alias */
+export const ENERGO_ID_DEFAULT_PORTAL_URL = ENERGO_ID_DEFAULT_PORTAL_API_URL;
 
 function stripTrailingSlash(url: string) {
   return url.replace(/\/+$/, '');
@@ -35,11 +43,11 @@ export function resolveEnergoIdBaseUrl(): string {
 
   const fromEnv = process.env.ENERGO_ID_BASE_URL?.trim() ?? '';
   if (!fromEnv) {
-    return ENERGO_ID_DEFAULT_PORTAL_URL;
+    return ENERGO_ID_DEFAULT_PORTAL_API_URL;
   }
 
   if (isInternalEnergoIdUrl(fromEnv) && !isLocalDevUrl(fromEnv)) {
-    return ENERGO_ID_DEFAULT_PORTAL_URL;
+    return ENERGO_ID_DEFAULT_PORTAL_API_URL;
   }
 
   return stripTrailingSlash(fromEnv);
