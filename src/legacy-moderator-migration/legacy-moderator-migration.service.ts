@@ -45,6 +45,8 @@ export type LegacyModeratorPreview = {
 
 @Injectable()
 export class LegacyModeratorMigrationService {
+  private readonly tableExistsCache = new Map<string, boolean>();
+
   constructor(
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
@@ -124,6 +126,34 @@ export class LegacyModeratorMigrationService {
     };
   }
 
+  private async tableExists(tableName: string): Promise<boolean> {
+    if (this.tableExistsCache.has(tableName)) {
+      return this.tableExistsCache.get(tableName)!;
+    }
+    const rows = await this.dataSource.query<Array<{ exists: boolean }>>(
+      `SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+          AND table_name = $1
+      ) AS "exists"`,
+      [tableName],
+    );
+    const ok = Boolean(rows[0]?.exists);
+    this.tableExistsCache.set(tableName, ok);
+    return ok;
+  }
+
+  private async countRowsIfTable(
+    tableName: string,
+    sql: string,
+    params: unknown[],
+  ): Promise<number> {
+    if (!(await this.tableExists(tableName))) return 0;
+    const row = await this.dataSource.query(sql, params);
+    return Number(row[0]?.c ?? 0);
+  }
+
   private toUserSummary(user: User) {
     return {
       id: user.id,
@@ -136,49 +166,63 @@ export class LegacyModeratorMigrationService {
   }
 
   private async countSourceRows(sourceId: string): Promise<RowCount[]> {
-    const tables: Array<{ table: string; sql: string }> = [
+    const tables: Array<{ label: string; table: string; sql: string }> = [
       {
+        label: 'moderator_permissions',
         table: 'moderator_permissions',
         sql: `SELECT COUNT(*)::int AS c FROM moderator_permissions WHERE moderator_user_id = $1`,
       },
       {
+        label: 'moderator_violations',
         table: 'moderator_violations',
         sql: `SELECT COUNT(*)::int AS c FROM moderator_violations WHERE moderator_user_id = $1`,
       },
       {
+        label: 'user_organizations',
         table: 'user_organizations',
         sql: `SELECT COUNT(*)::int AS c FROM user_organizations WHERE "userId" = $1`,
       },
       {
+        label: 'admin_audit_logs',
         table: 'admin_audit_logs',
         sql: `SELECT COUNT(*)::int AS c FROM admin_audit_logs WHERE actor_user_id = $1`,
       },
       {
-        table: 'levels (created_by)',
+        label: 'levels (created_by)',
+        table: 'levels',
         sql: `SELECT COUNT(*)::int AS c FROM levels WHERE created_by = $1`,
       },
       {
-        table: 'theories (created_by)',
+        label: 'theories (created_by)',
+        table: 'theories',
         sql: `SELECT COUNT(*)::int AS c FROM theories WHERE created_by = $1`,
       },
       {
-        table: 'questions (created_by)',
+        label: 'questions (created_by)',
+        table: 'questions',
         sql: `SELECT COUNT(*)::int AS c FROM questions WHERE created_by = $1`,
       },
       {
-        table: 'exam_sessions (approved_by)',
+        label: 'exam_sessions (approved_by)',
+        table: 'exam_sessions',
         sql: `SELECT COUNT(*)::int AS c FROM exam_sessions WHERE approved_by_user_id = $1`,
       },
       {
-        table: 'exam_attempts (oral_reviewed)',
+        label: 'exam_attempts (oral_reviewed)',
+        table: 'exam_attempts',
         sql: `SELECT COUNT(*)::int AS c FROM exam_attempts WHERE oral_reviewed_by_id = $1`,
+      },
+      {
+        label: 'oauth_integration_settings (updated_by)',
+        table: 'oauth_integration_settings',
+        sql: `SELECT COUNT(*)::int AS c FROM oauth_integration_settings WHERE updated_by = $1`,
       },
     ];
 
     const out: RowCount[] = [];
     for (const item of tables) {
-      const row = await this.dataSource.query(item.sql, [sourceId]);
-      out.push({ table: item.table, count: Number(row[0]?.c ?? 0) });
+      const count = await this.countRowsIfTable(item.table, item.sql, [sourceId]);
+      out.push({ table: item.label, count });
     }
     return out;
   }
@@ -217,34 +261,39 @@ export class LegacyModeratorMigrationService {
       );
     }
 
-    const progressOverlap = await this.dataSource.query(
-      `
+    const progressOverlap =
+      (await this.tableExists('user_progress'))
+        ? await this.dataSource.query(
+            `
       SELECT COUNT(*)::int AS c
       FROM user_progress s
       INNER JOIN user_progress t
         ON s.organization_id = t.organization_id
       WHERE s.user_id = $1 AND t.user_id = $2
       `,
-      [sourceId, targetId],
-    );
+            [sourceId, targetId],
+          )
+        : [{ c: 0 }];
     if (Number(progressOverlap[0]?.c ?? 0) > 0) {
       conflicts.push(
         'user_progress: bir xil filialda progress bor — target progress saqlanadi',
       );
     }
 
-    const certTarget = await this.dataSource.query(
-      `SELECT COUNT(*)::int AS c FROM employee_certificates WHERE user_id = $1`,
-      [targetId],
-    );
-    const certSource = await this.dataSource.query(
-      `SELECT COUNT(*)::int AS c FROM employee_certificates WHERE user_id = $1`,
-      [sourceId],
-    );
-    if (Number(certTarget[0]?.c) > 0 && Number(certSource[0]?.c) > 0) {
-      conflicts.push(
-        'employee_certificates: ikkala hisobda ham guvohnoma — faqat created_by ko`chiriladi',
+    if (await this.tableExists('employee_certificates')) {
+      const certTarget = await this.dataSource.query(
+        `SELECT COUNT(*)::int AS c FROM employee_certificates WHERE user_id = $1`,
+        [targetId],
       );
+      const certSource = await this.dataSource.query(
+        `SELECT COUNT(*)::int AS c FROM employee_certificates WHERE user_id = $1`,
+        [sourceId],
+      );
+      if (Number(certTarget[0]?.c) > 0 && Number(certSource[0]?.c) > 0) {
+        conflicts.push(
+          'employee_certificates: ikkala hisobda ham guvohnoma — faqat created_by ko`chiriladi',
+        );
+      }
     }
 
     return conflicts;
@@ -300,6 +349,7 @@ export class LegacyModeratorMigrationService {
       ];
 
       for (const [table, column] of actorUpdates) {
+        if (!(await this.tableExists(table))) continue;
         await query(
           `UPDATE ${table} SET ${column} = $1 WHERE ${column} = $2`,
           [targetId, sourceId],
@@ -414,6 +464,8 @@ export class LegacyModeratorMigrationService {
     sourceId: string,
     targetId: string,
   ) {
+    if (!(await this.tableExists('user_progress'))) return;
+
     const overlaps = await query(
       `
       SELECT s.id AS source_id, t.id AS target_id, s.organization_id
@@ -454,25 +506,29 @@ export class LegacyModeratorMigrationService {
     ];
 
     for (const [table, column] of tables) {
+      if (!(await this.tableExists(table))) continue;
       await query(
         `UPDATE ${table} SET ${column} = $1 WHERE ${column} = $2`,
         [targetId, sourceId],
       );
     }
 
-    const targetCert = await query(
-      `SELECT COUNT(*)::int AS c FROM employee_certificates WHERE user_id = $1`,
-      [targetId],
-    );
-    if (Number((targetCert as Array<{ c: number }>)[0]?.c ?? 0) === 0) {
-      await query(
-        `UPDATE employee_certificates SET user_id = $1 WHERE user_id = $2`,
-        [targetId, sourceId],
+    if (await this.tableExists('employee_certificates')) {
+      const targetCert = await query(
+        `SELECT COUNT(*)::int AS c FROM employee_certificates WHERE user_id = $1`,
+        [targetId],
       );
+      if (Number((targetCert as Array<{ c: number }>)[0]?.c ?? 0) === 0) {
+        await query(
+          `UPDATE employee_certificates SET user_id = $1 WHERE user_id = $2`,
+          [targetId, sourceId],
+        );
+      }
     }
 
-    await query(
-      `
+    if (await this.tableExists('user_positions')) {
+      await query(
+        `
       DELETE FROM user_positions up
       WHERE up.user_id = $1
         AND EXISTS (
@@ -480,15 +536,17 @@ export class LegacyModeratorMigrationService {
           WHERE t.user_id = $2 AND t.position_id = up.position_id
         )
       `,
-      [sourceId, targetId],
-    );
-    await query(
-      `UPDATE user_positions SET user_id = $1 WHERE user_id = $2`,
-      [targetId, sourceId],
-    );
+        [sourceId, targetId],
+      );
+      await query(
+        `UPDATE user_positions SET user_id = $1 WHERE user_id = $2`,
+        [targetId, sourceId],
+      );
+    }
 
-    await query(
-      `
+    if (await this.tableExists('ai_chat_sessions')) {
+      await query(
+        `
       DELETE FROM ai_chat_sessions s
       WHERE s.user_id = $1
         AND EXISTS (
@@ -496,11 +554,12 @@ export class LegacyModeratorMigrationService {
           WHERE t.user_id = $2 AND t.scope = s.scope
         )
       `,
-      [sourceId, targetId],
-    );
-    await query(
-      `UPDATE ai_chat_sessions SET user_id = $1 WHERE user_id = $2`,
-      [targetId, sourceId],
-    );
+        [sourceId, targetId],
+      );
+      await query(
+        `UPDATE ai_chat_sessions SET user_id = $1 WHERE user_id = $2`,
+        [targetId, sourceId],
+      );
+    }
   }
 }
