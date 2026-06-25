@@ -1,9 +1,9 @@
 import {
   Controller,
+  ForbiddenException,
   Get,
   Query,
   Req,
-  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -12,13 +12,12 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Request, Response } from 'express';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { BranchAnalyticsService } from './branch-analytics.service';
-import { ExportService } from './export.service';
 
 @ApiTags('Branch Analytics (Admin)')
 @Controller('admin/branch-analytics')
@@ -27,7 +26,6 @@ import { ExportService } from './export.service';
 export class BranchAnalyticsController {
   constructor(
     private readonly analyticsService: BranchAnalyticsService,
-    private readonly exportService: ExportService,
   ) {}
 
   @Get('summary')
@@ -87,17 +85,10 @@ export class BranchAnalyticsController {
 
   @Get('export/moderators-credentials')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'Moderatorlar login-parollar Excel' })
-  async exportModerators(@Res() res: Response) {
-    const buffer = await this.exportService.buildModeratorsCredentialsExcel();
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  @ApiOperation({ deprecated: true, summary: 'O`chirilgan — Energo ID OAuth ishlating' })
+  exportModerators() {
+    throw new ForbiddenException(
+      'Login/parol export o`chirilgan. Moderatorlar Energo ID orqali kiradi.',
     );
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="moderatorlar-login-parollar.xlsx"',
-    );
-    res.send(buffer);
   }
 }

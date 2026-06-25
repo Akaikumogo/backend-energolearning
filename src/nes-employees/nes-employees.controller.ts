@@ -2,10 +2,10 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Post,
   Query,
-  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -15,12 +15,10 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { ExportService } from '../branch-analytics/export.service';
 import { SyncNesEmployeesDto } from './dto/sync-nes-employees.dto';
 import { NesEmployeesService } from './nes-employees.service';
 
@@ -29,10 +27,7 @@ import { NesEmployeesService } from './nes-employees.service';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth('bearer')
 export class NesEmployeesController {
-  constructor(
-    private readonly nesEmployeesService: NesEmployeesService,
-    private readonly exportService: ExportService,
-  ) {}
+  constructor(private readonly nesEmployeesService: NesEmployeesService) {}
 
   @Get('energo-id-health')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
@@ -125,27 +120,10 @@ export class NesEmployeesController {
 
   @Get('export-credentials')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({
-    summary:
-      'Sinxronlangan xodimlar login/parol Excel (Energo ID mirror, generatsiya emas)',
-  })
-  @ApiQuery({ name: 'organizationName', required: false })
-  async exportCredentials(
-    @Query('organizationName') organizationName: string | undefined,
-    @Res() res: Response,
-  ) {
-    const buffer =
-      await this.exportService.buildAllNesEmployeesCredentialsExcel({
-        organizationName,
-      });
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  @ApiOperation({ deprecated: true, summary: 'O`chirilgan — Energo ID OAuth ishlating' })
+  exportCredentials() {
+    throw new ForbiddenException(
+      'Login/parol export o`chirilgan. Xodimlar Energo ID orqali kiradi.',
     );
-    res.setHeader(
-      'Content-Disposition',
-      'attachment; filename="energo-id-xodimlar-login-parollar.xlsx"',
-    );
-    res.send(buffer);
   }
 }

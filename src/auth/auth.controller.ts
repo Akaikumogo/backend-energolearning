@@ -142,6 +142,34 @@ export class AuthController {
     return this.authService.adminLogin(body);
   }
 
+  @Post('admin/energo-id/exchange')
+  @ApiOperation({
+    summary: 'Admin panel — Energo ID OAuth code almashtirish',
+    description:
+      'OAuth code ni token ga almashtiradi. Faqat SUPERADMIN va MODERATOR kirishi mumkin.',
+  })
+  @ApiBody({ type: EnergoIdExchangeDto })
+  @ApiOkResponse({ type: LoginSuccessResponseDto })
+  @ApiForbiddenResponse({
+    description: 'Rol admin panel uchun ruxsat etilmagan',
+    type: ApiErrorResponseDto,
+  })
+  exchangeAdminEnergoIdCode(
+    @Body() body: EnergoIdExchangeDto,
+  ): Promise<LoginSuccessResponseDto> {
+    const code = (body.onetime ?? body.code)?.trim();
+    if (!code) {
+      throw new BadRequestException('OAuth code topilmadi');
+    }
+    return this.authService.adminLoginWithEnergoIdCode(
+      code,
+      body.redirect_uri,
+      body.state,
+      body.client,
+      body.code_verifier,
+    );
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('bearer')
