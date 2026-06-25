@@ -4,8 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
@@ -33,12 +33,15 @@ export type EnergoIdentityUser = {
 
 @Injectable()
 export class UsersService {
+  private nesEmployeesSearchReady: boolean | null = null;
+
   constructor(
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
     @InjectRepository(Organization)
     private readonly orgRepo: Repository<Organization>,
     @InjectRepository(UserOrganization)
     private readonly userOrgRepo: Repository<UserOrganization>,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly moderatorPermissionsService: ModeratorPermissionsService,
   ) {}
 
@@ -115,8 +118,21 @@ export class UsersService {
         .toLowerCase()
         .split(/\s+/)
         .filter(Boolean);
+      const nesSearch = await this.canSearchNesEmployees();
       tokens.forEach((token, i) => {
         const key = `searchTok${i}`;
+        const nesClause = nesSearch
+          ? `
+            OR EXISTS (
+              SELECT 1 FROM "nes_employees" nes
+              WHERE nes.user_id = u.id
+              AND (
+                LOWER(nes.login) LIKE :${key}
+                OR LOWER(nes.personnel_number) LIKE :${key}
+                OR LOWER(nes.full_name) LIKE :${key}
+              )
+            )`
+          : '';
         qb.andWhere(
           `(
             LOWER(u.first_name) LIKE :${key}
@@ -124,16 +140,7 @@ export class UsersService {
             OR LOWER(u.email) LIKE :${key}
             OR LOWER(CONCAT(u.last_name, ' ', u.first_name)) LIKE :${key}
             OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE :${key}
-            OR LOWER(org.name) LIKE :${key}
-            OR EXISTS (
-              SELECT 1 FROM nes_employees nes
-              WHERE nes.user_id = u.id
-              AND (
-                LOWER(nes.login) LIKE :${key}
-                OR LOWER(nes.personnel_number) LIKE :${key}
-                OR LOWER(nes.full_name) LIKE :${key}
-              )
-            )
+            OR LOWER(org.name) LIKE :${key}${nesClause}
           )`,
           { [key]: `%${token}%` },
         );
@@ -146,6 +153,26 @@ export class UsersService {
       .getManyAndCount();
 
     return { data, total, page, limit };
+  }
+
+  private async canSearchNesEmployees(): Promise<boolean> {
+    if (this.nesEmployeesSearchReady !== null) {
+      return this.nesEmployeesSearchReady;
+    }
+    try {
+      const rows = await this.dataSource.query<Array<{ exists: boolean }>>(
+        `SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = current_schema()
+            AND table_name = 'nes_employees'
+        ) AS "exists"`,
+      );
+      this.nesEmployeesSearchReady = Boolean(rows[0]?.exists);
+    } catch {
+      this.nesEmployeesSearchReady = false;
+    }
+    return this.nesEmployeesSearchReady;
   }
 
   async syncFromEnergoIdentity(data: EnergoIdentityUser): Promise<User> {
