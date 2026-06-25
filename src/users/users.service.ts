@@ -110,10 +110,34 @@ export class UsersService {
       }
     }
     if (filters?.search) {
-      qb.andWhere(
-        `(LOWER(u.first_name) LIKE :q OR LOWER(u.last_name) LIKE :q OR LOWER(u.email) LIKE :q)`,
-        { q: `%${filters.search.toLowerCase()}%` },
-      );
+      const tokens = filters.search
+        .trim()
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean);
+      tokens.forEach((token, i) => {
+        const key = `searchTok${i}`;
+        qb.andWhere(
+          `(
+            LOWER(u.first_name) LIKE :${key}
+            OR LOWER(u.last_name) LIKE :${key}
+            OR LOWER(u.email) LIKE :${key}
+            OR LOWER(CONCAT(u.last_name, ' ', u.first_name)) LIKE :${key}
+            OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE :${key}
+            OR LOWER(org.name) LIKE :${key}
+            OR EXISTS (
+              SELECT 1 FROM nes_employees nes
+              WHERE nes.user_id = u.id
+              AND (
+                LOWER(nes.login) LIKE :${key}
+                OR LOWER(nes.personnel_number) LIKE :${key}
+                OR LOWER(nes.full_name) LIKE :${key}
+              )
+            )
+          )`,
+          { [key]: `%${token}%` },
+        );
+      });
     }
 
     const [data, total] = await qb
