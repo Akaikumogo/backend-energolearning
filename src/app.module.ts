@@ -78,6 +78,7 @@ import { TerminatedEmployee } from './database/entities/terminated-employee.enti
 import { OAuthIntegrationSetting } from './database/entities/oauth-integration-setting.entity';
 import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
 import { OneTimeCutoverModule } from './one-time-cutover/one-time-cutover.module';
+import { LegacyModeratorMigrationModule } from './legacy-moderator-migration/legacy-moderator-migration.module';
 import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
 import { AdminImportExportModule } from './admin-import-export/admin-import-export.module';
 @Module({
@@ -157,6 +158,7 @@ import { AdminImportExportModule } from './admin-import-export/admin-import-expo
     BranchAnalyticsModule,
     AdminScriptsModule,
     OneTimeCutoverModule,
+    LegacyModeratorMigrationModule,
     TelegramBotModule,
     AdminImportExportModule,
   ],
