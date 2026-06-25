@@ -31,7 +31,8 @@ import { CreateModeratorDto } from './dto/create-moderator.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateModeratorDto } from './dto/update-moderator.dto';
-import { BulkGenerateModeratorPasswordsDto } from './dto/bulk-generate-moderator-passwords.dto';
+import { PromoteModeratorDto } from './dto/promote-moderator.dto';
+import { PromoteSuperAdminDto } from './dto/promote-superadmin.dto';
 
 @ApiTags('Users (Admin)')
 @Controller('admin/users')
@@ -117,12 +118,55 @@ export class UsersController {
     });
   }
 
+  @Post('superadmins/promote')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary:
+      'Mavjud Energo ID xodimga SuperAdmin berish (yangi user yaratilmaydi)',
+  })
+  @ApiBody({ type: PromoteSuperAdminDto })
+  promoteSuperAdmin(@Body() dto: PromoteSuperAdminDto) {
+    return this.usersService.promoteToSuperAdmin(dto);
+  }
+
+  @Post('superadmins/:id/demote')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary:
+      'Energo ID SuperAdmin dan USER ga tushirish (local bootstrap himoyalangan)',
+  })
+  demoteSuperAdmin(@Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService.demoteFromSuperAdmin(id);
+  }
+
+  @Post('moderators/promote')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary: 'Mavjud xodimga moderator statusi berish (yangi user yaratilmaydi)',
+  })
+  @ApiBody({ type: PromoteModeratorDto })
+  promoteModerator(@Body() dto: PromoteModeratorDto) {
+    return this.usersService.promoteToModerator(dto);
+  }
+
+  @Post('moderators/:id/demote')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Moderatorlikdan olib tashlash (xodim USER bo`lib qoladi)' })
+  demoteModerator(@Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService.demoteFromModerator(id);
+  }
+
   @Post('moderators')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'Yangi moderator yaratish (faqat SuperAdmin)' })
+  @ApiOperation({
+    summary: 'Yangi moderator yaratish (eski usul — o`rniga promote ishlating)',
+    deprecated: true,
+  })
   @ApiBody({ type: CreateModeratorDto })
-  createModerator(@Body() dto: CreateModeratorDto) {
-    return this.usersService.createModerator(dto);
+  createModerator() {
+    throw new ForbiddenException(
+      'Yangi moderator yaratilmaydi. Mavjud xodimga POST /admin/users/moderators/promote ishlating.',
+    );
   }
 
   @Put('moderators/:id')
@@ -138,14 +182,11 @@ export class UsersController {
 
   @Post('moderators/bulk-generate-passwords')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({
-    summary: 'Tanlangan moderatorlarga yangi parol generatsiya qilish',
-  })
-  @ApiBody({ type: BulkGenerateModeratorPasswordsDto })
-  bulkGenerateModeratorPasswords(
-    @Body() dto: BulkGenerateModeratorPasswordsDto,
-  ) {
-    return this.usersService.bulkGenerateModeratorPasswords(dto.userIds);
+  @ApiOperation({ deprecated: true, summary: 'O`chirilgan — Energo ID OAuth ishlating' })
+  bulkGenerateModeratorPasswords() {
+    throw new ForbiddenException(
+      'Parol generatsiyasi o`chirilgan. Moderatorlar Energo ID orqali kiradi.',
+    );
   }
 
   @Post()

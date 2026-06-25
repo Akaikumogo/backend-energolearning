@@ -10,7 +10,6 @@ import { UserSession } from '../database/entities/user-session.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { BranchAnalyticsController } from './branch-analytics.controller';
-import { OrganizationExportController } from './organization-export.controller';
 import { MobileDailyPlanController } from './mobile-daily-plan.controller';
 import { BranchAnalyticsService } from './branch-analytics.service';
 import { DailyPlanService } from './daily-plan.service';
@@ -32,7 +31,6 @@ import { ExportService } from './export.service';
   ],
   controllers: [
     BranchAnalyticsController,
-    OrganizationExportController,
     MobileDailyPlanController,
   ],
   providers: [BranchAnalyticsService, DailyPlanService, ExportService],

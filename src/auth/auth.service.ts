@@ -158,6 +158,29 @@ export class AuthService {
     return this.issueLoginResponse(user);
   }
 
+  async adminLoginWithEnergoIdCode(
+    code: string,
+    redirectUri?: string,
+    state?: string,
+    client?: 'mobile' | 'web',
+    codeVerifier?: string,
+  ): Promise<LoginSuccessResponseDto> {
+    const response = await this.loginWithEnergoIdCode(
+      code,
+      redirectUri,
+      state,
+      client,
+      codeVerifier,
+    );
+    const role = response.data.user.role;
+    if (role !== Role.SUPERADMIN && role !== Role.MODERATOR) {
+      throw new ForbiddenException(
+        'Admin panelga faqat moderator yoki superadmin kira oladi',
+      );
+    }
+    return response;
+  }
+
   /** Admin panel — faqat ElektroLearn bazasi, SUPERADMIN va MODERATOR. */
   async adminLogin(dto: LoginDto): Promise<LoginSuccessResponseDto> {
     const user = await this.resolveLocalUser(dto);

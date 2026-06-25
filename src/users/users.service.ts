@@ -13,6 +13,9 @@ import { UserOrganization } from '../database/entities/user-organization.entity'
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateModeratorDto } from './dto/create-moderator.dto';
 import { UpdateModeratorDto } from './dto/update-moderator.dto';
+import { PromoteModeratorDto } from './dto/promote-moderator.dto';
+import { PromoteSuperAdminDto } from './dto/promote-superadmin.dto';
+import { ModeratorPermissionsService } from '../moderator-permissions/moderator-permissions.service';
 
 export type EnergoIdentityUser = {
   energoUserId: string;
@@ -36,6 +39,7 @@ export class UsersService {
     private readonly orgRepo: Repository<Organization>,
     @InjectRepository(UserOrganization)
     private readonly userOrgRepo: Repository<UserOrganization>,
+    private readonly moderatorPermissionsService: ModeratorPermissionsService,
   ) {}
 
   async findByEmail(email: string): Promise<User | null> {
@@ -124,7 +128,6 @@ export class UsersService {
     const raw = data as EnergoIdentityUser & { id?: string };
     const energoUserId = (raw.energoUserId ?? raw.id ?? '').trim();
     const login = (raw.login ?? raw.email ?? '').trim();
-    const role = this.toLocalRole(raw.role);
 
     if (!login || !energoUserId) {
       throw new BadRequestException('Energo ID user login yoki id yo`q');
@@ -148,6 +151,8 @@ export class UsersService {
 
     await this.releaseEnergoIdFromOthers(energoUserId, user?.id ?? null);
 
+    const role = this.resolveSyncRole(user, raw.role);
+
     if (!user) {
       user = await this.usersRepo.save(
         this.usersRepo.create({
@@ -161,14 +166,17 @@ export class UsersService {
         }),
       );
     } else {
-      await this.usersRepo.update(user.id, {
+      const patch: Partial<User> = {
         email: resolvedEmail,
         energoId: energoUserId,
         firstName: data.firstName,
         lastName: data.lastName,
-        role,
         mustChangePassword: data.mustChangePassword,
-      });
+      };
+      if (!this.isProtectedRole(user.role)) {
+        patch.role = role;
+      }
+      await this.usersRepo.update(user.id, patch);
     }
 
     if (data.organization?.name) {
@@ -294,6 +302,111 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  async promoteToModerator(dto: PromoteModeratorDto): Promise<User> {
+    const user = await this.findById(dto.userId);
+    if (!user) throw new NotFoundException('Xodim topilmadi');
+    if (user.role === Role.MODERATOR) {
+      throw new BadRequestException('Bu xodim allaqachon moderator');
+    }
+    if (user.role === Role.SUPERADMIN) {
+      throw new BadRequestException('SuperAdmin moderator qilib belgilanmaydi');
+    }
+    if (!user.energoId) {
+      throw new BadRequestException(
+        'Faqat Energo ID orqali kelgan xodim moderator qilinadi',
+      );
+    }
+
+    await this.usersRepo.update(user.id, {
+      role: Role.MODERATOR,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+
+    if (dto.organizationId) {
+      const org = await this.orgRepo.findOne({
+        where: { id: dto.organizationId },
+      });
+      if (org) {
+        await this.attachUserToOrganization(user.id, org.id);
+      }
+    }
+
+    await this.moderatorPermissionsService.getOrCreate(user.id);
+    return this.findById(user.id) as Promise<User>;
+  }
+
+  async demoteFromModerator(id: string): Promise<User> {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException('Moderator topilmadi');
+    if (user.role !== Role.MODERATOR) {
+      throw new BadRequestException('Faqat moderator rolini olib tashlash mumkin');
+    }
+
+    await this.usersRepo.update(user.id, {
+      role: Role.USER,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+
+    return this.findById(user.id) as Promise<User>;
+  }
+
+  async promoteToSuperAdmin(dto: PromoteSuperAdminDto): Promise<User> {
+    const user = await this.findById(dto.userId);
+    if (!user) throw new NotFoundException('Xodim topilmadi');
+    if (user.role === Role.SUPERADMIN) {
+      throw new BadRequestException('Bu xodim allaqachon SuperAdmin');
+    }
+    if (!user.energoId) {
+      throw new BadRequestException(
+        'Faqat Energo ID orqali kelgan xodim SuperAdmin qilinadi',
+      );
+    }
+
+    await this.usersRepo.update(user.id, {
+      role: Role.SUPERADMIN,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+
+    return this.findById(user.id) as Promise<User>;
+  }
+
+  async demoteFromSuperAdmin(id: string): Promise<User> {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
+    if (user.role !== Role.SUPERADMIN) {
+      throw new BadRequestException('Faqat SuperAdmin rolini olib tashlash mumkin');
+    }
+    if (!user.energoId) {
+      throw new BadRequestException(
+        'Local bootstrap SuperAdmin demote qilinmaydi',
+      );
+    }
+
+    const superAdminCount = await this.usersRepo.count({
+      where: { role: Role.SUPERADMIN },
+    });
+    if (superAdminCount <= 1) {
+      throw new BadRequestException(
+        'Oxirgi SuperAdmin demote qilinmaydi',
+      );
+    }
+
+    await this.usersRepo.update(user.id, {
+      role: Role.USER,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+
+    return this.findById(user.id) as Promise<User>;
   }
 
   async createModerator(dto: CreateModeratorDto): Promise<User> {
@@ -443,6 +556,17 @@ export class UsersService {
 
   async clearMustChangePassword(userId: string): Promise<void> {
     await this.usersRepo.update(userId, { mustChangePassword: false });
+  }
+
+  private isProtectedRole(role: Role): boolean {
+    return role === Role.MODERATOR || role === Role.SUPERADMIN;
+  }
+
+  private resolveSyncRole(existing: User | null, incomingRole: string): Role {
+    if (existing && this.isProtectedRole(existing.role)) {
+      return existing.role;
+    }
+    return this.toLocalRole(incomingRole);
   }
 
   private toLocalRole(role: string): Role {
