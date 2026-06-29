@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -76,5 +77,40 @@ export class LegacyModeratorMigrationController {
   })
   merge(@Body() dto: MergeLegacyModeratorDto) {
     return this.migrationService.merge(dto);
+  }
+
+  @Post('bulk/preview')
+  @ApiOperation({ summary: 'Excel dan bulk moderator migratsiya preview' })
+  bulkPreview(@Body() body: { fileBase64: string }) {
+    if (!body.fileBase64?.trim()) {
+      throw new BadRequestException('Excel fayl (fileBase64) kerak');
+    }
+    return this.migrationService.previewBulkFromExcel(
+      Buffer.from(body.fileBase64, 'base64'),
+    );
+  }
+
+  @Post('bulk/apply')
+  @ApiOperation({ summary: 'Excel dan bulk moderator migratsiya (merge)' })
+  bulkApply(
+    @Body()
+    body: {
+      fileBase64: string;
+      dryRun?: boolean;
+      permissionMerge?: 'prefer-source' | 'prefer-target' | 'union';
+      onlyReady?: boolean;
+    },
+  ) {
+    if (!body.fileBase64?.trim()) {
+      throw new BadRequestException('Excel fayl (fileBase64) kerak');
+    }
+    return this.migrationService.applyBulkFromExcel(
+      Buffer.from(body.fileBase64, 'base64'),
+      {
+        dryRun: body.dryRun,
+        permissionMerge: body.permissionMerge,
+        onlyReady: body.onlyReady,
+      },
+    );
   }
 }
