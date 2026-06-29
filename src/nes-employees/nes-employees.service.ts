@@ -20,10 +20,15 @@ import { User } from '../database/entities/user.entity';
 import { EmployeeSyncSetting } from '../database/entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from '../database/entities/terminated-employee.entity';
 import { NesSyncGateway } from './nes-sync.gateway';
+import {
+  extractPersonnelNumberFromLogin,
+  resolvePersonnelNumber,
+} from '../common/utils/personnel-number.util';
 
 @Injectable()
 export class NesEmployeesService {
   private readonly logger = new Logger(NesEmployeesService.name);
+  private activeSyncEnergoIds = new Set<string>();
 
   private syncState: {
     running: boolean;
@@ -226,6 +231,9 @@ export class NesEmployeesService {
       }
       await this.upsertSyncSetting(response.sync);
       this.syncState.total = employees.length;
+      this.activeSyncEnergoIds = new Set(
+        employees.map((employee) => employee.energoUserId),
+      );
       this.emitProgressUpdate();
 
       let upserted = 0;
@@ -238,6 +246,20 @@ export class NesEmployeesService {
         if (upserted % 5 === 0 || upserted === employees.length) {
           this.emitProgressUpdate();
         }
+      }
+
+      const backfilled = await this.backfillMissingNesMirrors(employees);
+      if (backfilled > 0) {
+        this.logger.log(
+          `Energo ID sync: ${backfilled} ta xodim uchun nes mirror tiklandi`,
+        );
+      }
+
+      const relinked = await this.relinkMirrorsToSyncedUsers(employees);
+      if (relinked > 0) {
+        this.logger.log(
+          `Energo ID sync: ${relinked} ta nes mirror to'g'ri foydalanuvchiga bog'landi`,
+        );
       }
 
       const activeEnergoIds = employees.map((employee) => employee.energoUserId);
@@ -276,6 +298,7 @@ export class NesEmployeesService {
       this.nesSyncGateway.emitError(message);
       this.logger.error('Energo ID employee sync failed', error as Error);
     } finally {
+      this.activeSyncEnergoIds = new Set();
       await this.releaseSyncLock();
     }
   }
@@ -441,20 +464,171 @@ export class NesEmployeesService {
     }
   }
 
+  private async backfillMissingNesMirrors(
+    employees: EnergoIdUser[],
+  ): Promise<number> {
+    const byEnergoId = new Map(
+      employees.map((employee) => [employee.energoUserId, employee]),
+    );
+
+    const missingUsers = await this.userRepo
+      .createQueryBuilder('u')
+      .leftJoin('nes_employees', 'nes', 'nes.user_id = u.id')
+      .where('u.role = :role', { role: Role.USER })
+      .andWhere('u.energo_id IS NOT NULL')
+      .andWhere('nes.id IS NULL')
+      .getMany();
+
+    let repaired = 0;
+    for (const user of missingUsers) {
+      const energoId = user.energoId?.trim();
+      if (!energoId) continue;
+
+      const employee = byEnergoId.get(energoId);
+      if (employee) {
+        await this.upsertEnergoEmployeeMirror(user, employee);
+        repaired += 1;
+        continue;
+      }
+
+      const personnelNumber = extractPersonnelNumberFromLogin(user.email);
+      if (!personnelNumber) continue;
+
+      await this.upsertEnergoEmployeeMirror(user, {
+        energoUserId: energoId,
+        login: user.email,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: Role.USER,
+        permissions: [],
+        mustChangePassword: user.mustChangePassword,
+        status: 'ACTIVE',
+        personnelNumber,
+        organization: null,
+      });
+      repaired += 1;
+    }
+
+    return repaired;
+  }
+
+  private async relinkMirrorsToSyncedUsers(
+    employees: EnergoIdUser[],
+  ): Promise<number> {
+    let relinked = 0;
+
+    for (const employee of employees) {
+      const personnelNumber = resolvePersonnelNumber(employee);
+      if (!personnelNumber) continue;
+
+      const user = await this.userRepo.findOne({
+        where: { energoId: employee.energoUserId },
+      });
+      if (!user) continue;
+
+      const mirrors = await this.employeeRepo.find({
+        where: { personnelNumber },
+      });
+
+      for (const mirror of mirrors) {
+        if (mirror.userId === user.id) continue;
+
+        const holder = await this.userRepo.findOne({
+          where: { id: mirror.userId },
+          select: ['id', 'energoId'],
+        });
+        const holderEnergoId = holder?.energoId?.trim() || null;
+        if (holderEnergoId === employee.energoUserId) continue;
+
+        if (
+          holderEnergoId &&
+          this.activeSyncEnergoIds.has(holderEnergoId) &&
+          holderEnergoId !== employee.energoUserId
+        ) {
+          continue;
+        }
+
+        mirror.userId = user.id;
+        mirror.login = employee.login;
+        mirror.lastSyncedAt = new Date();
+        await this.employeeRepo.save(mirror);
+        relinked += 1;
+      }
+    }
+
+    return relinked;
+  }
+
+  private async shouldReuseNesMirror(
+    mirror: NesEmployee,
+    user: User,
+    employee: EnergoIdUser,
+  ): Promise<boolean> {
+    if (mirror.userId === user.id) return true;
+
+    const holder = await this.userRepo.findOne({
+      where: { id: mirror.userId },
+      select: ['id', 'energoId', 'role'],
+    });
+    if (!holder || holder.role !== Role.USER) return true;
+
+    const holderEnergoId = holder.energoId?.trim() || null;
+    const targetEnergoId =
+      employee.energoUserId?.trim() || user.energoId?.trim() || null;
+
+    if (!holderEnergoId) return true;
+    if (holderEnergoId === targetEnergoId) return true;
+    if (this.activeSyncEnergoIds.has(holderEnergoId)) return false;
+
+    return true;
+  }
+
+  private async findNesMirrorForUpsert(
+    user: User,
+    employee: EnergoIdUser,
+    personnelNumber: string,
+    organizationName: string,
+  ): Promise<NesEmployee | null> {
+    const byUser = await this.employeeRepo.findOne({
+      where: { userId: user.id },
+    });
+    if (byUser) return byUser;
+
+    const candidates = await this.employeeRepo.find({
+      where: [{ personnelNumber, organizationName }, { personnelNumber }],
+      order: { lastSyncedAt: 'DESC' },
+    });
+
+    for (const candidate of candidates) {
+      if (await this.shouldReuseNesMirror(candidate, user, employee)) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
   private async upsertEnergoEmployeeMirror(user: User, employee: EnergoIdUser) {
     const organization = await this.resolveEmployeeOrganization(employee);
     await this.attachUserToOrganization(user.id, organization.id);
 
     const organizationName = organization.name;
 
-    const personnelNumber =
-      employee.personnelNumber?.trim() || employee.login || user.id;
-    let existing =
-      (await this.employeeRepo.findOne({ where: { userId: user.id } })) ??
-      (await this.employeeRepo.findOne({
-        where: { personnelNumber, organizationName },
-      })) ??
-      (await this.employeeRepo.findOne({ where: { personnelNumber } }));
+    const personnelNumber = resolvePersonnelNumber(employee);
+    if (!personnelNumber) {
+      this.logger.warn(
+        `Tabel raqami topilmadi, mirror o'tkazib yuborildi: ${employee.login}`,
+      );
+      return;
+    }
+
+    let existing = await this.findNesMirrorForUpsert(
+      user,
+      employee,
+      personnelNumber,
+      organizationName,
+    );
 
     const payload = {
       personnelNumber,

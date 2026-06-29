@@ -299,10 +299,15 @@ export class EnergoIdAuthClient {
   }
 
   private normalizeEmployee(
-    row: EnergoIdUser & { id?: string },
+    row: EnergoIdUser & {
+      id?: string;
+      personnel_number?: string | null;
+    },
   ): EnergoIdUser {
     const energoUserId = (row.energoUserId ?? row.id ?? '').trim();
     const login = (row.login ?? row.email ?? '').trim();
+    const personnelNumber =
+      (row.personnelNumber ?? row.personnel_number ?? '').trim() || null;
     return {
       ...row,
       energoUserId,
@@ -314,6 +319,7 @@ export class EnergoIdAuthClient {
       permissions: row.permissions ?? [],
       mustChangePassword: row.mustChangePassword ?? false,
       status: row.status ?? 'ACTIVE',
+      personnelNumber,
       initialPassword:
         (row as EnergoIdUser & { initialPassword?: string | null })
           .initialPassword ?? null,

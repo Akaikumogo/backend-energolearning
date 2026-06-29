@@ -22,6 +22,7 @@ import {
   splitSearchTokens,
   variantsForSearchToken,
 } from '../common/utils/latinize-search.util';
+import { extractPersonnelNumberFromLogin } from '../common/utils/personnel-number.util';
 
 const BADGES = [
   { label: 'Yangi ishchi', bolts: 1 },
@@ -592,7 +593,10 @@ export class StudentsService {
       lastName: user.lastName,
       email: user.email,
       avatarUrl: user.avatarUrl,
-      personnelNumber: nesEmployee?.personnelNumber ?? null,
+      personnelNumber:
+        nesEmployee?.personnelNumber ??
+        extractPersonnelNumberFromLogin(user.email) ??
+        null,
       completedLevels,
       totalXp,
       currentLevelId,
