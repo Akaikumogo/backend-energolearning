@@ -76,6 +76,7 @@ export class AuthService {
     const normalizedClient = client === 'web' ? 'web' : 'mobile';
     const oauthConfig = await this.energoIdAuthClient.fetchOAuthClientConfig(
       normalizedClient,
+      requestOrigin,
     );
     const redirectUri = resolveOAuthRedirectUri(
       oauthConfig,
