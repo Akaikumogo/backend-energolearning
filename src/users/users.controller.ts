@@ -96,6 +96,8 @@ export class UsersController {
       limit: limit ? parseInt(limit, 10) : undefined,
       organizationIds: orgId?.trim() ? [orgId.trim()] : undefined,
       organizationFilterMode: orgMode === 'exclude' ? 'exclude' : 'include',
+      // energo_id yo'q (migratsiya qilinmagan) moderatorlar bu ro'yxatda chiqmaydi
+      requireEnergoId: true,
     });
   }
 
