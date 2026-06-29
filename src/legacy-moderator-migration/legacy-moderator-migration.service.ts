@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Brackets, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import {
   mergeModeratorPermissions,
@@ -12,7 +12,12 @@ import {
   type ModeratorPermissions,
 } from '../database/entities/moderator-permission.entity';
 import { ModeratorPermission } from '../database/entities/moderator-permission.entity';
+import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { User } from '../database/entities/user.entity';
+import {
+  splitSearchTokens,
+  variantsForSearchToken,
+} from '../common/utils/latinize-search.util';
 import { MergeLegacyModeratorDto } from './dto/merge-legacy-moderator.dto';
 
 type RowCount = { table: string; count: number };
@@ -50,6 +55,8 @@ export class LegacyModeratorMigrationService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
+    @InjectRepository(NesEmployee)
+    private readonly nesRepo: Repository<NesEmployee>,
     @InjectRepository(ModeratorPermission)
     private readonly permRepo: Repository<ModeratorPermission>,
     @InjectDataSource()
@@ -62,6 +69,54 @@ export class LegacyModeratorMigrationService {
       relations: ['organizations', 'organizations.organization'],
       order: { lastName: 'ASC', firstName: 'ASC' },
     }).then((rows) => rows.filter((u) => !u.energoId));
+  }
+
+  /** Migratsiya maqsadi — nes_employees orqali (ENERGO ID sync bilan bir xil) */
+  async searchMigrationTargets(search?: string, limit = 50): Promise<User[]> {
+    const qb = this.nesRepo
+      .createQueryBuilder('nes')
+      .innerJoinAndSelect('nes.user', 'u')
+      .leftJoinAndSelect('u.organizations', 'uo')
+      .leftJoinAndSelect('uo.organization', 'org')
+      .where('u.role = :role', { role: Role.USER })
+      .andWhere('u.energo_id IS NOT NULL')
+      .orderBy('nes.lastName', 'ASC')
+      .addOrderBy('nes.firstName', 'ASC')
+      .take(Math.min(Math.max(limit, 1), 100));
+
+    const rawTokens = splitSearchTokens(search ?? '');
+    if (rawTokens.length === 0) {
+      return [];
+    }
+
+    rawTokens.forEach((rawToken, i) => {
+      const variants = variantsForSearchToken(rawToken);
+      qb.andWhere(
+        new Brackets((sub) => {
+          variants.forEach((token, j) => {
+            const key = `mtok${i}_${j}`;
+            sub.orWhere(
+              `(
+                LOWER(nes.login) LIKE :${key}
+                OR LOWER(nes.personnel_number) LIKE :${key}
+                OR LOWER(nes.full_name) LIKE :${key}
+                OR LOWER(nes.last_name) LIKE :${key}
+                OR LOWER(nes.first_name) LIKE :${key}
+                OR LOWER(u.email) LIKE :${key}
+                OR LOWER(u.first_name) LIKE :${key}
+                OR LOWER(u.last_name) LIKE :${key}
+                OR LOWER(CONCAT(u.last_name, ' ', u.first_name)) LIKE :${key}
+                OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE :${key}
+              )`,
+              { [key]: `%${token}%` },
+            );
+          });
+        }),
+      );
+    });
+
+    const rows = await qb.getMany();
+    return rows.map((nes) => nes.user);
   }
 
   async merge(dto: MergeLegacyModeratorDto): Promise<LegacyModeratorPreview> {
