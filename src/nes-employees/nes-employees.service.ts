@@ -225,11 +225,12 @@ export class NesEmployeesService {
       const response = await this.energoIdAuthClient.listEmployees();
       const employees = response.employees;
       if (employees.length === 0) {
-        throw new BadRequestException(
-          'Energo ID employee ro`yxati bo`sh qaytdi, sync to`xtatildi',
+        this.logger.warn(
+          'Energo ID employee ro`yxati bo`sh — mavjud xodimlar yashiriladi',
         );
+      } else {
+        await this.upsertSyncSetting(response.sync);
       }
-      await this.upsertSyncSetting(response.sync);
       this.syncState.total = employees.length;
       this.activeSyncEnergoIds = new Set(
         employees.map((employee) => employee.energoUserId),
