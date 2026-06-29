@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Brackets, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Role } from '../common/enums/role.enum';
 import { OrganizationsService } from '../organizations/organizations.service';
@@ -18,6 +18,10 @@ import { EmployeeCertificate } from '../database/entities/employee-certificate.e
 import { EmployeeCheck } from '../database/entities/employee-check.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
+import {
+  splitSearchTokens,
+  variantsForSearchToken,
+} from '../common/utils/latinize-search.util';
 
 const BADGES = [
   { label: 'Yangi ishchi', bolts: 1 },
@@ -137,32 +141,35 @@ export class StudentsService {
     }
 
     if (filters.search) {
-      const tokens = filters.search
-        .trim()
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(Boolean);
-      tokens.forEach((token, i) => {
-        const key = `searchTok${i}`;
+      const rawTokens = splitSearchTokens(filters.search);
+      rawTokens.forEach((rawToken, i) => {
+        const variants = variantsForSearchToken(rawToken);
         qb.andWhere(
-          `(
-            LOWER(u.first_name) LIKE :${key}
-            OR LOWER(u.last_name) LIKE :${key}
-            OR LOWER(u.email) LIKE :${key}
-            OR LOWER(CONCAT(u.last_name, ' ', u.first_name)) LIKE :${key}
-            OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE :${key}
-            OR LOWER(org.name) LIKE :${key}
-            OR EXISTS (
-              SELECT 1 FROM nes_employees nes
-              WHERE nes.user_id = u.id
-              AND (
-                LOWER(nes.login) LIKE :${key}
-                OR LOWER(nes.personnel_number) LIKE :${key}
-                OR LOWER(nes.full_name) LIKE :${key}
-              )
-            )
-          )`,
-          { [key]: `%${token}%` },
+          new Brackets((outer) => {
+            variants.forEach((token, j) => {
+              const key = `searchTok${i}_${j}`;
+              outer.orWhere(
+                `(
+                  LOWER(u.first_name) LIKE :${key}
+                  OR LOWER(u.last_name) LIKE :${key}
+                  OR LOWER(u.email) LIKE :${key}
+                  OR LOWER(CONCAT(u.last_name, ' ', u.first_name)) LIKE :${key}
+                  OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE :${key}
+                  OR LOWER(org.name) LIKE :${key}
+                  OR EXISTS (
+                    SELECT 1 FROM nes_employees nes
+                    WHERE nes.user_id = u.id
+                    AND (
+                      LOWER(nes.login) LIKE :${key}
+                      OR LOWER(nes.personnel_number) LIKE :${key}
+                      OR LOWER(nes.full_name) LIKE :${key}
+                    )
+                  )
+                )`,
+                { [key]: `%${token}%` },
+              );
+            });
+          }),
         );
       });
     }

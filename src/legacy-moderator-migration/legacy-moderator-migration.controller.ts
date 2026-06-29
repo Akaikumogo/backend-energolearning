@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -27,6 +27,21 @@ export class LegacyModeratorMigrationController {
   })
   listLegacy() {
     return this.migrationService.listLegacyModerators();
+  }
+
+  @Get('targets')
+  @ApiOperation({
+    summary: 'Migratsiya maqsadi — Energo ID xodimlarini qidirish (nes_employees)',
+  })
+  searchTargets(
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 50;
+    return this.migrationService.searchMigrationTargets(
+      search,
+      Number.isFinite(parsedLimit) ? parsedLimit : 50,
+    );
   }
 
   @Post('merge')

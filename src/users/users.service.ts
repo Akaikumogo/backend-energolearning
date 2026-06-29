@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Brackets, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
@@ -16,6 +16,10 @@ import { UpdateModeratorDto } from './dto/update-moderator.dto';
 import { PromoteModeratorDto } from './dto/promote-moderator.dto';
 import { PromoteSuperAdminDto } from './dto/promote-superadmin.dto';
 import { ModeratorPermissionsService } from '../moderator-permissions/moderator-permissions.service';
+import {
+  splitSearchTokens,
+  variantsForSearchToken,
+} from '../common/utils/latinize-search.util';
 
 export type EnergoIdentityUser = {
   energoUserId: string;
@@ -113,36 +117,39 @@ export class UsersService {
       }
     }
     if (filters?.search) {
-      const tokens = filters.search
-        .trim()
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(Boolean);
+      const rawTokens = splitSearchTokens(filters.search);
       const nesSearch = await this.canSearchNesEmployees();
-      tokens.forEach((token, i) => {
-        const key = `searchTok${i}`;
-        const nesClause = nesSearch
-          ? `
-            OR EXISTS (
-              SELECT 1 FROM "nes_employees" nes
-              WHERE nes.user_id = u.id
-              AND (
-                LOWER(nes.login) LIKE :${key}
-                OR LOWER(nes.personnel_number) LIKE :${key}
-                OR LOWER(nes.full_name) LIKE :${key}
-              )
-            )`
-          : '';
+      rawTokens.forEach((rawToken, i) => {
+        const variants = variantsForSearchToken(rawToken);
         qb.andWhere(
-          `(
-            LOWER(u.first_name) LIKE :${key}
-            OR LOWER(u.last_name) LIKE :${key}
-            OR LOWER(u.email) LIKE :${key}
-            OR LOWER(CONCAT(u.last_name, ' ', u.first_name)) LIKE :${key}
-            OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE :${key}
-            OR LOWER(org.name) LIKE :${key}${nesClause}
-          )`,
-          { [key]: `%${token}%` },
+          new Brackets((outer) => {
+            variants.forEach((token, j) => {
+              const key = `searchTok${i}_${j}`;
+              const nesClause = nesSearch
+                ? `
+                  OR EXISTS (
+                    SELECT 1 FROM "nes_employees" nes
+                    WHERE nes.user_id = u.id
+                    AND (
+                      LOWER(nes.login) LIKE :${key}
+                      OR LOWER(nes.personnel_number) LIKE :${key}
+                      OR LOWER(nes.full_name) LIKE :${key}
+                    )
+                  )`
+                : '';
+              outer.orWhere(
+                `(
+                  LOWER(u.first_name) LIKE :${key}
+                  OR LOWER(u.last_name) LIKE :${key}
+                  OR LOWER(u.email) LIKE :${key}
+                  OR LOWER(CONCAT(u.last_name, ' ', u.first_name)) LIKE :${key}
+                  OR LOWER(CONCAT(u.first_name, ' ', u.last_name)) LIKE :${key}
+                  OR LOWER(org.name) LIKE :${key}${nesClause}
+                )`,
+                { [key]: `%${token}%` },
+              );
+            });
+          }),
         );
       });
     }
