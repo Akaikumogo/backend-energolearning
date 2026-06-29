@@ -83,7 +83,7 @@ type EnergoIdOAuthClientConfig = {
   clientType: 'web' | 'mobile';
   platform: { code: string; name: string };
   redirectUri: string;
-  routes: { web?: string; mobile?: string };
+  routes: { web?: string; webUrls?: string[]; mobile?: string };
   allowedRedirectUrls?: string[];
   scopes: string[];
 };
@@ -132,12 +132,16 @@ export class EnergoIdAuthClient {
 
   async fetchOAuthClientConfig(
     clientType: 'mobile' | 'web' = 'mobile',
+    callbackOrigin?: string,
   ): Promise<EnergoIdOAuthClientConfig> {
     const config = this.getConfig();
     const params = new URLSearchParams({
       client_id: config.clientId,
       client_type: clientType,
     });
+    if (callbackOrigin?.trim()) {
+      params.set('callback_origin', callbackOrigin.trim());
+    }
     const response = await this.request(
       `${config.baseUrl}/oauth/client-config?${params.toString()}`,
       { method: 'GET' },
