@@ -20,6 +20,13 @@ import {
   variantsForSearchToken,
 } from '../common/utils/latinize-search.util';
 import { MergeLegacyModeratorDto } from './dto/merge-legacy-moderator.dto';
+import {
+  loginSearchHints,
+  normName,
+  parseFullName,
+  parseModeratorImportExcel,
+  type ModeratorImportRow,
+} from '../common/utils/moderator-import.util';
 
 type RowCount = { table: string; count: number };
 
@@ -54,6 +61,25 @@ export type LegacyModeratorPreview = {
   merged?: boolean;
   deletedSourceId?: string;
   targetUserId?: string;
+};
+
+export type BulkModeratorMigrationItem = {
+  row: ModeratorImportRow;
+  source: LegacyModeratorPreview['source'] | null;
+  target: LegacyModeratorPreview['target'] | null;
+  confidence: 'high' | 'medium' | 'low' | 'none';
+  matchReasons: string[];
+  canAutoMerge: boolean;
+};
+
+export type BulkModeratorMigrationPreview = {
+  summary: {
+    total: number;
+    sourceFound: number;
+    targetFound: number;
+    readyToMerge: number;
+  };
+  items: BulkModeratorMigrationItem[];
 };
 
 @Injectable()
@@ -247,6 +273,203 @@ export class LegacyModeratorMigrationService {
       .filter((s) => s.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, Math.min(Math.max(limit, 1), 20));
+
+    return scored;
+  }
+
+  async previewBulkFromExcel(buffer: Buffer): Promise<BulkModeratorMigrationPreview> {
+    const rows = parseModeratorImportExcel(buffer);
+    if (rows.length === 0) {
+      throw new BadRequestException('Excel bo`sh yoki format noto`g`ri');
+    }
+
+    const legacyModerators = await this.listLegacyModerators();
+    const items: BulkModeratorMigrationItem[] = [];
+
+    for (const row of rows) {
+      const source = this.findLegacyByRow(legacyModerators, row);
+      const targetMatch = source
+        ? await this.suggestTargets(source.id, 1)
+        : await this.findTargetByRow(row);
+
+      const top = targetMatch[0] ?? null;
+      const confidence = top?.confidence ?? 'none';
+
+      items.push({
+        row,
+        source: source ? this.toUserSummary(source) : null,
+        target: top ? this.toUserSummary(top.user) : null,
+        confidence,
+        matchReasons: top?.matchReasons ?? [],
+        canAutoMerge:
+          !!source &&
+          !!top &&
+          (confidence === 'high' || confidence === 'medium'),
+      });
+    }
+
+    return {
+      summary: {
+        total: items.length,
+        sourceFound: items.filter((i) => i.source).length,
+        targetFound: items.filter((i) => i.target).length,
+        readyToMerge: items.filter((i) => i.canAutoMerge).length,
+      },
+      items,
+    };
+  }
+
+  async applyBulkFromExcel(
+    buffer: Buffer,
+    opts?: {
+      dryRun?: boolean;
+      permissionMerge?: 'prefer-source' | 'prefer-target' | 'union';
+      onlyReady?: boolean;
+    },
+  ) {
+    const preview = await this.previewBulkFromExcel(buffer);
+    const permissionMerge = opts?.permissionMerge ?? 'prefer-source';
+    const results: Array<{
+      row: ModeratorImportRow;
+      success: boolean;
+      message: string;
+      preview?: LegacyModeratorPreview;
+    }> = [];
+
+    for (const item of preview.items) {
+      if (!item.source || !item.target) {
+        results.push({
+          row: item.row,
+          success: false,
+          message: 'Source yoki target topilmadi',
+        });
+        continue;
+      }
+
+      if (opts?.onlyReady !== false && !item.canAutoMerge) {
+        results.push({
+          row: item.row,
+          success: false,
+          message: 'Past moslik — qo‘lda birlashtiring',
+        });
+        continue;
+      }
+
+      const mergeResult = await this.merge({
+        sourceUserId: item.source.id,
+        targetUserId: item.target.id,
+        permissionMerge,
+        dryRun: !!opts?.dryRun,
+      });
+
+      results.push({
+        row: item.row,
+        success: !opts?.dryRun && !!mergeResult.merged,
+        message: opts?.dryRun
+          ? 'Dry run — tayyor'
+          : mergeResult.merged
+            ? 'Birlashtirildi'
+            : 'Xatolik',
+        preview: mergeResult,
+      });
+    }
+
+    return {
+      dryRun: !!opts?.dryRun,
+      merged: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
+      results,
+    };
+  }
+
+  private findLegacyByRow(legacyModerators: User[], row: ModeratorImportRow) {
+    const hints = loginSearchHints(row.login);
+    const emails = new Set([row.login, row.email, ...hints].filter(Boolean));
+
+    return (
+      legacyModerators.find((user) =>
+        emails.has((user.email ?? '').trim().toLowerCase()),
+      ) ??
+      legacyModerators.find((user) => {
+        const { lastName, firstName } = parseFullName(row.fullName);
+        return (
+          normName(user.lastName) === normName(lastName) &&
+          normName(user.firstName) === normName(firstName)
+        );
+      }) ??
+      null
+    );
+  }
+
+  private async findTargetByRow(row: ModeratorImportRow) {
+    const { lastName, firstName } = parseFullName(row.fullName);
+    const hints = loginSearchHints(row.login);
+
+    const qb = this.nesRepo
+      .createQueryBuilder('nes')
+      .innerJoinAndSelect('nes.user', 'u')
+      .where('u.role = :role', { role: Role.USER })
+      .andWhere('u.energo_id IS NOT NULL')
+      .take(30);
+
+    qb.andWhere(
+      new Brackets((outer) => {
+        if (lastName) {
+          outer.orWhere('LOWER(nes.last_name) LIKE :ln', {
+            ln: `%${lastName.toLowerCase()}%`,
+          });
+        }
+        if (firstName) {
+          outer.orWhere('LOWER(nes.first_name) LIKE :fn', {
+            fn: `%${firstName.toLowerCase()}%`,
+          });
+        }
+        hints.forEach((hint, i) => {
+          outer.orWhere(`LOWER(nes.login) LIKE :h${i}`, {
+            [`h${i}`]: `%${hint.toLowerCase()}%`,
+          });
+        });
+      }),
+    );
+
+    const rows = await qb.getMany();
+    const scored: MigrationSuggestion[] = rows
+      .map((nes) => {
+        const u = nes.user;
+        let score = 0;
+        const matchReasons: string[] = [];
+        const sLast = normName(lastName);
+        const sFirst = normName(firstName);
+        const cLast = normName(u.lastName || nes.lastName);
+        const cFirst = normName(u.firstName || nes.firstName);
+        const cLogin = normName(nes.login);
+
+        if (sLast && cLast && sLast === cLast) {
+          score += 4;
+          matchReasons.push('Familiya mos');
+        }
+        if (sFirst && cFirst && sFirst === cFirst) {
+          score += 4;
+          matchReasons.push('Ism mos');
+        }
+        for (const hint of hints) {
+          const h = normName(hint);
+          if (h && (cLogin === h || cLogin.includes(h))) {
+            score += 5;
+            matchReasons.push('Login mos');
+            break;
+          }
+        }
+
+        let confidence: MigrationSuggestion['confidence'] = 'low';
+        if (score >= 8) confidence = 'high';
+        else if (score >= 5) confidence = 'medium';
+        if (score <= 0) return null;
+
+        return { user: u, score, confidence, matchReasons };
+      })
+      .filter((s): s is MigrationSuggestion => s !== null)
+      .sort((a, b) => b.score - a.score);
 
     return scored;
   }
