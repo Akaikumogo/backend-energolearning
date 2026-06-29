@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -41,6 +50,22 @@ export class LegacyModeratorMigrationController {
     return this.migrationService.searchMigrationTargets(
       search,
       Number.isFinite(parsedLimit) ? parsedLimit : 50,
+    );
+  }
+
+  @Get(':sourceUserId/suggestions')
+  @ApiOperation({
+    summary:
+      'Eski moderator uchun mos Energo ID xodimlarini avtomatik tavsiya qilish',
+  })
+  suggestTargets(
+    @Param('sourceUserId', ParseUUIDPipe) sourceUserId: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 5;
+    return this.migrationService.suggestTargets(
+      sourceUserId,
+      Number.isFinite(parsedLimit) ? parsedLimit : 5,
     );
   }
 

@@ -15,12 +15,20 @@ import { ModeratorPermission } from '../database/entities/moderator-permission.e
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { User } from '../database/entities/user.entity';
 import {
+  latinizeSearchText,
   splitSearchTokens,
   variantsForSearchToken,
 } from '../common/utils/latinize-search.util';
 import { MergeLegacyModeratorDto } from './dto/merge-legacy-moderator.dto';
 
 type RowCount = { table: string; count: number };
+
+export type MigrationSuggestion = {
+  user: User;
+  score: number;
+  confidence: 'high' | 'medium' | 'low';
+  matchReasons: string[];
+};
 
 export type LegacyModeratorPreview = {
   dryRun: boolean;
@@ -117,6 +125,130 @@ export class LegacyModeratorMigrationService {
 
     const rows = await qb.getMany();
     return rows.map((nes) => nes.user);
+  }
+
+  /**
+   * Eski moderator uchun mos keladigan Energo ID xodimlarini avtomatik
+   * tavsiya qiladi. Familiya/ism/login bo'yicha moslik darajasiga qarab
+   * ball beriladi va eng yuqori nomzodlar qaytariladi.
+   */
+  async suggestTargets(
+    sourceUserId: string,
+    limit = 5,
+  ): Promise<MigrationSuggestion[]> {
+    const source = await this.usersRepo.findOne({
+      where: { id: sourceUserId },
+    });
+    if (!source) throw new NotFoundException('Eski moderator topilmadi');
+    if (source.role !== Role.MODERATOR) {
+      throw new BadRequestException('Faqat MODERATOR uchun tavsiya beriladi');
+    }
+
+    const norm = (value?: string | null) =>
+      latinizeSearchText((value ?? '').trim().toLowerCase());
+
+    const sLast = norm(source.lastName);
+    const sFirst = norm(source.firstName);
+    const sEmailLocal = norm((source.email ?? '').split('@')[0]);
+
+    const seedTokens = [
+      source.lastName,
+      source.firstName,
+      (source.email ?? '').split('@')[0],
+    ]
+      .map((t) => (t ?? '').trim())
+      .filter(Boolean);
+
+    if (seedTokens.length === 0) return [];
+
+    const qb = this.nesRepo
+      .createQueryBuilder('nes')
+      .innerJoinAndSelect('nes.user', 'u')
+      .leftJoinAndSelect('u.organizations', 'uo')
+      .leftJoinAndSelect('uo.organization', 'org')
+      .where('u.role = :role', { role: Role.USER })
+      .andWhere('u.energo_id IS NOT NULL')
+      .take(80);
+
+    qb.andWhere(
+      new Brackets((outer) => {
+        seedTokens.forEach((rawToken, i) => {
+          variantsForSearchToken(rawToken).forEach((token, j) => {
+            const key = `sug${i}_${j}`;
+            outer.orWhere(
+              `(
+                LOWER(nes.login) LIKE :${key}
+                OR LOWER(nes.personnel_number) LIKE :${key}
+                OR LOWER(nes.full_name) LIKE :${key}
+                OR LOWER(nes.last_name) LIKE :${key}
+                OR LOWER(nes.first_name) LIKE :${key}
+                OR LOWER(u.email) LIKE :${key}
+                OR LOWER(u.first_name) LIKE :${key}
+                OR LOWER(u.last_name) LIKE :${key}
+              )`,
+              { [key]: `%${token}%` },
+            );
+          });
+        });
+      }),
+    );
+
+    const rows = await qb.getMany();
+
+    const scored: MigrationSuggestion[] = rows
+      .map((nes) => {
+        const u = nes.user;
+        const cLast = norm(u.lastName || nes.lastName);
+        const cFirst = norm(u.firstName || nes.firstName);
+        const cLogin = norm(nes.login);
+        const cEmailLocal = norm((u.email ?? '').split('@')[0]);
+
+        let score = 0;
+        const matchReasons: string[] = [];
+
+        if (sLast && cLast && sLast === cLast) {
+          score += 4;
+          matchReasons.push('Familiya to`liq mos');
+        } else if (
+          sLast &&
+          cLast &&
+          (cLast.includes(sLast) || sLast.includes(cLast))
+        ) {
+          score += 2;
+          matchReasons.push('Familiya qisman mos');
+        }
+
+        if (sFirst && cFirst && sFirst === cFirst) {
+          score += 4;
+          matchReasons.push('Ism to`liq mos');
+        } else if (
+          sFirst &&
+          cFirst &&
+          (cFirst.includes(sFirst) || sFirst.includes(cFirst))
+        ) {
+          score += 2;
+          matchReasons.push('Ism qisman mos');
+        }
+
+        if (
+          sEmailLocal &&
+          (sEmailLocal === cLogin || sEmailLocal === cEmailLocal)
+        ) {
+          score += 5;
+          matchReasons.push('Login/email mos');
+        }
+
+        let confidence: 'high' | 'medium' | 'low' = 'low';
+        if (score >= 8) confidence = 'high';
+        else if (score >= 4) confidence = 'medium';
+
+        return { user: u, score, confidence, matchReasons };
+      })
+      .filter((s) => s.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.min(Math.max(limit, 1), 20));
+
+    return scored;
   }
 
   async merge(dto: MergeLegacyModeratorDto): Promise<LegacyModeratorPreview> {

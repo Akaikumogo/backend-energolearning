@@ -77,6 +77,7 @@ export class UsersService {
     limit?: number;
     organizationIds?: string[];
     organizationFilterMode?: 'include' | 'exclude';
+    requireEnergoId?: boolean;
   }): Promise<{ data: User[]; total: number; page: number; limit: number }> {
     const page = filters?.page ?? 1;
     const limit = filters?.limit ?? 20;
@@ -92,6 +93,12 @@ export class UsersService {
       if (filters.role === Role.USER) {
         qb.andWhere('u.energo_id IS NOT NULL');
       }
+    }
+
+    // Energo ID bilan bog'lanmagan moderatorlar (eski local hisoblar) faqat
+    // Moderator migratsiyasi sahifasida ko'rinadi — boshqa ro'yxatlardan yashiriladi.
+    if (filters?.requireEnergoId) {
+      qb.andWhere('u.energo_id IS NOT NULL');
     }
 
     if (filters?.organizationIds) {
