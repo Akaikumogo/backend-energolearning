@@ -33,6 +33,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateModeratorDto } from './dto/update-moderator.dto';
 import { PromoteModeratorDto } from './dto/promote-moderator.dto';
 import { PromoteSuperAdminDto } from './dto/promote-superadmin.dto';
+import { mapUserToProfile } from './user-profile.mapper';
 
 @ApiTags('Users (Admin)')
 @Controller('admin/users')
@@ -89,16 +90,20 @@ export class UsersController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.usersService.findAll({
-      role: Role.MODERATOR,
-      search,
-      page: page ? parseInt(page, 10) : undefined,
-      limit: limit ? parseInt(limit, 10) : undefined,
-      organizationIds: orgId?.trim() ? [orgId.trim()] : undefined,
-      organizationFilterMode: orgMode === 'exclude' ? 'exclude' : 'include',
-      // energo_id yo'q (migratsiya qilinmagan) moderatorlar bu ro'yxatda chiqmaydi
-      requireEnergoId: true,
-    });
+    return this.usersService
+      .findAll({
+        role: Role.MODERATOR,
+        search,
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? parseInt(limit, 10) : undefined,
+        organizationIds: orgId?.trim() ? [orgId.trim()] : undefined,
+        organizationFilterMode: orgMode === 'exclude' ? 'exclude' : 'include',
+        requireEnergoId: true,
+      })
+      .then((result) => ({
+        ...result,
+        data: result.data.map(mapUserToProfile),
+      }));
   }
 
   @Get(':id')
@@ -148,14 +153,18 @@ export class UsersController {
   })
   @ApiBody({ type: PromoteModeratorDto })
   promoteModerator(@Body() dto: PromoteModeratorDto) {
-    return this.usersService.promoteToModerator(dto);
+    return this.usersService
+      .promoteToModerator(dto)
+      .then((user) => mapUserToProfile(user));
   }
 
   @Post('moderators/:id/demote')
   @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'Moderatorlikdan olib tashlash (xodim USER bo`lib qoladi)' })
   demoteModerator(@Param('id', ParseUUIDPipe) id: string) {
-    return this.usersService.demoteFromModerator(id);
+    return this.usersService
+      .demoteFromModerator(id)
+      .then((user) => mapUserToProfile(user));
   }
 
   @Post('moderators')
@@ -179,7 +188,9 @@ export class UsersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateModeratorDto,
   ) {
-    return this.usersService.updateModerator(id, dto);
+    return this.usersService
+      .updateModerator(id, dto)
+      .then((user) => mapUserToProfile(user));
   }
 
   @Post('moderators/bulk-generate-passwords')
