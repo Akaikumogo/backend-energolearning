@@ -112,8 +112,10 @@ export class ProgressService {
     });
     if (!question) throw new NotFoundException('Savol topilmadi');
 
+    // Variant aynan shu savolga tegishli bo'lishi shart — aks holda boshqa
+    // savolning to'g'ri variant ID'si bilan javobni soxtalashtirish mumkin.
     const selectedOption = await this.optionRepo.findOne({
-      where: { id: dto.selectedOptionId },
+      where: { id: dto.selectedOptionId, questionId: dto.questionId },
     });
     if (!selectedOption) throw new NotFoundException('Variant topilmadi');
 
@@ -144,20 +146,22 @@ export class ProgressService {
       });
     }
 
+    // Noto'g'ri javobda avval yurak atomik kamaytiriladi — parallel so'rovlarda
+    // yurak yetmasa attempt yozilmasdan 403 qaytadi.
+    let heartsAfter = heartsBefore;
+    if (!isCorrect) {
+      heartsAfter = await this.heartsService.consumeHeart(userId, orgId, 1);
+    }
+
     const attempt = this.attemptRepo.create({
       userId,
       organizationId: orgId,
       questionId: dto.questionId,
       selectedOptionId: dto.selectedOptionId,
       isCorrect,
-      heartLost: false,
+      heartLost: !isCorrect,
     });
     await this.attemptRepo.save(attempt);
-
-    if (!isCorrect) {
-      await this.heartsService.consumeHeart(userId, orgId, 1);
-      await this.attemptRepo.update(attempt.id, { heartLost: true });
-    }
 
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
 
@@ -165,6 +169,7 @@ export class ProgressService {
       isCorrect,
       correctOptionId: correctOption?.id ?? null,
       xpEarned: isCorrect ? 10 : 0,
+      hearts: heartsAfter,
     };
   }
 
@@ -226,24 +231,26 @@ export class ProgressService {
       });
     }
 
+    // Noto'g'ri javobda avval yurak atomik kamaytiriladi — parallel so'rovlarda
+    // yurak yetmasa attempt yozilmasdan 403 qaytadi.
+    let heartsAfter = heartsBefore;
+    if (!isCorrect) {
+      heartsAfter = await this.heartsService.consumeHeart(userId, orgId, 1);
+    }
+
     const attempt = this.attemptRepo.create({
       userId,
       organizationId: orgId,
       questionId: dto.questionId,
       selectedOptionId: dto.pairs[0]?.leftOptionId ?? options[0].id,
       isCorrect,
-      heartLost: false,
+      heartLost: !isCorrect,
     });
     await this.attemptRepo.save(attempt);
 
-    if (!isCorrect) {
-      await this.heartsService.consumeHeart(userId, orgId, 1);
-      await this.attemptRepo.update(attempt.id, { heartLost: true });
-    }
-
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
 
-    return { isCorrect, xpEarned: isCorrect ? 10 : 0 };
+    return { isCorrect, xpEarned: isCorrect ? 10 : 0, hearts: heartsAfter };
   }
 
   async getLevelDetail(userId: string, levelId: string) {

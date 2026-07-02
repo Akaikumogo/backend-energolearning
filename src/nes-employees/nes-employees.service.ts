@@ -225,12 +225,14 @@ export class NesEmployeesService {
       const response = await this.energoIdAuthClient.listEmployees();
       const employees = response.employees;
       if (employees.length === 0) {
-        this.logger.warn(
-          'Energo ID employee ro`yxati bo`sh — mavjud xodimlar yashiriladi',
+        // Bo'sh ro'yxat odatda Energo ID tomonidagi vaqtinchalik nosozlik —
+        // bunda mavjud xodimlarning energo_id sini o'chirib yubormaymiz,
+        // aks holda barcha foydalanuvchilar admin ro'yxatlaridan yo'qoladi.
+        throw new Error(
+          'Energo ID bo`sh xodimlar ro`yxati qaytardi — sync bekor qilindi, mavjud xodimlar yashirilmadi',
         );
-      } else {
-        await this.upsertSyncSetting(response.sync);
       }
+      await this.upsertSyncSetting(response.sync);
       this.syncState.total = employees.length;
       this.activeSyncEnergoIds = new Set(
         employees.map((employee) => employee.energoUserId),
