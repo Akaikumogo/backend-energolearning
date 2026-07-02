@@ -54,20 +54,28 @@ export class UsersController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
-  findAll(
+  async findAll(
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Query('role') role?: Role,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    // Moderator scope: bosh (default) filial moderatori barcha filiallarni,
+    // parent filial moderatori esa child filiallarni ham ko'radi.
+    const organizationIds =
+      req.user.role === Role.MODERATOR
+        ? await this.organizationsService.resolveModeratorScope(
+            req.user.organizationIds,
+          )
+        : undefined;
+
     return this.usersService.findAll({
       role,
       search,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
-      organizationIds:
-        req.user.role === Role.MODERATOR ? req.user.organizationIds : undefined,
+      organizationIds,
     });
   }
 
@@ -109,20 +117,24 @@ export class UsersController {
   @Get(':id')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Foydalanuvchi batafsil' })
-  findById(
+  async findById(
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.usersService.findById(id).then((u) => {
-      if (!u) throw new NotFoundException('Foydalanuvchi topilmadi');
-      if (req.user.role === Role.MODERATOR) {
+    const u = await this.usersService.findById(id);
+    if (!u) throw new NotFoundException('Foydalanuvchi topilmadi');
+    if (req.user.role === Role.MODERATOR) {
+      const scopedOrgIds = await this.organizationsService.resolveModeratorScope(
+        req.user.organizationIds,
+      );
+      if (scopedOrgIds) {
         const allowed = (u.organizations ?? []).some((uo) =>
-          req.user.organizationIds.includes(uo.organization?.id),
+          scopedOrgIds.includes(uo.organization?.id),
         );
         if (!allowed) throw new NotFoundException('Foydalanuvchi topilmadi');
       }
-      return u;
-    });
+    }
+    return u;
   }
 
   @Post('superadmins/promote')
@@ -233,15 +245,17 @@ export class UsersController {
     if (!existing) throw new NotFoundException('Foydalanuvchi topilmadi');
 
     if (req.user.role === Role.MODERATOR) {
-      const allowed = (existing.organizations ?? []).some((uo) =>
-        req.user.organizationIds.includes(uo.organization?.id),
-      );
-      if (!allowed) throw new NotFoundException('Foydalanuvchi topilmadi');
+      const scopedOrgIds =
+        (await this.organizationsService.resolveModeratorScope(
+          req.user.organizationIds,
+        )) ?? null;
+      if (scopedOrgIds) {
+        const allowed = (existing.organizations ?? []).some((uo) =>
+          scopedOrgIds.includes(uo.organization?.id),
+        );
+        if (!allowed) throw new NotFoundException('Foydalanuvchi topilmadi');
+      }
       if (dto.organizationId) {
-        const scopedOrgIds =
-          (await this.organizationsService.resolveModeratorScope(
-            req.user.organizationIds,
-          )) ?? null;
         if (scopedOrgIds && !scopedOrgIds.includes(dto.organizationId)) {
           throw new NotFoundException('Ruxsat yo`q');
         }

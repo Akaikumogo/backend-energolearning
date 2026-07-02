@@ -299,20 +299,22 @@ export class UsersService {
   }
 
   async hideStaleEnergoUsers(activeEnergoIds: string[]): Promise<number> {
-    const qb = this.usersRepo
+    // Himoya: bo'sh ro'yxat bilan chaqirilsa BARCHA foydalanuvchilarning
+    // energo_id si o'chib ketadi va ular admin ro'yxatlaridan yo'qoladi.
+    if (activeEnergoIds.length === 0) {
+      return 0;
+    }
+
+    const hiddenResult = await this.usersRepo
       .createQueryBuilder()
       .update(User)
       .set({ energoId: null })
       .where('role = :role', { role: Role.USER })
-      .andWhere('energo_id IS NOT NULL');
-
-    if (activeEnergoIds.length > 0) {
-      qb.andWhere('energo_id NOT IN (:...activeEnergoIds)', {
+      .andWhere('energo_id IS NOT NULL')
+      .andWhere('energo_id NOT IN (:...activeEnergoIds)', {
         activeEnergoIds,
-      });
-    }
-
-    const hiddenResult = await qb.execute();
+      })
+      .execute();
     return hiddenResult.affected ?? 0;
   }
 

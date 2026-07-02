@@ -30,10 +30,11 @@ export class UserProfileDto {
   organizationIds: string[];
 
   @ApiProperty({
-    description: 'Foydalanuvchi tashkilotlari (id + nom)',
-    example: [{ id: 'org-uuid', name: 'Default Organization' }],
+    description:
+      'Foydalanuvchi tashkilotlari (id + nom + bosh filial belgisi)',
+    example: [{ id: 'org-uuid', name: 'Default Organization', isDefault: true }],
   })
-  organizations: { id: string; name: string }[];
+  organizations: { id: string; name: string; isDefault?: boolean }[];
 
   @ApiProperty({
     description:

@@ -1,16 +1,22 @@
 import { User } from '../database/entities/user.entity';
 import { UserProfileDto } from './dto/user-profile.dto';
 
-export function mapUserOrganizations(user: User): { id: string; name: string }[] {
+export type UserOrganizationSummary = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+};
+
+export function mapUserOrganizations(user: User): UserOrganizationSummary[] {
   const mapped = (user.organizations ?? [])
     .map((uo) => {
       const org = uo.organization;
       if (!org?.id || !org?.name) return null;
-      return { id: org.id, name: org.name };
+      return { id: org.id, name: org.name, isDefault: org.isDefault === true };
     })
-    .filter((v): v is { id: string; name: string } => v !== null);
+    .filter((v): v is UserOrganizationSummary => v !== null);
 
-  const byId = new Map<string, { id: string; name: string }>();
+  const byId = new Map<string, UserOrganizationSummary>();
   for (const item of mapped) byId.set(item.id, item);
   return Array.from(byId.values());
 }
