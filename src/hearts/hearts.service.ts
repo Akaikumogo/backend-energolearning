@@ -5,7 +5,8 @@ import { UserProgress } from '../database/entities/user-progress.entity';
 import { HeartsEvents, type HeartsState } from './hearts.events';
 
 const MAX_HEARTS = 5;
-const TIMEZONE = 'Asia/Tashkent';
+/** Har REGEN_INTERVAL_SEC da 1 ta energiya tiklanadi (maksimumgacha). */
+const REGEN_INTERVAL_SEC = 60 * 60; // 1 soat
 
 @Injectable()
 export class HeartsService {
@@ -22,9 +23,9 @@ export class HeartsService {
   }
 
   /**
-   * Heart kamaytirish. Agar foydalanuvchining hearts = 0 bo'lsa,
-   * ForbiddenException tashlanadi — chaqiruvchi shu xatoni 403 ga aylantirib
-   * mobile/web tomonga "qulflangan" signalini berishi mumkin.
+   * Energiya kamaytirish. Har bir urinish (to'g'ri yoki noto'g'ri) 1 energiya
+   * sarflaydi. Agar energiya yetmasa ForbiddenException tashlanadi — chaqiruvchi
+   * shu xatoni 403 ga aylantirib mobile/web tomonga "qulflangan" signalini beradi.
    *
    * Atomik: regen + decrement + zero-check bir SQL ichida.
    */
@@ -39,11 +40,14 @@ export class HeartsService {
     const dec = Math.max(1, Math.floor(amount));
 
     // Atomic decrement that fails (0 rows) when there aren't enough hearts.
+    // To'liq holatdan sarflanganda regen taymeri shu paytdan boshlanadi.
     const res = await this.userProgressRepo
       .createQueryBuilder()
       .update(UserProgress)
       .set({
         heartsCount: () => `hearts_count - ${dec}`,
+        lastHeartRegenAt: () =>
+          `CASE WHEN hearts_count >= ${MAX_HEARTS} THEN NOW() ELSE COALESCE(last_heart_regen_at, NOW()) END`,
       })
       .where('user_id = :userId', { userId })
       .andWhere('organization_id = :organizationId', { organizationId })
@@ -51,12 +55,12 @@ export class HeartsService {
       .execute();
 
     if ((res.affected ?? 0) === 0) {
-      // Yurak yetmadi — bloklash.
+      // Energiya yetmadi — bloklash.
       const state = await this.loadState(userId, organizationId);
       this.heartsEvents.emit(userId, state);
       throw new ForbiddenException({
         code: 'NO_HEARTS_LEFT',
-        message: 'Yuraklar tugadi. Ertaga 00:00 dan keyin yangilanadi.',
+        message: 'Energiya tugadi. Har soatda 1 ta energiya tiklanadi.',
         state,
       });
     }
@@ -67,30 +71,47 @@ export class HeartsService {
   }
 
   /**
-   * Har yangi kunda (Toshkent vaqti bo'yicha 00:00 dan keyin) hearts = MAX.
-   * Server timezone'iga bog'liq emas — PostgreSQL `AT TIME ZONE` orqali.
+   * Soatlik regen: o'tgan har bir to'liq interval uchun +1 energiya
+   * (MAX_HEARTS gacha). last_heart_regen_at faqat to'liq intervallar
+   * hisobiga suriladi — qisman soat yo'qolmaydi. Maksimumga yetganda NOW().
+   * Server timezone'iga bog'liq emas — hammasi NOW() farqi orqali.
    */
   async regenIfDue(userId: string, organizationId: string): Promise<boolean> {
-    const res = await this.userProgressRepo
-      .createQueryBuilder()
-      .update(UserProgress)
-      .set({
-        heartsCount: MAX_HEARTS,
-        lastHeartRegenAt: () => 'NOW()',
-      })
-      .where('user_id = :userId', { userId })
-      .andWhere('organization_id = :organizationId', { organizationId })
-      .andWhere(
-        `(
-          last_heart_regen_at IS NULL
-          OR (last_heart_regen_at AT TIME ZONE :tz)::date
-             < (NOW() AT TIME ZONE :tz)::date
-        )`,
-        { tz: TIMEZONE },
-      )
-      .execute();
+    const rows = (await this.userProgressRepo.query(
+      `
+      UPDATE "user_progress"
+      SET
+        "hearts_count" = LEAST(
+          $3,
+          "hearts_count"
+            + FLOOR(EXTRACT(EPOCH FROM (NOW() - "last_heart_regen_at")) / $4)::int
+        ),
+        "last_heart_regen_at" = CASE
+          WHEN "hearts_count"
+               + FLOOR(EXTRACT(EPOCH FROM (NOW() - "last_heart_regen_at")) / $4)::int
+               >= $3
+            THEN NOW()
+          ELSE "last_heart_regen_at"
+               + make_interval(secs =>
+                   FLOOR(EXTRACT(EPOCH FROM (NOW() - "last_heart_regen_at")) / $4) * $4)
+        END
+      WHERE "user_id" = $1
+        AND "organization_id" = $2
+        AND "hearts_count" < $3
+        AND "last_heart_regen_at" IS NOT NULL
+        AND NOW() - "last_heart_regen_at" >= make_interval(secs => $4)
+      RETURNING "hearts_count"
+      `,
+      [userId, organizationId, MAX_HEARTS, REGEN_INTERVAL_SEC],
+    )) as unknown as [unknown[], number] | unknown[];
 
-    const changed = (res.affected ?? 0) > 0;
+    // pg driver UPDATE..RETURNING: TypeORM [rows, affected] qaytaradi.
+    const changed = Array.isArray(rows)
+      ? Array.isArray(rows[0])
+        ? (rows[0] as unknown[]).length > 0
+        : rows.length > 0
+      : false;
+
     if (changed) {
       const state = await this.loadState(userId, organizationId);
       this.heartsEvents.emit(userId, state);
@@ -123,35 +144,17 @@ export class HeartsService {
     const heartsCount = Math.max(0, Math.min(MAX_HEARTS, row?.heartsCount ?? MAX_HEARTS));
     const last = row?.lastHeartRegenAt ?? null;
 
+    // To'liq bo'lmasa keyingi energiya last + interval da keladi.
+    const nextRegenAt =
+      heartsCount >= MAX_HEARTS || !last
+        ? null
+        : new Date(last.getTime() + REGEN_INTERVAL_SEC * 1000).toISOString();
+
     return {
       heartsCount,
       maxHearts: MAX_HEARTS,
-      nextRegenAt: this.nextMidnightTashkent().toISOString(),
+      nextRegenAt,
       lastHeartRegenAt: last ? last.toISOString() : null,
     };
-  }
-
-  /**
-   * Toshkent (UTC+5) bo'yicha keyingi 00:00 ni ISO formatda qaytaradi.
-   * Server timezone'iga bog'liq emas.
-   */
-  private nextMidnightTashkent(): Date {
-    // 5 soat oldinga surilgan "fake-UTC" da kunni belgilab, keyin orqaga
-    // qaytariladi. Kuznogi/yozgi vaqt yo'q (UTC+5 doimiy).
-    const now = new Date();
-    const tashkentNow = new Date(now.getTime() + 5 * 3600 * 1000);
-    const next = new Date(
-      Date.UTC(
-        tashkentNow.getUTCFullYear(),
-        tashkentNow.getUTCMonth(),
-        tashkentNow.getUTCDate() + 1,
-        0,
-        0,
-        0,
-        0,
-      ),
-    );
-    // 00:00 Tashkent = 19:00 oldingi UTC kun
-    return new Date(next.getTime() - 5 * 3600 * 1000);
   }
 }

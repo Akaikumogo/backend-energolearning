@@ -46,7 +46,11 @@ export class UserQuestionAttempt {
   @Column({ type: 'boolean', name: 'is_correct', default: false })
   isCorrect: boolean;
 
-  /** Haqiqatan yurak kamaygan urinish (noto'g'ri javob + consumeHeart muvaffaq). */
+  /**
+   * Noto'g'ri javob belgisi (xato javoblar analitikasi uchun).
+   * Eslatma: yangi energiya modelida har bir urinish energiya sarflaydi,
+   * bu flag esa faqat noto'g'ri javobni bildiradi.
+   */
   @Column({ type: 'boolean', name: 'heart_lost', default: false })
   heartLost: boolean;
 

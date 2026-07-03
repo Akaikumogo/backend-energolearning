@@ -177,6 +177,49 @@ export class ExportService {
     );
   }
 
+  /**
+   * Oylik progress hisoboti (masalan "2026-07_Toshkent.xlsx"):
+   * har xodim uchun bajarilgan kunlar, oylik %, to'g'ri/xato javoblar.
+   */
+  async buildMonthlyProgressExcel(data: {
+    orgName: string;
+    month: string;
+    daysInMonth: number;
+    employees: Array<{
+      fullName: string;
+      email: string;
+      daysCompleted: number;
+      monthlyPercent: number;
+      correctTotal: number;
+      wrongTotal: number;
+      lastActiveAt: string | null;
+    }>;
+  }): Promise<Buffer> {
+    return this.toExcelBuffer(
+      `${data.month} — ${data.orgName}`,
+      [
+        '№',
+        'F.I.O',
+        'Email',
+        `Bajarilgan kunlar (${data.daysInMonth} kundan)`,
+        'Oylik progress %',
+        'To`g`ri javoblar',
+        'Xato javoblar',
+        'Oxirgi faollik',
+      ],
+      data.employees.map((e, i) => [
+        i + 1,
+        e.fullName,
+        e.email,
+        e.daysCompleted,
+        e.monthlyPercent,
+        e.correctTotal,
+        e.wrongTotal,
+        e.lastActiveAt ? e.lastActiveAt.slice(0, 16).replace('T', ' ') : '—',
+      ]),
+    );
+  }
+
   private async toExcelBuffer(
     sheetName: string,
     headers: string[],
