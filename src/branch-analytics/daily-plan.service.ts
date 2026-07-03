@@ -8,6 +8,8 @@ import { Question } from '../database/entities/question.entity';
 import { Organization } from '../database/entities/organization.entity';
 
 export const MIN_DAILY_PLAN_QUESTIONS = 10;
+/** Kunlik plan maqsadi: shu kunda 10 ta TO'G'RI javob (qaysi savol bo'lishidan qat'i nazar). */
+export const DAILY_GOAL_CORRECT = 10;
 
 @Injectable()
 export class DailyPlanService {
@@ -20,8 +22,9 @@ export class DailyPlanService {
     private readonly orgRepo: Repository<Organization>,
   ) {}
 
+  /** Toshkent (UTC+5) bo'yicha sana — kun chegarasi foydalanuvchi kuni bilan mos. */
   formatDate(d: Date): string {
-    return d.toISOString().slice(0, 10);
+    return new Date(d.getTime() + 5 * 3600 * 1000).toISOString().slice(0, 10);
   }
 
   async ensurePlan(organizationId: string, date = new Date()): Promise<DailyPlan> {

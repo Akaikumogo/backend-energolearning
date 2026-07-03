@@ -4,6 +4,7 @@ import {
   Get,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -12,12 +13,14 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { RolesGuard } from '../common/guards/roles.guard';
+import { OrganizationsService } from '../organizations/organizations.service';
 import { BranchAnalyticsService } from './branch-analytics.service';
+import { ExportService } from './export.service';
 
 @ApiTags('Branch Analytics (Admin)')
 @Controller('admin/branch-analytics')
@@ -26,6 +29,8 @@ import { BranchAnalyticsService } from './branch-analytics.service';
 export class BranchAnalyticsController {
   constructor(
     private readonly analyticsService: BranchAnalyticsService,
+    private readonly exportService: ExportService,
+    private readonly orgService: OrganizationsService,
   ) {}
 
   @Get('summary')
@@ -81,6 +86,74 @@ export class BranchAnalyticsController {
       req.user,
     );
     return this.analyticsService.getDailyPlanResult(safeOrgId, date);
+  }
+
+  @Get('monthly-progress')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary: 'Oylik progress: bajarilgan kunlar / oy kunlari (har xodim)',
+  })
+  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  async monthlyProgress(
+    @Query('orgId') orgId: string,
+    @Query('month') month: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const safeOrgId = await this.analyticsService.resolveOrgScope(
+      orgId,
+      req.user,
+    );
+    return this.analyticsService.getMonthlyProgress(safeOrgId, month);
+  }
+
+  @Get('branch-comparison')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Filiallar oylik reytingi (o`rtacha progress %)' })
+  @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  async branchComparison(
+    @Query('month') month: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    let allowedOrgIds: string[] | null = null;
+    if (req.user.role === Role.MODERATOR) {
+      allowedOrgIds =
+        (await this.orgService.resolveModeratorScope(
+          req.user.organizationIds,
+        )) ?? req.user.organizationIds;
+    }
+    return this.analyticsService.getBranchComparison(month, allowedOrgIds);
+  }
+
+  @Get('export/monthly-progress')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Oylik progress Excel (masalan 2026-07_Toshkent.xlsx)' })
+  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  async exportMonthlyProgress(
+    @Query('orgId') orgId: string,
+    @Query('month') month: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Res() res: Response,
+  ) {
+    const safeOrgId = await this.analyticsService.resolveOrgScope(
+      orgId,
+      req.user,
+    );
+    const data = await this.analyticsService.getMonthlyProgress(
+      safeOrgId,
+      month,
+    );
+    const buffer = await this.exportService.buildMonthlyProgressExcel(data);
+
+    const safeName = data.orgName.replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    const filename = `${data.month}_${safeName}.xlsx`;
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="progress.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    });
+    res.send(buffer);
   }
 
   @Get('export/moderators-credentials')
