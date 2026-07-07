@@ -11,6 +11,7 @@ import {
 import { User } from './user.entity';
 import { Theory } from './theory.entity';
 import { Question } from './question.entity';
+import { LevelPosition } from './level-position.entity';
 
 @Entity({ name: 'levels' })
 export class Level {
@@ -38,6 +39,9 @@ export class Level {
 
   @OneToMany(() => Question, (q) => q.level)
   questions: Question[];
+
+  @OneToMany(() => LevelPosition, (lp) => lp.level)
+  positionLinks: LevelPosition[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

@@ -1,5 +1,14 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreateLevelDto {
   @ApiProperty({ example: '1-daraja: Elektr xavfsizligi asoslari' })
@@ -17,4 +26,14 @@ export class CreateLevelDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Modul tegishli lavozimlar. Bo`sh bo`lsa — modul barcha xodimlarga ochiq.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  positionIds?: string[];
 }

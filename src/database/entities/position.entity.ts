@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { UserPosition } from './user-position.entity';
 import { ExamQuestionPosition } from './exam-question-position.entity';
+import { LevelPosition } from './level-position.entity';
 
 @Entity({ name: 'positions' })
 export class Position {
@@ -23,6 +24,9 @@ export class Position {
 
   @OneToMany(() => ExamQuestionPosition, (eqp) => eqp.position)
   examQuestionLinks: ExamQuestionPosition[];
+
+  @OneToMany(() => LevelPosition, (lp) => lp.position)
+  levelLinks: LevelPosition[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
