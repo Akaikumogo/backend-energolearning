@@ -115,6 +115,40 @@ export class BranchAnalyticsService {
     return days;
   }
 
+  private async getAvailableLevelIdsForUser(userId: string): Promise<string[]> {
+    const rows = (await this.questionRepo.query(
+      `
+      WITH ordered_levels AS (
+        SELECT
+          l.id,
+          ROW_NUMBER() OVER (ORDER BY l.order_index ASC, l.created_at ASC) AS rn
+        FROM "levels" l
+        WHERE l.is_active = true
+      ),
+      completion AS (
+        SELECT
+          ulc.level_id,
+          MAX(ulc.completion_percent) AS completion_percent
+        FROM "user_level_completions" ulc
+        WHERE ulc.user_id = $1
+        GROUP BY ulc.level_id
+      )
+      SELECT current_level.id
+      FROM ordered_levels current_level
+      LEFT JOIN ordered_levels previous_level
+        ON previous_level.rn = current_level.rn - 1
+      LEFT JOIN completion previous_completion
+        ON previous_completion.level_id = previous_level.id
+      WHERE current_level.rn = 1
+         OR COALESCE(previous_completion.completion_percent, 0) >= 100
+      ORDER BY current_level.rn ASC
+      `,
+      [userId],
+    )) as Array<{ id: string }>;
+
+    return rows.map((row) => row.id);
+  }
+
   async getEmployeeIds(orgId: string): Promise<
     Array<{
       userId: string;
@@ -518,11 +552,17 @@ export class BranchAnalyticsService {
       return { done: true, exhausted: false, question: null, progress };
     }
 
+    const availableLevelIds = await this.getAvailableLevelIdsForUser(userId);
+    if (availableLevelIds.length === 0) {
+      return { done: false, exhausted: true, question: null, progress };
+    }
+
     const idRows = (await this.questionRepo.query(
       `
       SELECT q.id
       FROM "questions" q
       WHERE q.is_active = true
+        AND q.level_id = ANY($2::uuid[])
         AND (
           NOT EXISTS (
             SELECT 1 FROM "question_positions" qp
@@ -545,7 +585,7 @@ export class BranchAnalyticsService {
       ORDER BY RANDOM()
       LIMIT 1
       `,
-      [userId],
+      [userId, availableLevelIds],
     )) as Array<{ id: string }>;
 
     if (idRows.length === 0) {
