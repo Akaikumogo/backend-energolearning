@@ -71,4 +71,14 @@ export class CreateQuestionDto {
   @ValidateNested({ each: true })
   @Type(() => CreateOptionDto)
   options: CreateOptionDto[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Savol tegishli lavozimlar. Bo`sh bo`lsa — savol barcha xodimlarga tushadi.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  positionIds?: string[];
 }

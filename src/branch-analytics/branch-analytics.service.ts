@@ -6,7 +6,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
-import { DailyPlan } from '../database/entities/daily-plan.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { Question } from '../database/entities/question.entity';
 import { User } from '../database/entities/user.entity';
@@ -16,7 +15,6 @@ import { UserSession } from '../database/entities/user-session.entity';
 import { OrganizationsService } from '../organizations/organizations.service';
 import {
   DAILY_GOAL_CORRECT,
-  DailyPlanService,
   MIN_DAILY_PLAN_QUESTIONS,
 } from './daily-plan.service';
 
@@ -28,7 +26,6 @@ const TZ_OFFSET_MS = 5 * 3600 * 1000; // Asia/Tashkent (UTC+5, DST yo'q)
 export class BranchAnalyticsService {
   constructor(
     private readonly orgService: OrganizationsService,
-    private readonly dailyPlanService: DailyPlanService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(UserOrganization)
     private readonly userOrgRepo: Repository<UserOrganization>,
@@ -36,8 +33,6 @@ export class BranchAnalyticsService {
     private readonly attemptRepo: Repository<UserQuestionAttempt>,
     @InjectRepository(UserSession)
     private readonly sessionRepo: Repository<UserSession>,
-    @InjectRepository(DailyPlan)
-    private readonly planRepo: Repository<DailyPlan>,
     @InjectRepository(Question)
     private readonly questionRepo: Repository<Question>,
     @InjectRepository(Organization)
@@ -358,23 +353,8 @@ export class BranchAnalyticsService {
   }
 
   async getDailyPlanResult(orgId: string, date?: string) {
-    const planDate = date ?? this.dailyPlanService.formatDate(new Date());
-    const plan = await this.dailyPlanService.ensurePlan(
-      orgId,
-      new Date(`${planDate}T12:00:00.000Z`),
-    );
-
-    const questions = plan.questionIds.length
-      ? await this.questionRepo.find({
-          where: plan.questionIds.map((id) => ({ id })),
-          relations: ['level', 'theory'],
-        })
-      : [];
-
-    const questionOrder = new Map(plan.questionIds.map((id, i) => [id, i]));
-    questions.sort(
-      (a, b) => (questionOrder.get(a.id) ?? 0) - (questionOrder.get(b.id) ?? 0),
-    );
+    const planDate =
+      date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : this.tashkentToday();
 
     const employees = await this.getEmployeeIds(orgId);
     const userIds = employees.map((e) => e.userId);
@@ -441,132 +421,154 @@ export class BranchAnalyticsService {
     return {
       orgId,
       planDate,
-      questionCount: plan.questionIds.length,
+      // Yangi modelda belgilangan savollar ro'yxati yo'q — savollar har bir
+      // xodimga lavozimi bo'yicha bittalab random beriladi.
+      questionCount: 0,
       targetQuestions: MIN_DAILY_PLAN_QUESTIONS,
       dailyGoalCorrect: DAILY_GOAL_CORRECT,
       completedEmployees: completedCount,
       totalEmployees: employees.length,
-      questions: questions.map((q, idx) => ({
-        id: q.id,
-        orderIndex: idx + 1,
-        prompt: q.prompt,
-        levelTitle: q.level?.title ?? '',
-        theoryTitle: q.theory?.title ?? '',
-      })),
+      questions: [] as Array<{
+        id: string;
+        orderIndex: number;
+        prompt: string;
+        levelTitle: string;
+        theoryTitle: string;
+      }>,
       userResults,
     };
   }
 
-  async getMobileDailyPlan(userId: string, organizationId: string) {
-    const plan = await this.dailyPlanService.ensurePlan(
-      organizationId,
-      new Date(),
-    );
-    const planDate = plan.planDate;
+  /** Bugungi (Toshkent) plan statistikasi: sariq/yashil/qizil chiplar uchun. */
+  private async getDayPlanStats(userId: string, organizationId: string) {
+    const planDate = this.tashkentToday();
     const { from: dayStart, to: dayEnd } = this.tashkentDayBounds(planDate);
 
-    const questions = plan.questionIds.length
-      ? await this.questionRepo.find({
-          where: plan.questionIds.map((id) => ({ id, isActive: true })),
-          relations: ['options'],
-        })
-      : [];
-
-    const questionOrder = new Map(plan.questionIds.map((id, i) => [id, i]));
-    questions.sort(
-      (a, b) => (questionOrder.get(a.id) ?? 0) - (questionOrder.get(b.id) ?? 0),
-    );
-
-    // Kunlik progress uchun shu kundagi (Toshkent) BARCHA urinishlar —
-    // plan ro'yxati bilan cheklanmaydi.
-    const attempts = await this.attemptRepo
+    const row = await this.attemptRepo
       .createQueryBuilder('a')
-      .select('a.question_id', 'questionId')
-      .addSelect('BOOL_OR(a.is_correct)', 'isCorrect')
-      .addSelect('COUNT(*)::int', 'attempts')
+      .select('COUNT(DISTINCT a.question_id)::int', 'answered')
+      .addSelect(
+        'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
+        'correct',
+      )
       .where('a.user_id = :userId', { userId })
       .andWhere('a.organization_id = :organizationId', { organizationId })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
         from: dayStart,
         to: dayEnd,
       })
-      .groupBy('a.question_id')
-      .getRawMany<{
-        questionId: string;
-        isCorrect: boolean;
-        attempts: number;
-      }>();
+      .getRawOne<{ answered: number; correct: number }>();
 
-    const attemptMap = new Map(
-      attempts.map((a) => [
-        a.questionId,
-        { isCorrect: a.isCorrect, attempts: Number(a.attempts) },
-      ]),
-    );
-
-    const target = plan.questionIds.length;
-    const answeredCount = attemptMap.size;
-    const correctCount = attempts.filter((a) => a.isCorrect).length;
-
-    // Plan savollari tugab, maqsadga hali yetilmagan bo'lsa — qo'shimcha
-    // random savollar beriladi (bugun urinilganlar takrorlanmaydi). Tartib
-    // user+kun bo'yicha deterministik (MD5 seed) — har refetch'da o'zgarmaydi.
-    const planAllAnswered = plan.questionIds.every((id) => attemptMap.has(id));
-    let extraQuestions: Question[] = [];
-    if (planAllAnswered && correctCount < DAILY_GOAL_CORRECT) {
-      const attemptedIds = [...attemptMap.keys()];
-      const extraIdQb = this.questionRepo
-        .createQueryBuilder('q')
-        .select('q.id', 'id')
-        .where('q.isActive = true');
-      if (attemptedIds.length > 0) {
-        extraIdQb.andWhere('q.id NOT IN (:...attemptedIds)', { attemptedIds });
-      }
-      if (plan.questionIds.length > 0) {
-        extraIdQb.andWhere('q.id NOT IN (:...planIds)', {
-          planIds: plan.questionIds,
-        });
-      }
-      const extraIdRows = await extraIdQb
-        .orderBy(`MD5(q.id::text || :seed)`)
-        .setParameter('seed', `${userId}:${planDate}`)
-        .limit(MIN_DAILY_PLAN_QUESTIONS)
-        .getRawMany<{ id: string }>();
-
-      if (extraIdRows.length > 0) {
-        const extraIds = extraIdRows.map((r) => r.id);
-        extraQuestions = await this.questionRepo.find({
-          where: extraIds.map((id) => ({ id })),
-          relations: ['options'],
-        });
-        const extraOrder = new Map(extraIds.map((id, i) => [id, i]));
-        extraQuestions.sort(
-          (a, b) => (extraOrder.get(a.id) ?? 0) - (extraOrder.get(b.id) ?? 0),
-        );
-      }
-    }
-
-    const allQuestions = [...questions, ...extraQuestions];
+    const answeredCount = Number(row?.answered) || 0;
+    const correctCount = Math.min(Number(row?.correct) || 0, DAILY_GOAL_CORRECT);
+    // Qizil chip: urinilgan, lekin (hali) to'g'ri topilmagan savollar.
+    const wrongCount = Math.max(0, answeredCount - (Number(row?.correct) || 0));
 
     return {
       planDate,
-      organizationId,
-      targetQuestions: DAILY_GOAL_CORRECT,
-      dailyGoalCorrect: DAILY_GOAL_CORRECT,
-      questionCount: target,
       answeredCount,
       correctCount,
+      wrongCount,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
       completionPercent: Math.min(
         100,
         Math.round((correctCount / DAILY_GOAL_CORRECT) * 100),
       ),
       completed: correctCount >= DAILY_GOAL_CORRECT,
-      questions: allQuestions.map((q, idx) => ({
-        id: q.id,
-        orderIndex: idx + 1,
-        prompt: q.prompt,
-        type: q.type,
-        options: (q.options ?? [])
+    };
+  }
+
+  /**
+   * Kunlik plan sahifasi uchun summary. Yangi modelda belgilangan savollar
+   * ro'yxati yo'q — savollar /mobile/daily-plan/next-question orqali
+   * bittalab olinadi. `questions: []` eski app buildlari uchun saqlangan.
+   */
+  async getMobileDailyPlan(userId: string, organizationId: string) {
+    const stats = await this.getDayPlanStats(userId, organizationId);
+
+    return {
+      planDate: stats.planDate,
+      organizationId,
+      targetQuestions: DAILY_GOAL_CORRECT,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      questionCount: 0,
+      answeredCount: stats.answeredCount,
+      correctCount: stats.correctCount,
+      wrongCount: stats.wrongCount,
+      completionPercent: stats.completionPercent,
+      completed: stats.completed,
+      questions: [] as unknown[],
+    };
+  }
+
+  /**
+   * Kunlik plan uchun keyingi savol:
+   * - pool: faol savollar; lavozimga bog'lanmagan savol HAMMA xodimga,
+   *   bog'langani faqat shu lavozimdagi xodimga (user_positions orqali);
+   * - oxirgi 24 soat (rolling) ichida ishlangan savol takrorlanmaydi
+   *   (istalgan kontekstdagi urinish hisobga olinadi);
+   * - random tanlanadi;
+   * - maqsad (10 ta to'g'ri) bajarilgan bo'lsa done=true, pool tugagan
+   *   bo'lsa exhausted=true qaytadi.
+   */
+  async getNextDailyQuizQuestion(userId: string, organizationId: string) {
+    const progress = await this.getDayPlanStats(userId, organizationId);
+
+    if (progress.completed) {
+      return { done: true, exhausted: false, question: null, progress };
+    }
+
+    const idRows = (await this.questionRepo.query(
+      `
+      SELECT q.id
+      FROM "questions" q
+      WHERE q.is_active = true
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM "question_positions" qp
+            WHERE qp.question_id = q.id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM "question_positions" qp
+            INNER JOIN "user_positions" up
+              ON up.position_id = qp.position_id AND up.user_id = $1
+            WHERE qp.question_id = q.id
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM "user_question_attempts" a
+          WHERE a.user_id = $1
+            AND a.question_id = q.id
+            AND a.answered_at > NOW() - INTERVAL '24 hours'
+        )
+      ORDER BY RANDOM()
+      LIMIT 1
+      `,
+      [userId],
+    )) as Array<{ id: string }>;
+
+    if (idRows.length === 0) {
+      return { done: false, exhausted: true, question: null, progress };
+    }
+
+    const question = await this.questionRepo.findOne({
+      where: { id: idRows[0].id },
+      relations: ['options'],
+    });
+    if (!question) {
+      return { done: false, exhausted: true, question: null, progress };
+    }
+
+    return {
+      done: false,
+      exhausted: false,
+      progress,
+      question: {
+        id: question.id,
+        prompt: question.prompt,
+        type: question.type,
+        options: (question.options ?? [])
           .sort((a, b) => a.orderIndex - b.orderIndex)
           .map((o) => ({
             id: o.id,
@@ -574,9 +576,123 @@ export class BranchAnalyticsService {
             orderIndex: o.orderIndex,
             matchText: o.matchText ?? null,
           })),
-        answered: attemptMap.has(q.id),
-        isCorrect: attemptMap.get(q.id)?.isCorrect ?? null,
-        attemptCount: attemptMap.get(q.id)?.attempts ?? 0,
+      },
+    };
+  }
+
+  /**
+   * Moderator auditi: xodimning barcha javoblari — qaysi savolga qaysi
+   * variantni belgilagani, to'g'ri/xato, vaqti. Sana oralig'i bilan
+   * (o'tgan kunlarni ham ko'rish mumkin).
+   */
+  async getEmployeeAttempts(
+    orgId: string,
+    userId: string,
+    from?: string,
+    to?: string,
+    page = 1,
+    limit = 50,
+  ) {
+    const user = await this.userRepo
+      .createQueryBuilder('u')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('u.id = :userId', { userId })
+      .andWhere('org.id = :orgId', { orgId })
+      .getOne();
+    if (!user) {
+      throw new NotFoundException('Xodim bu filialda topilmadi');
+    }
+
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const fromStr = from && dateRe.test(from) ? from : this.tashkentToday();
+    const toStr = to && dateRe.test(to) ? to : fromStr;
+    const rangeFrom = this.tashkentDayBounds(fromStr).from;
+    const rangeTo = this.tashkentDayBounds(toStr).to;
+
+    const safeLimit = Math.min(Math.max(1, limit), 200);
+    const safePage = Math.max(1, page);
+
+    const baseQb = this.attemptRepo
+      .createQueryBuilder('a')
+      .where('a.user_id = :userId', { userId })
+      .andWhere('a.organization_id = :orgId', { orgId })
+      .andWhere('a.answered_at >= :rangeFrom AND a.answered_at < :rangeTo', {
+        rangeFrom,
+        rangeTo,
+      });
+
+    const totals = await baseQb
+      .clone()
+      .select('COUNT(*)::int', 'total')
+      .addSelect('COUNT(*) FILTER (WHERE a.is_correct)::int', 'correct')
+      .getRawOne<{ total: number; correct: number }>();
+    const total = Number(totals?.total) || 0;
+    const correctTotal = Number(totals?.correct) || 0;
+
+    // MATCHING savollarda hamma variant is_correct=true bo'ladi — oddiy JOIN
+    // qatorlarni ko'paytiradi, shu sababli to'g'ri javob scalar subquery bilan.
+    const rows = await baseQb
+      .clone()
+      .innerJoin('a.question', 'q')
+      .leftJoin('q.level', 'l')
+      .leftJoin('q.theory', 't')
+      .leftJoin('a.selectedOption', 'sel')
+      .select('a.id', 'id')
+      .addSelect('a.question_id', 'questionId')
+      .addSelect('q.prompt', 'prompt')
+      .addSelect('q.type', 'type')
+      .addSelect('l.title', 'levelTitle')
+      .addSelect('t.title', 'theoryTitle')
+      .addSelect('sel.option_text', 'selectedOptionText')
+      .addSelect(
+        `(
+          SELECT o.option_text FROM "question_options" o
+          WHERE o.question_id = a.question_id AND o.is_correct = true
+          ORDER BY o.order_index ASC
+          LIMIT 1
+        )`,
+        'correctOptionText',
+      )
+      .addSelect('a.is_correct', 'isCorrect')
+      .addSelect('a.answered_at', 'answeredAt')
+      .orderBy('a.answered_at', 'DESC')
+      .offset((safePage - 1) * safeLimit)
+      .limit(safeLimit)
+      .getRawMany<{
+        id: string;
+        questionId: string;
+        prompt: string;
+        type: string;
+        levelTitle: string | null;
+        theoryTitle: string | null;
+        selectedOptionText: string | null;
+        correctOptionText: string | null;
+        isCorrect: boolean;
+        answeredAt: Date;
+      }>();
+
+    return {
+      orgId,
+      userId,
+      fullName: `${user.lastName ?? ''} ${user.firstName ?? ''}`.trim(),
+      range: { from: fromStr, to: toStr },
+      total,
+      correctTotal,
+      wrongTotal: total - correctTotal,
+      page: safePage,
+      limit: safeLimit,
+      items: rows.map((r) => ({
+        id: r.id,
+        questionId: r.questionId,
+        prompt: r.prompt,
+        type: r.type,
+        levelTitle: r.levelTitle ?? '',
+        theoryTitle: r.theoryTitle ?? '',
+        selectedOptionText: r.selectedOptionText ?? null,
+        correctOptionText: r.correctOptionText ?? null,
+        isCorrect: r.isCorrect,
+        answeredAt: new Date(r.answeredAt).toISOString(),
       })),
     };
   }

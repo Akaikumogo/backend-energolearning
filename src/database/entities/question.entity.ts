@@ -12,6 +12,7 @@ import { Level } from './level.entity';
 import { Theory } from './theory.entity';
 import { User } from './user.entity';
 import { QuestionOption } from './question-option.entity';
+import { QuestionPosition } from './question-position.entity';
 import { QuestionType } from '../../common/enums/question-type.enum';
 
 @Entity({ name: 'questions' })
@@ -54,6 +55,10 @@ export class Question {
 
   @OneToMany(() => QuestionOption, (o) => o.question, { cascade: true })
   options: QuestionOption[];
+
+  /** Lavozim bog'lamalari — bo'sh bo'lsa savol barcha xodimlarga tushadi. */
+  @OneToMany(() => QuestionPosition, (qp) => qp.question)
+  positionLinks: QuestionPosition[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
