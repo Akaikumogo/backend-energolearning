@@ -124,6 +124,19 @@ export class BranchAnalyticsService {
           ROW_NUMBER() OVER (ORDER BY l.order_index ASC, l.created_at ASC) AS rn
         FROM "levels" l
         WHERE l.is_active = true
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM "level_positions" lp
+              WHERE lp.level_id = l.id
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM "level_positions" lp
+              INNER JOIN "user_positions" up
+                ON up.position_id = lp.position_id AND up.user_id = $1
+              WHERE lp.level_id = l.id
+            )
+          )
       ),
       completion AS (
         SELECT
@@ -537,8 +550,8 @@ export class BranchAnalyticsService {
 
   /**
    * Kunlik plan uchun keyingi savol:
-   * - pool: faol savollar; lavozimga bog'lanmagan savol HAMMA xodimga,
-   *   bog'langani faqat shu lavozimdagi xodimga (user_positions orqali);
+   * - pool: userga ochiq modullar ichidagi faol savollar; modul lavozimga
+   *   bog'lanmagan bo'lsa HAMMA xodimga, bog'langan bo'lsa shu lavozimlarga;
    * - oxirgi 24 soat (rolling) ichida ishlangan savol takrorlanmaydi
    *   (istalgan kontekstdagi urinish hisobga olinadi);
    * - random tanlanadi;
@@ -563,19 +576,6 @@ export class BranchAnalyticsService {
       FROM "questions" q
       WHERE q.is_active = true
         AND q.level_id = ANY($2::uuid[])
-        AND (
-          NOT EXISTS (
-            SELECT 1 FROM "question_positions" qp
-            WHERE qp.question_id = q.id
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM "question_positions" qp
-            INNER JOIN "user_positions" up
-              ON up.position_id = qp.position_id AND up.user_id = $1
-            WHERE qp.question_id = q.id
-          )
-        )
         AND NOT EXISTS (
           SELECT 1 FROM "user_question_attempts" a
           WHERE a.user_id = $1

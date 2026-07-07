@@ -7,6 +7,7 @@ import { Theory } from '../database/entities/theory.entity';
 import { Question } from '../database/entities/question.entity';
 import { QuestionOption } from '../database/entities/question-option.entity';
 import { QuestionPosition } from '../database/entities/question-position.entity';
+import { LevelPosition } from '../database/entities/level-position.entity';
 import { Position } from '../database/entities/position.entity';
 import { CreateLevelDto } from './dto/create-level.dto';
 import { UpdateLevelDto } from './dto/update-level.dto';
@@ -28,6 +29,8 @@ export class ContentService {
     private readonly optionRepo: Repository<QuestionOption>,
     @InjectRepository(QuestionPosition)
     private readonly questionPositionRepo: Repository<QuestionPosition>,
+    @InjectRepository(LevelPosition)
+    private readonly levelPositionRepo: Repository<LevelPosition>,
     @InjectRepository(Position)
     private readonly positionRepo: Repository<Position>,
   ) {}
@@ -55,6 +58,20 @@ export class ContentService {
     await this.questionPositionRepo.save(
       unique.map((positionId) =>
         this.questionPositionRepo.create({ questionId, positionId }),
+      ),
+    );
+  }
+
+  private async replaceLevelPositions(
+    levelId: string,
+    positionIds: string[],
+  ): Promise<void> {
+    await this.levelPositionRepo.delete({ levelId });
+    const unique = [...new Set(positionIds)];
+    if (unique.length === 0) return;
+    await this.levelPositionRepo.save(
+      unique.map((positionId) =>
+        this.levelPositionRepo.create({ levelId, positionId }),
       ),
     );
   }
@@ -238,6 +255,8 @@ export class ContentService {
     const qb = this.levelRepo
       .createQueryBuilder('l')
       .leftJoinAndSelect('l.createdBy', 'u')
+      .leftJoinAndSelect('l.positionLinks', 'pl')
+      .leftJoinAndSelect('pl.position', 'pos')
       .orderBy('l.order_index', 'ASC');
 
     if (filters?.search) {
@@ -256,7 +275,13 @@ export class ContentService {
   async findLevelById(id: string): Promise<Level> {
     const level = await this.levelRepo.findOne({
       where: { id },
-      relations: ['theories', 'questions', 'createdBy'],
+      relations: [
+        'theories',
+        'questions',
+        'createdBy',
+        'positionLinks',
+        'positionLinks.position',
+      ],
     });
     if (!level) throw new NotFoundException('Daraja topilmadi');
     return level;
@@ -275,13 +300,25 @@ export class ContentService {
       isActive: dto.isActive ?? true,
       createdById: userId,
     });
-    return this.levelRepo.save(level);
+    const saved = await this.levelRepo.save(level);
+    if (dto.positionIds?.length) {
+      await this.replaceLevelPositions(saved.id, dto.positionIds);
+    }
+    return this.findLevelById(saved.id);
   }
 
   async updateLevel(id: string, dto: UpdateLevelDto): Promise<Level> {
     const level = await this.findLevelById(id);
-    Object.assign(level, dto);
-    return this.levelRepo.save(level);
+    if (dto.title !== undefined) level.title = dto.title;
+    if (dto.orderIndex !== undefined) level.orderIndex = dto.orderIndex;
+    if (dto.isActive !== undefined) level.isActive = dto.isActive;
+    await this.levelRepo.save(level);
+
+    if (dto.positionIds !== undefined) {
+      await this.replaceLevelPositions(id, dto.positionIds);
+    }
+
+    return this.findLevelById(id);
   }
 
   async removeLevel(id: string): Promise<void> {

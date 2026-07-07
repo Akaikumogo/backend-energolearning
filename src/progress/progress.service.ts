@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { Level } from '../database/entities/level.entity';
 import { Theory } from '../database/entities/theory.entity';
 import { Question } from '../database/entities/question.entity';
@@ -43,6 +43,38 @@ export class ProgressService {
     private readonly heartsService: HeartsService,
   ) {}
 
+  private async getPositionAvailableLevels(userId: string): Promise<Level[]> {
+    const rows = (await this.levelRepo.query(
+      `
+      SELECT l.id
+      FROM "levels" l
+      WHERE l.is_active = true
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM "level_positions" lp
+            WHERE lp.level_id = l.id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM "level_positions" lp
+            INNER JOIN "user_positions" up
+              ON up.position_id = lp.position_id AND up.user_id = $1
+            WHERE lp.level_id = l.id
+          )
+        )
+      ORDER BY l.order_index ASC, l.created_at ASC
+      `,
+      [userId],
+    )) as Array<{ id: string }>;
+
+    const ids = rows.map((row) => row.id);
+    if (ids.length === 0) return [];
+
+    const levels = await this.levelRepo.find({ where: { id: In(ids) } });
+    const byId = new Map(levels.map((level) => [level.id, level]));
+    return ids.map((id) => byId.get(id)).filter((level): level is Level => !!level);
+  }
+
   async getMyProgress(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
@@ -51,10 +83,7 @@ export class ProgressService {
     if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
     const orgId = user.organizations?.[0]?.organization?.id ?? null;
 
-    const levels = await this.levelRepo.find({
-      where: { isActive: true },
-      order: { orderIndex: 'ASC' },
-    });
+    const levels = await this.getPositionAvailableLevels(userId);
 
     const completions = await this.completionRepo.find({
       where: { userId },
@@ -230,13 +259,10 @@ export class ProgressService {
   }
 
   async getLevelDetail(userId: string, levelId: string) {
-    const level = await this.levelRepo.findOne({ where: { id: levelId } });
+    const levels = await this.getPositionAvailableLevels(userId);
+    const level = levels.find((l) => l.id === levelId);
     if (!level) throw new NotFoundException('Level topilmadi');
 
-    const levels = await this.levelRepo.find({
-      where: { isActive: true },
-      order: { orderIndex: 'ASC' },
-    });
     const levelIndex = levels.findIndex((l) => l.id === levelId);
     if (levelIndex > 0) {
       const prevLevel = levels[levelIndex - 1];
