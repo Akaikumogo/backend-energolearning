@@ -116,48 +116,83 @@ export class BranchAnalyticsService {
   }
 
   private async getAvailableLevelIdsForUser(userId: string): Promise<string[]> {
-    const rows = (await this.questionRepo.query(
-      `
-      WITH ordered_levels AS (
-        SELECT
-          l.id,
-          ROW_NUMBER() OVER (ORDER BY l.order_index ASC, l.created_at ASC) AS rn
-        FROM "levels" l
-        WHERE l.is_active = true
-          AND (
-            NOT EXISTS (
-              SELECT 1 FROM "level_positions" lp
-              WHERE lp.level_id = l.id
+    let rows: Array<{ id: string }>;
+
+    try {
+      rows = (await this.questionRepo.query(
+        `
+        WITH ordered_levels AS (
+          SELECT
+            l.id,
+            ROW_NUMBER() OVER (ORDER BY l.order_index ASC, l.created_at ASC) AS rn
+          FROM "levels" l
+          WHERE l.is_active = true
+            AND (
+              NOT EXISTS (
+                SELECT 1 FROM "level_positions" lp
+                WHERE lp.level_id = l.id
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM "level_positions" lp
+                INNER JOIN "user_positions" up
+                  ON up.position_id = lp.position_id AND up.user_id = $1
+                WHERE lp.level_id = l.id
+              )
             )
-            OR EXISTS (
-              SELECT 1
-              FROM "level_positions" lp
-              INNER JOIN "user_positions" up
-                ON up.position_id = lp.position_id AND up.user_id = $1
-              WHERE lp.level_id = l.id
-            )
-          )
-      ),
-      completion AS (
-        SELECT
-          ulc.level_id,
-          MAX(ulc.completion_percent) AS completion_percent
-        FROM "user_level_completions" ulc
-        WHERE ulc.user_id = $1
-        GROUP BY ulc.level_id
-      )
-      SELECT current_level.id
-      FROM ordered_levels current_level
-      LEFT JOIN ordered_levels previous_level
-        ON previous_level.rn = current_level.rn - 1
-      LEFT JOIN completion previous_completion
-        ON previous_completion.level_id = previous_level.id
-      WHERE current_level.rn = 1
-         OR COALESCE(previous_completion.completion_percent, 0) >= 100
-      ORDER BY current_level.rn ASC
-      `,
-      [userId],
-    )) as Array<{ id: string }>;
+        ),
+        completion AS (
+          SELECT
+            ulc.level_id,
+            MAX(ulc.completion_percent) AS completion_percent
+          FROM "user_level_completions" ulc
+          WHERE ulc.user_id = $1
+          GROUP BY ulc.level_id
+        )
+        SELECT current_level.id
+        FROM ordered_levels current_level
+        LEFT JOIN ordered_levels previous_level
+          ON previous_level.rn = current_level.rn - 1
+        LEFT JOIN completion previous_completion
+          ON previous_completion.level_id = previous_level.id
+        WHERE current_level.rn = 1
+           OR COALESCE(previous_completion.completion_percent, 0) >= 100
+        ORDER BY current_level.rn ASC
+        `,
+        [userId],
+      )) as Array<{ id: string }>;
+    } catch (error) {
+      if ((error as { code?: string }).code !== '42P01') throw error;
+      rows = (await this.questionRepo.query(
+        `
+        WITH ordered_levels AS (
+          SELECT
+            l.id,
+            ROW_NUMBER() OVER (ORDER BY l.order_index ASC, l.created_at ASC) AS rn
+          FROM "levels" l
+          WHERE l.is_active = true
+        ),
+        completion AS (
+          SELECT
+            ulc.level_id,
+            MAX(ulc.completion_percent) AS completion_percent
+          FROM "user_level_completions" ulc
+          WHERE ulc.user_id = $1
+          GROUP BY ulc.level_id
+        )
+        SELECT current_level.id
+        FROM ordered_levels current_level
+        LEFT JOIN ordered_levels previous_level
+          ON previous_level.rn = current_level.rn - 1
+        LEFT JOIN completion previous_completion
+          ON previous_completion.level_id = previous_level.id
+        WHERE current_level.rn = 1
+           OR COALESCE(previous_completion.completion_percent, 0) >= 100
+        ORDER BY current_level.rn ASC
+        `,
+        [userId],
+      )) as Array<{ id: string }>;
+    }
 
     return rows.map((row) => row.id);
   }

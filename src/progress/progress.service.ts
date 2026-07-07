@@ -44,28 +44,42 @@ export class ProgressService {
   ) {}
 
   private async getPositionAvailableLevels(userId: string): Promise<Level[]> {
-    const rows = (await this.levelRepo.query(
-      `
-      SELECT l.id
-      FROM "levels" l
-      WHERE l.is_active = true
-        AND (
-          NOT EXISTS (
-            SELECT 1 FROM "level_positions" lp
-            WHERE lp.level_id = l.id
+    let rows: Array<{ id: string }>;
+
+    try {
+      rows = (await this.levelRepo.query(
+        `
+        SELECT l.id
+        FROM "levels" l
+        WHERE l.is_active = true
+          AND (
+            NOT EXISTS (
+              SELECT 1 FROM "level_positions" lp
+              WHERE lp.level_id = l.id
+            )
+            OR EXISTS (
+              SELECT 1
+              FROM "level_positions" lp
+              INNER JOIN "user_positions" up
+                ON up.position_id = lp.position_id AND up.user_id = $1
+              WHERE lp.level_id = l.id
+            )
           )
-          OR EXISTS (
-            SELECT 1
-            FROM "level_positions" lp
-            INNER JOIN "user_positions" up
-              ON up.position_id = lp.position_id AND up.user_id = $1
-            WHERE lp.level_id = l.id
-          )
-        )
-      ORDER BY l.order_index ASC, l.created_at ASC
-      `,
-      [userId],
-    )) as Array<{ id: string }>;
+        ORDER BY l.order_index ASC, l.created_at ASC
+        `,
+        [userId],
+      )) as Array<{ id: string }>;
+    } catch (error) {
+      if ((error as { code?: string }).code !== '42P01') throw error;
+      rows = (await this.levelRepo.query(
+        `
+        SELECT l.id
+        FROM "levels" l
+        WHERE l.is_active = true
+        ORDER BY l.order_index ASC, l.created_at ASC
+        `,
+      )) as Array<{ id: string }>;
+    }
 
     const ids = rows.map((row) => row.id);
     if (ids.length === 0) return [];
