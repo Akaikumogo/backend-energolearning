@@ -72,4 +72,14 @@ export class UpdateQuestionDto {
   @ValidateNested({ each: true })
   @Type(() => UpdateOptionDto)
   options?: UpdateOptionDto[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    description:
+      'Savol tegishli lavozimlar. Bo`sh massiv — barcha lavozim bog`lamalari o`chiriladi (savol hammaga tushadi).',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  positionIds?: string[];
 }

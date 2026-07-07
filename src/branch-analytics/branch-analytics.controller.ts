@@ -88,6 +88,41 @@ export class BranchAnalyticsController {
     return this.analyticsService.getDailyPlanResult(safeOrgId, date);
   }
 
+  @Get('employee-attempts')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'Xodim javoblari auditi: qaysi savolga qaysi variantni belgilagani (sana oralig`i bilan)',
+  })
+  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'userId', required: true })
+  @ApiQuery({ name: 'from', required: false, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'to', required: false, description: 'YYYY-MM-DD' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  async employeeAttempts(
+    @Query('orgId') orgId: string,
+    @Query('userId') userId: string,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Query('page') page: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const safeOrgId = await this.analyticsService.resolveOrgScope(
+      orgId,
+      req.user,
+    );
+    return this.analyticsService.getEmployeeAttempts(
+      safeOrgId,
+      userId,
+      from,
+      to,
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 50,
+    );
+  }
+
   @Get('monthly-progress')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({

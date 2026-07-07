@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { IsNull } from 'typeorm';
 import { Level } from '../database/entities/level.entity';
 import { Theory } from '../database/entities/theory.entity';
 import { Question } from '../database/entities/question.entity';
 import { QuestionOption } from '../database/entities/question-option.entity';
+import { QuestionPosition } from '../database/entities/question-position.entity';
+import { Position } from '../database/entities/position.entity';
 import { CreateLevelDto } from './dto/create-level.dto';
 import { UpdateLevelDto } from './dto/update-level.dto';
 import { CreateTheoryDto } from './dto/create-theory.dto';
@@ -23,7 +26,38 @@ export class ContentService {
     private readonly questionRepo: Repository<Question>,
     @InjectRepository(QuestionOption)
     private readonly optionRepo: Repository<QuestionOption>,
+    @InjectRepository(QuestionPosition)
+    private readonly questionPositionRepo: Repository<QuestionPosition>,
+    @InjectRepository(Position)
+    private readonly positionRepo: Repository<Position>,
   ) {}
+
+  /**
+   * Kontentga savol biriktirish uchun lavozimlar ro'yxati.
+   * /admin/positions (exams) faqat bosh filial moderatoriga ochiq — bu
+   * read-only ro'yxat esa barcha moderatorlarga kerak.
+   */
+  async findPositionsForContent(): Promise<Position[]> {
+    return this.positionRepo.find({
+      where: { deletedAt: IsNull() },
+      order: { title: 'ASC' },
+    });
+  }
+
+  /** positionIds ni dedupe qilib, savolning lavozim bog'lamalarini qayta yozadi. */
+  private async replaceQuestionPositions(
+    questionId: string,
+    positionIds: string[],
+  ): Promise<void> {
+    await this.questionPositionRepo.delete({ questionId });
+    const unique = [...new Set(positionIds)];
+    if (unique.length === 0) return;
+    await this.questionPositionRepo.save(
+      unique.map((positionId) =>
+        this.questionPositionRepo.create({ questionId, positionId }),
+      ),
+    );
+  }
 
   // ─── Mobile (client) helpers ───────────────────────────
   // Mobile controller `options` ni map qilayotganda `isCorrect` ni response'dan
@@ -502,6 +536,8 @@ export class ContentService {
       .leftJoinAndSelect('q.level', 'l')
       .leftJoinAndSelect('q.theory', 't')
       .leftJoinAndSelect('q.createdBy', 'u')
+      .leftJoinAndSelect('q.positionLinks', 'pl')
+      .leftJoinAndSelect('pl.position', 'pos')
       .whereInIds(ids)
       .orderBy('l.order_index', 'ASC')
       .addOrderBy('q.order_index', 'ASC')
@@ -514,7 +550,14 @@ export class ContentService {
   async findQuestionById(id: string): Promise<Question> {
     const question = await this.questionRepo.findOne({
       where: { id },
-      relations: ['options', 'level', 'theory', 'createdBy'],
+      relations: [
+        'options',
+        'level',
+        'theory',
+        'createdBy',
+        'positionLinks',
+        'positionLinks.position',
+      ],
     });
     if (!question) throw new NotFoundException('Savol topilmadi');
     return question;
@@ -556,6 +599,10 @@ export class ContentService {
         }),
       );
       await this.optionRepo.save(options);
+    }
+
+    if (dto.positionIds?.length) {
+      await this.replaceQuestionPositions(saved.id, dto.positionIds);
     }
 
     return this.findQuestionById(saved.id);
@@ -604,6 +651,11 @@ export class ContentService {
           await this.optionRepo.save(newOpt);
         }
       }
+    }
+
+    // undefined = tegilmaydi; bo'sh massiv = barcha bog'lamalar o'chiriladi.
+    if (dto.positionIds !== undefined) {
+      await this.replaceQuestionPositions(id, dto.positionIds);
     }
 
     return this.findQuestionById(id);

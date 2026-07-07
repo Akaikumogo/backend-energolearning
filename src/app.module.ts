@@ -43,6 +43,7 @@ import { ExamQuestion } from './database/entities/exam-question.entity';
 import { ExamQuestionCatalog } from './database/entities/exam-question-catalog.entity';
 import { ExamQuestionOption } from './database/entities/exam-question-option.entity';
 import { ExamQuestionPosition } from './database/entities/exam-question-position.entity';
+import { QuestionPosition } from './database/entities/question-position.entity';
 import { ExamAssignment } from './database/entities/exam-assignment.entity';
 import { ExamAttempt } from './database/entities/exam-attempt.entity';
 import { ExamSession } from './database/entities/exam-session.entity';
@@ -110,6 +111,7 @@ import { AdminImportExportModule } from './admin-import-export/admin-import-expo
         ExamQuestionCatalog,
         ExamQuestionOption,
         ExamQuestionPosition,
+        QuestionPosition,
         ExamAssignment,
         ExamAttempt,
         ExamSession,

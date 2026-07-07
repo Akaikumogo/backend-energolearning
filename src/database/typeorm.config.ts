@@ -21,6 +21,7 @@ import { ExamQuestion } from './entities/exam-question.entity';
 import { ExamQuestionCatalog } from './entities/exam-question-catalog.entity';
 import { ExamQuestionOption } from './entities/exam-question-option.entity';
 import { ExamQuestionPosition } from './entities/exam-question-position.entity';
+import { QuestionPosition } from './entities/question-position.entity';
 import { ExamAssignment } from './entities/exam-assignment.entity';
 import { ExamAttempt } from './entities/exam-attempt.entity';
 import { ExamSession } from './entities/exam-session.entity';
@@ -55,6 +56,7 @@ import { FixNesEmployeeUnique1746310000000 } from './migrations/0017-fix-nes-emp
 import { AddAudioBookAudioUrl1746400000000 } from './migrations/0018-add-audio-book-audio-url';
 import { AddHeartLostFlag1746500000000 } from './migrations/0019-add-heart-lost-flag';
 import { OauthIntegrationSettings1746600000000 } from './migrations/0020-oauth-integration-settings';
+import { AddQuestionPositions1746700000000 } from './migrations/0021-add-question-positions';
 import { AddOrganizationParentAndDefault1746300000000 } from './migrations/0017-add-organization-parent-and-default';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
@@ -87,6 +89,7 @@ export const AppDataSource = new DataSource({
     ExamQuestionCatalog,
     ExamQuestionOption,
     ExamQuestionPosition,
+    QuestionPosition,
     ExamAssignment,
     ExamAttempt,
     ExamSession,
@@ -127,6 +130,7 @@ export const AppDataSource = new DataSource({
     AddAudioBookAudioUrl1746400000000,
     AddHeartLostFlag1746500000000,
     OauthIntegrationSettings1746600000000,
+    AddQuestionPositions1746700000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

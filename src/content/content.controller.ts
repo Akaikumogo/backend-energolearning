@@ -167,6 +167,16 @@ export class ContentController {
 
   // ─── Questions ───────────────────────────────────────
 
+  @Get('content-positions')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'Savolga biriktirish uchun lavozimlar ro`yxati (read-only, barcha moderatorlarga)',
+  })
+  findContentPositions() {
+    return this.contentService.findPositionsForContent();
+  }
+
   @Get('questions')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Savollar ro`yxati (filter + search + pagination)' })
