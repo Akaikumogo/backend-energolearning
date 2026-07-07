@@ -104,6 +104,36 @@ export class ProgressService {
     });
     const completionMap = new Map(completions.map((c) => [c.levelId, c]));
 
+    const levelIds = levels.map((level) => level.id);
+    const levelAttemptRows = levelIds.length
+      ? await this.attemptRepo
+          .createQueryBuilder('a')
+          .innerJoin('a.question', 'q')
+          .select('q.level_id', 'levelId')
+          .addSelect('COUNT(*)::int', 'attemptsCount')
+          .addSelect(
+            'COUNT(*) FILTER (WHERE a.is_correct = true)::int',
+            'correctAnswersCount',
+          )
+          .where('a.user_id = :userId', { userId })
+          .andWhere('q.level_id IN (:...levelIds)', { levelIds })
+          .groupBy('q.level_id')
+          .getRawMany<{
+            levelId: string;
+            attemptsCount: number;
+            correctAnswersCount: number;
+          }>()
+      : [];
+    const levelAttemptsMap = new Map(
+      levelAttemptRows.map((row) => [
+        row.levelId,
+        {
+          attemptsCount: Number(row.attemptsCount) || 0,
+          correctAnswersCount: Number(row.correctAnswersCount) || 0,
+        },
+      ]),
+    );
+
     const correctCount = await this.attemptRepo.count({
       where: { userId, isCorrect: true },
     });
@@ -120,6 +150,10 @@ export class ProgressService {
       const completion = completionMap.get(level.id);
       const completionPercent = completion?.completionPercent ?? 0;
       const isCompleted = completionPercent >= 100;
+      const attemptStats = levelAttemptsMap.get(level.id) ?? {
+        attemptsCount: 0,
+        correctAnswersCount: 0,
+      };
 
       let isLocked = false;
       if (idx > 0) {
@@ -135,6 +169,8 @@ export class ProgressService {
         isLocked,
         isCompleted,
         completionPercent,
+        correctAnswersCount: attemptStats.correctAnswersCount,
+        attemptsCount: attemptStats.attemptsCount,
         completedAt: completion?.completedAt ?? null,
       };
     });
