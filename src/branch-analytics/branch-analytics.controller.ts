@@ -160,6 +160,136 @@ export class BranchAnalyticsController {
     return this.analyticsService.getBranchComparison(month, allowedOrgIds);
   }
 
+  private async moderatorOrgIds(
+    req: Request & { user: { role: Role; organizationIds: string[] } },
+  ): Promise<string[] | null> {
+    if (req.user.role !== Role.MODERATOR) return null;
+    return (
+      (await this.orgService.resolveModeratorScope(req.user.organizationIds)) ??
+      req.user.organizationIds
+    );
+  }
+
+  @Get('executive-dashboard')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Rahbar bosh dashboard — kunlik reja KPI' })
+  @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD' })
+  async executiveDashboard(
+    @Query('date') date: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    return this.analyticsService.getExecutiveDashboard(date, allowedOrgIds);
+  }
+
+  @Get('branch-ranking')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Kunlik filiallar reytingi' })
+  @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD' })
+  async branchRanking(
+    @Query('date') date: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    return this.analyticsService.getBranchRanking(date, allowedOrgIds);
+  }
+
+  @Get('division-summary')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Filial ichidagi bo`limlar bo`yicha kunlik reja' })
+  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'date', required: false })
+  async divisionSummary(
+    @Query('orgId') orgId: string,
+    @Query('date') date: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
+    return this.analyticsService.getDivisionSummary(safeOrgId, date);
+  }
+
+  @Get('employee-ranking')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Xodimlar reytingi (filial yoki bo`lim)' })
+  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'date', required: false })
+  @ApiQuery({ name: 'division', required: false })
+  async employeeRanking(
+    @Query('orgId') orgId: string,
+    @Query('date') date: string | undefined,
+    @Query('division') division: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
+    return this.analyticsService.getEmployeeRanking(safeOrgId, date, division);
+  }
+
+  @Get('hourly-progress')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Kun davomida bajarilish (soat bo`yicha)' })
+  @ApiQuery({ name: 'date', required: false })
+  @ApiQuery({ name: 'orgId', required: false })
+  async hourlyProgress(
+    @Query('date') date: string | undefined,
+    @Query('orgId') orgId: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    let safeOrgId: string | undefined;
+    if (orgId) {
+      safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
+    }
+    return this.analyticsService.getHourlyProgress(date, safeOrgId);
+  }
+
+  @Get('daily-trend')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Kunlik trend (oxirgi 30 kun)' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'orgId', required: false })
+  async dailyTrend(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Query('orgId') orgId: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    let safeOrgId: string | undefined;
+    if (orgId) {
+      safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
+    }
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    return this.analyticsService.getDailyTrend(from, to, safeOrgId, allowedOrgIds);
+  }
+
+  @Get('weekday-heatmap')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Filiallar × hafta kuni heatmap' })
+  @ApiQuery({ name: 'from', required: false })
+  @ApiQuery({ name: 'to', required: false })
+  async weekdayHeatmap(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    return this.analyticsService.getBranchWeekdayHeatmap(from, to, allowedOrgIds);
+  }
+
+  @Get('underperformers')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Rejani bajarmayotganlar (filial/bo`lim/xodim)' })
+  @ApiQuery({ name: 'date', required: false })
+  @ApiQuery({ name: 'threshold', required: false })
+  async underperformers(
+    @Query('date') date: string | undefined,
+    @Query('threshold') threshold: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    const t = threshold ? parseInt(threshold, 10) : 70;
+    return this.analyticsService.getUnderperformers(date, t, allowedOrgIds);
+  }
+
   @Get('export/monthly-progress')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Oylik progress Excel (masalan 2026-07_Toshkent.xlsx)' })

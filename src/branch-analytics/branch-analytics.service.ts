@@ -12,6 +12,7 @@ import { User } from '../database/entities/user.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { UserSession } from '../database/entities/user-session.entity';
+import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { OrganizationsService } from '../organizations/organizations.service';
 import {
   DAILY_GOAL_CORRECT,
@@ -37,6 +38,8 @@ export class BranchAnalyticsService {
     private readonly questionRepo: Repository<Question>,
     @InjectRepository(Organization)
     private readonly orgRepo: Repository<Organization>,
+    @InjectRepository(NesEmployee)
+    private readonly nesEmployeeRepo: Repository<NesEmployee>,
   ) {}
 
   async resolveOrgScope(
@@ -979,5 +982,503 @@ export class BranchAnalyticsService {
       .map((b, i) => ({ ...b, rank: i + 1 }));
 
     return { month: m, daysInMonth, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches };
+  }
+
+  private parsePlanDate(date?: string): string {
+    return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : this.tashkentToday();
+  }
+
+  private statusFromPercent(p: number): 'green' | 'yellow' | 'red' {
+    if (p >= 90) return 'green';
+    if (p >= 70) return 'yellow';
+    return 'red';
+  }
+
+  /** Kunlik reja statistikasi: userId -> to'g'ri javoblar (max DAILY_GOAL_CORRECT). */
+  private async getUserCorrectMap(
+    orgIds: string[],
+    planDate: string,
+    userIds?: string[],
+  ): Promise<Map<string, number>> {
+    if (orgIds.length === 0) return new Map();
+    const { from: dayStart, to: dayEnd } = this.tashkentDayBounds(planDate);
+
+    const qb = this.attemptRepo
+      .createQueryBuilder('a')
+      .select('a.user_id', 'userId')
+      .addSelect(
+        'LEAST(COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct), :goal)::int',
+        'correct',
+      )
+      .where('a.organization_id IN (:...orgIds)', { orgIds })
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
+        from: dayStart,
+        to: dayEnd,
+      })
+      .setParameter('goal', DAILY_GOAL_CORRECT)
+      .groupBy('a.user_id');
+
+    if (userIds?.length) {
+      qb.andWhere('a.user_id IN (:...userIds)', { userIds });
+    }
+
+    const rows = await qb.getRawMany<{ userId: string; correct: number }>();
+    return new Map(rows.map((r) => [r.userId, Number(r.correct) || 0]));
+  }
+
+  private async countEmployeesByOrg(orgIds: string[]): Promise<Map<string, number>> {
+    if (!orgIds.length) return new Map();
+    const rows = await this.userRepo
+      .createQueryBuilder('u')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role = :role', { role: Role.USER })
+      .select('org.id', 'orgId')
+      .addSelect('COUNT(DISTINCT u.id)::int', 'cnt')
+      .groupBy('org.id')
+      .getRawMany<{ orgId: string; cnt: number }>();
+    return new Map(rows.map((r) => [r.orgId, Number(r.cnt) || 0]));
+  }
+
+  /** Rahbar uchun bosh dashboard — barcha filiallar bo'yicha kunlik reja. */
+  async getExecutiveDashboard(
+    date?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const planDate = this.parsePlanDate(date);
+    const orgQb = this.orgRepo.createQueryBuilder('o').select(['o.id', 'o.name']);
+    if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    const orgs = await orgQb.getMany();
+    const orgIds = orgs.map((o) => o.id);
+
+    const empMap = await this.countEmployeesByOrg(orgIds);
+    const totalEmployees = [...empMap.values()].reduce((s, n) => s + n, 0);
+    const totalPlan = totalEmployees * DAILY_GOAL_CORRECT;
+
+    const correctMap = await this.getUserCorrectMap(orgIds, planDate);
+    let completedTotal = 0;
+    let activeEmployees = 0;
+    let completedEmployees = 0;
+    for (const [, correct] of correctMap) {
+      if (correct > 0) activeEmployees++;
+      completedTotal += correct;
+      if (correct >= DAILY_GOAL_CORRECT) completedEmployees++;
+    }
+
+    const completionPercent =
+      totalPlan > 0 ? Math.round((completedTotal / totalPlan) * 1000) / 10 : 0;
+
+    return {
+      planDate,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      totalPlan,
+      completedTotal,
+      remaining: Math.max(0, totalPlan - completedTotal),
+      completionPercent,
+      totalEmployees,
+      activeEmployees,
+      completedEmployees,
+      branchCount: orgs.length,
+    };
+  }
+
+  /** Kunlik filiallar reytingi (reja / bajarildi / %). */
+  async getBranchRanking(
+    date?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const planDate = this.parsePlanDate(date);
+    const orgQb = this.orgRepo
+      .createQueryBuilder('o')
+      .select(['o.id', 'o.name', 'o.isDefault']);
+    if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
+    const orgIds = orgs.map((o) => o.id);
+
+    const empMap = await this.countEmployeesByOrg(orgIds);
+    const correctMap = await this.getUserCorrectMap(orgIds, planDate);
+
+    const employeesByOrg = await this.userRepo
+      .createQueryBuilder('u')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role = :role', { role: Role.USER })
+      .select('org.id', 'orgId')
+      .addSelect('u.id', 'userId')
+      .getRawMany<{ orgId: string; userId: string }>();
+
+    const orgUserMap = new Map<string, string[]>();
+    for (const row of employeesByOrg) {
+      if (!orgUserMap.has(row.orgId)) orgUserMap.set(row.orgId, []);
+      orgUserMap.get(row.orgId)!.push(row.userId);
+    }
+
+    const branches = orgs
+      .map((o) => {
+        const employees = empMap.get(o.id) ?? 0;
+        const plan = employees * DAILY_GOAL_CORRECT;
+        const userIds = orgUserMap.get(o.id) ?? [];
+        let completed = 0;
+        let completedEmployees = 0;
+        for (const uid of userIds) {
+          const c = correctMap.get(uid) ?? 0;
+          completed += c;
+          if (c >= DAILY_GOAL_CORRECT) completedEmployees++;
+        }
+        const percent = plan > 0 ? Math.round((completed / plan) * 1000) / 10 : 0;
+        return {
+          orgId: o.id,
+          orgName: o.name,
+          isDefault: !!o.isDefault,
+          totalEmployees: employees,
+          plan,
+          completed,
+          percent,
+          completedEmployees,
+          status: this.statusFromPercent(percent),
+        };
+      })
+      .sort((a, b) => b.percent - a.percent || a.orgName.localeCompare(b.orgName))
+      .map((b, i) => ({ ...b, rank: i + 1 }));
+
+    return { planDate, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches };
+  }
+
+  /** Filial ichidagi bo'limlar (NES division) bo'yicha kunlik reja. */
+  async getDivisionSummary(orgId: string, date?: string) {
+    const planDate = this.parsePlanDate(date);
+    const employees = await this.getEmployeeIds(orgId);
+    const userIds = employees.map((e) => e.userId);
+
+    const nesRows = userIds.length
+      ? await this.nesEmployeeRepo
+          .createQueryBuilder('n')
+          .where('n.organization_id = :orgId', { orgId })
+          .andWhere('n.user_id IN (:...userIds)', { userIds })
+          .select(['n.user_id AS "userId"', 'n.division AS division'])
+          .getRawMany<{ userId: string; division: string }>()
+      : [];
+
+    const divisionByUser = new Map<string, string>();
+    for (const r of nesRows) {
+      const div = (r.division || '').trim() || "Bo'lim belgilanmagan";
+      divisionByUser.set(r.userId, div);
+    }
+
+    const correctMap = await this.getUserCorrectMap([orgId], planDate, userIds);
+
+    const divStats = new Map<
+      string,
+      { employees: number; plan: number; completed: number; completedEmployees: number }
+    >();
+
+    for (const emp of employees) {
+      const div = divisionByUser.get(emp.userId) ?? "Bo'lim belgilanmagan";
+      if (!divStats.has(div)) {
+        divStats.set(div, { employees: 0, plan: 0, completed: 0, completedEmployees: 0 });
+      }
+      const s = divStats.get(div)!;
+      s.employees++;
+      s.plan += DAILY_GOAL_CORRECT;
+      const c = correctMap.get(emp.userId) ?? 0;
+      s.completed += c;
+      if (c >= DAILY_GOAL_CORRECT) s.completedEmployees++;
+    }
+
+    const divisions = [...divStats.entries()]
+      .map(([division, s]) => {
+        const percent = s.plan > 0 ? Math.round((s.completed / s.plan) * 1000) / 10 : 0;
+        return {
+          division,
+          totalEmployees: s.employees,
+          plan: s.plan,
+          completed: s.completed,
+          percent,
+          completedEmployees: s.completedEmployees,
+          status: this.statusFromPercent(percent),
+        };
+      })
+      .sort((a, b) => b.percent - a.percent || a.division.localeCompare(b.division));
+
+    const org = await this.orgRepo.findOne({ where: { id: orgId } });
+    let branchTotal = { plan: 0, completed: 0, employees: employees.length };
+    for (const d of divisions) {
+      branchTotal.plan += d.plan;
+      branchTotal.completed += d.completed;
+    }
+    const branchPercent =
+      branchTotal.plan > 0
+        ? Math.round((branchTotal.completed / branchTotal.plan) * 1000) / 10
+        : 0;
+
+    return {
+      orgId,
+      orgName: org?.name ?? '',
+      planDate,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      totalEmployees: employees.length,
+      plan: branchTotal.plan,
+      completed: branchTotal.completed,
+      percent: branchPercent,
+      divisions,
+    };
+  }
+
+  /** Xodimlar reytingi (filial yoki bo'lim bo'yicha). */
+  async getEmployeeRanking(orgId: string, date?: string, division?: string) {
+    const planDate = this.parsePlanDate(date);
+    let employees = await this.getEmployeeIds(orgId);
+
+    if (division) {
+      const decoded = decodeURIComponent(division);
+      const nesRows = await this.nesEmployeeRepo
+        .createQueryBuilder('n')
+        .where('n.organization_id = :orgId', { orgId })
+        .select(['n.user_id AS "userId"', 'n.division AS division'])
+        .getRawMany<{ userId: string; division: string }>();
+      const divUsers = new Set(
+        nesRows
+          .filter((r) => {
+            const d = (r.division || '').trim() || "Bo'lim belgilanmagan";
+            return d === decoded;
+          })
+          .map((r) => r.userId),
+      );
+      employees = employees.filter((e) => divUsers.has(e.userId));
+    }
+
+    const userIds = employees.map((e) => e.userId);
+    const correctMap = await this.getUserCorrectMap([orgId], planDate, userIds);
+
+    const employees_ranked = employees
+      .map((emp) => {
+        const correct = correctMap.get(emp.userId) ?? 0;
+        const percent = Math.min(
+          100,
+          Math.round((correct / DAILY_GOAL_CORRECT) * 1000) / 10,
+        );
+        return {
+          userId: emp.userId,
+          fullName: `${emp.lastName} ${emp.firstName}`.trim(),
+          correct,
+          goal: DAILY_GOAL_CORRECT,
+          percent,
+          completed: correct >= DAILY_GOAL_CORRECT,
+          status: this.statusFromPercent(percent),
+        };
+      })
+      .sort((a, b) => b.percent - a.percent || a.fullName.localeCompare(b.fullName))
+      .map((e, i) => ({ ...e, rank: i + 1 }));
+
+    return {
+      orgId,
+      planDate,
+      division: division ? decodeURIComponent(division) : null,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      employees: employees_ranked,
+    };
+  }
+
+  /** Kun davomida bajarilish (soat bo'yicha kumulyativ). */
+  async getHourlyProgress(date?: string, orgId?: string) {
+    const planDate = this.parsePlanDate(date);
+    const { from: dayStart, to: dayEnd } = this.tashkentDayBounds(planDate);
+
+    const params: unknown[] = [dayStart, dayEnd, DAILY_GOAL_CORRECT];
+    let orgFilter = '';
+    if (orgId) {
+      orgFilter = 'AND a.organization_id = $4';
+      params.push(orgId);
+    }
+
+    const rows = (await this.attemptRepo.query(
+      `
+      WITH hourly AS (
+        SELECT
+          EXTRACT(HOUR FROM a.answered_at AT TIME ZONE 'Asia/Tashkent')::int AS hour,
+          a.user_id,
+          COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct) AS correct
+        FROM user_question_attempts a
+        INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
+        WHERE a.answered_at >= $1 AND a.answered_at < $2
+        ${orgFilter}
+        GROUP BY 1, a.user_id
+      ),
+      cumulative AS (
+        SELECT hour, user_id,
+          SUM(correct) OVER (PARTITION BY user_id ORDER BY hour) AS cum_correct
+        FROM hourly
+      )
+      SELECT hour,
+        COUNT(*) FILTER (WHERE cum_correct >= $3)::int AS completed_employees
+      FROM cumulative
+      GROUP BY hour
+      ORDER BY hour
+      `,
+      params,
+    )) as Array<{ hour: number; completed_employees: number }>;
+
+    const hours = Array.from({ length: 15 }, (_, i) => i + 6);
+    const byHour = new Map(rows.map((r) => [Number(r.hour), Number(r.completed_employees) || 0]));
+    let max = 1;
+    const points = hours.map((h) => {
+      const v = byHour.get(h) ?? 0;
+      if (v > max) max = v;
+      return { hour: h, label: `${String(h).padStart(2, '0')}:00`, completedEmployees: v };
+    });
+
+    return { planDate, orgId: orgId ?? null, points, maxCompleted: max };
+  }
+
+  /** Kunlik trend (oxirgi N kun). */
+  async getDailyTrend(
+    from?: string,
+    to?: string,
+    orgId?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const { from: rangeFrom, to: rangeTo } = this.parseRange(from, to);
+    const days = this.listDays(rangeFrom, rangeTo).slice(-30);
+
+    let orgIds: string[];
+    if (orgId) {
+      orgIds = [orgId];
+    } else {
+      const orgQb = this.orgRepo.createQueryBuilder('o').select(['o.id']);
+      if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+      orgIds = (await orgQb.getMany()).map((o) => o.id);
+    }
+
+    const empMap = await this.countEmployeesByOrg(orgIds);
+    const totalEmployees = [...empMap.values()].reduce((s, n) => s + n, 0);
+    const dailyPlan = totalEmployees * DAILY_GOAL_CORRECT;
+
+    const points: Array<{ date: string; percent: number; completed: number; plan: number }> = [];
+    for (const day of days) {
+      const correctMap = await this.getUserCorrectMap(orgIds, day);
+      let completed = 0;
+      for (const [, c] of correctMap) completed += c;
+      const percent = dailyPlan > 0 ? Math.round((completed / dailyPlan) * 1000) / 10 : 0;
+      points.push({ date: day, percent, completed, plan: dailyPlan });
+    }
+
+    return { dailyGoalCorrect: DAILY_GOAL_CORRECT, points };
+  }
+
+  /** Filiallar × hafta kuni heatmap. */
+  async getBranchWeekdayHeatmap(
+    from?: string,
+    to?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const { from: rangeFrom, to: rangeTo } = this.parseRange(from, to);
+    const orgQb = this.orgRepo
+      .createQueryBuilder('o')
+      .select(['o.id', 'o.name', 'o.isDefault']);
+    if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    const orgs = await orgQb.getMany();
+    const orgIds = orgs.map((o) => o.id);
+    if (!orgIds.length) return { weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], branches: [] };
+
+    const rows = (await this.attemptRepo.query(
+      `
+      SELECT
+        a.organization_id AS "orgId",
+        EXTRACT(DOW FROM a.answered_at AT TIME ZONE 'Asia/Tashkent')::int AS dow,
+        a.user_id,
+        (a.answered_at AT TIME ZONE 'Asia/Tashkent')::date AS day,
+        COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct) AS correct
+      FROM user_question_attempts a
+      INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
+      WHERE a.organization_id = ANY($1::uuid[])
+        AND a.answered_at >= $2 AND a.answered_at <= $3
+      GROUP BY 1, 2, 3, 4
+      `,
+      [orgIds, rangeFrom, rangeTo],
+    )) as Array<{ orgId: string; dow: number; user_id: string; day: string; correct: number }>;
+
+    const weekdays = [1, 2, 3, 4, 5];
+    const weekdayLabels = ['Dush', 'Sesh', 'Chor', 'Pay', 'Juma'];
+
+    const branches = orgs.map((o) => {
+      const cells = weekdays.map((dow) => {
+        const dayRows = rows.filter((r) => r.orgId === o.id && Number(r.dow) === dow);
+        const dayMap = new Map<string, Map<string, number>>();
+        for (const r of dayRows) {
+          if (!dayMap.has(r.day)) dayMap.set(r.day, new Map());
+          dayMap.get(r.day)!.set(r.user_id, Number(r.correct) || 0);
+        }
+        let totalPct = 0;
+        let count = 0;
+        for (const [, userMap] of dayMap) {
+          let dayCompleted = 0;
+          let dayPlan = 0;
+          for (const [, correct] of userMap) {
+            dayPlan += DAILY_GOAL_CORRECT;
+            dayCompleted += Math.min(correct, DAILY_GOAL_CORRECT);
+          }
+          if (dayPlan > 0) {
+            totalPct += (dayCompleted / dayPlan) * 100;
+            count++;
+          }
+        }
+        const avg = count > 0 ? Math.round(totalPct / count) : 0;
+        return { dow, label: weekdayLabels[weekdays.indexOf(dow)], percent: avg, status: this.statusFromPercent(avg) };
+      });
+      return { orgId: o.id, orgName: o.name, isDefault: !!o.isDefault, cells };
+    });
+
+    return { weekdays: weekdayLabels, branches };
+  }
+
+  /** Rejani bajarmayotganlar — filial / bo'lim / xodim soni. */
+  async getUnderperformers(
+    date?: string,
+    threshold = 70,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const ranking = await this.getBranchRanking(date, allowedOrgIds);
+    const badBranches = ranking.branches.filter((b) => b.percent < threshold);
+
+    let badDivisions = 0;
+    let badEmployees = 0;
+    const branchDetails: Array<{
+      orgId: string;
+      orgName: string;
+      percent: number;
+      divisions: Array<{ division: string; percent: number; employees: number }>;
+    }> = [];
+
+    for (const b of badBranches) {
+      const divSummary = await this.getDivisionSummary(b.orgId, date);
+      const badDivs = divSummary.divisions.filter((d) => d.percent < threshold);
+      badDivisions += badDivs.length;
+
+      const empRanking = await this.getEmployeeRanking(b.orgId, date);
+      const badEmps = empRanking.employees.filter((e) => e.percent < threshold);
+      badEmployees += badEmps.length;
+
+      branchDetails.push({
+        orgId: b.orgId,
+        orgName: b.orgName,
+        percent: b.percent,
+        divisions: badDivs.map((d) => ({
+          division: d.division,
+          percent: d.percent,
+          employees: d.totalEmployees,
+        })),
+      });
+    }
+
+    return {
+      planDate: ranking.planDate,
+      threshold,
+      branchCount: badBranches.length,
+      divisionCount: badDivisions,
+      employeeCount: badEmployees,
+      branches: branchDetails,
+    };
   }
 }
