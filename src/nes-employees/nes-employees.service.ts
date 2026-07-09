@@ -23,6 +23,7 @@ import { NesSyncGateway } from './nes-sync.gateway';
 import {
   extractPersonnelNumberFromLogin,
   resolvePersonnelNumber,
+  withPersonnelNumberSuffix,
 } from '../common/utils/personnel-number.util';
 
 @Injectable()
@@ -612,14 +613,38 @@ export class NesEmployeesService {
     return null;
   }
 
+  /** Bir filialda bir xil tabel raqam bo'lsa oxiriga 1, 2, ... qo'shib noyob qiladi. */
+  private async resolveUniquePersonnelNumberInOrg(
+    basePersonnelNumber: string,
+    organizationName: string,
+    userId: string,
+    existingMirrorId?: string | null,
+  ): Promise<string> {
+    for (let suffix = 0; suffix <= 99; suffix += 1) {
+      const candidate = withPersonnelNumberSuffix(basePersonnelNumber, suffix);
+      const conflict = await this.employeeRepo.findOne({
+        where: { personnelNumber: candidate, organizationName },
+      });
+      if (!conflict) return candidate;
+      if (conflict.userId === userId) return candidate;
+      if (existingMirrorId && conflict.id === existingMirrorId) return candidate;
+    }
+
+    const fallback = `${basePersonnelNumber}${Date.now() % 10000}`;
+    this.logger.warn(
+      `Tabel raqam noyoblashtirilmadi (${basePersonnelNumber}, ${organizationName}) — ${fallback} ishlatildi`,
+    );
+    return fallback;
+  }
+
   private async upsertEnergoEmployeeMirror(user: User, employee: EnergoIdUser) {
     const organization = await this.resolveEmployeeOrganization(employee);
     await this.attachUserToOrganization(user.id, organization.id);
 
     const organizationName = organization.name;
 
-    const personnelNumber = resolvePersonnelNumber(employee);
-    if (!personnelNumber) {
+    const basePersonnelNumber = resolvePersonnelNumber(employee);
+    if (!basePersonnelNumber) {
       this.logger.warn(
         `Tabel raqami topilmadi, mirror o'tkazib yuborildi: ${employee.login}`,
       );
@@ -629,9 +654,22 @@ export class NesEmployeesService {
     let existing = await this.findNesMirrorForUpsert(
       user,
       employee,
-      personnelNumber,
+      basePersonnelNumber,
       organizationName,
     );
+
+    const personnelNumber = await this.resolveUniquePersonnelNumberInOrg(
+      basePersonnelNumber,
+      organizationName,
+      user.id,
+      existing?.id,
+    );
+
+    if (personnelNumber !== basePersonnelNumber) {
+      this.logger.warn(
+        `Filial "${organizationName}" da tabel ${basePersonnelNumber} band — ${personnelNumber} ishlatildi: ${employee.login}`,
+      );
+    }
 
     const payload = {
       personnelNumber,
