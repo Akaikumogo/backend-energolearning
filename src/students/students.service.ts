@@ -8,6 +8,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Brackets, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { Role } from '../common/enums/role.enum';
+import {
+  listTashkentDays,
+  parseTashkentRange,
+  tashkentToday,
+} from '../common/utils/tashkent-time.util';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { UsersService } from '../users/users.service';
 import { User } from '../database/entities/user.entity';
@@ -377,9 +382,12 @@ export class StudentsService {
       throw new NotFoundException('Xodim topilmadi');
     }
 
-    const since = new Date();
-    since.setDate(since.getDate() - 27);
-    since.setHours(0, 0, 0, 0);
+    const { from: since, to: rangeTo, fromStr, toStr } = parseTashkentRange(
+      undefined,
+      tashkentToday(),
+      28,
+    );
+    const dayKeys = listTashkentDays(fromStr, toStr);
 
     const orgIds =
       requestingUser.role === Role.MODERATOR
@@ -395,20 +403,13 @@ export class StudentsService {
         orgIds.includes(uo.organization?.id ?? ''),
       );
       if (!allowed) {
-        const result: { date: string; count: number }[] = [];
-        for (let i = 0; i < 28; i++) {
-          const d = new Date(since);
-          d.setDate(since.getDate() + i);
-          const key = d.toISOString().slice(0, 10);
-          result.push({ date: key, count: 0 });
-        }
-        return result;
+        return dayKeys.map((date) => ({ date, count: 0 }));
       }
     }
 
     const rows = await this.attemptRepo
       .createQueryBuilder('a')
-      .select("TO_CHAR(a.answered_at, 'YYYY-MM-DD')", 'date')
+      .select("TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')", 'date')
       .addSelect('COUNT(*)', 'count')
       .where('a.user_id = :userId', { userId: studentId })
       .andWhere(
@@ -417,21 +418,13 @@ export class StudentsService {
           : '1=1',
         { orgIds: orgIds ?? [] },
       )
-      .andWhere('a.answered_at >= :since', { since })
-      .groupBy("TO_CHAR(a.answered_at, 'YYYY-MM-DD')")
+      .andWhere('a.answered_at >= :since AND a.answered_at < :rangeTo', { since, rangeTo })
+      .groupBy("TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')")
       .orderBy('"date"', 'ASC')
       .getRawMany();
 
-    const result: { date: string; count: number }[] = [];
-    for (let i = 0; i < 28; i++) {
-      const d = new Date(since);
-      d.setDate(since.getDate() + i);
-      const key = d.toISOString().slice(0, 10);
-      const found = rows.find((r) => r.date === key);
-      result.push({ date: key, count: found ? parseInt(found.count, 10) : 0 });
-    }
-
-    return result;
+    const countByDate = new Map(rows.map((r) => [r.date, Number(r.count) || 0]));
+    return dayKeys.map((date) => ({ date, count: countByDate.get(date) ?? 0 }));
   }
 
   async getEmployeeCertificate(

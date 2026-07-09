@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Between, IsNull, LessThan, Repository } from 'typeorm';
+import { Between, In, IsNull, LessThan, Repository } from 'typeorm';
 import {
   ActivityEventType,
   UserActivityEvent,
@@ -14,6 +14,7 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { Question } from '../database/entities/question.entity';
 import { Role } from '../common/enums/role.enum';
 import { ActivityRange, UserGroup } from './dto/activity-query.dto';
+import { tashkentDayBounds, tashkentToday } from '../common/utils/tashkent-time.util';
 
 const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 daqiqa idle => offline
 
@@ -489,6 +490,7 @@ export class UserActivityService {
           where: {
             eventType: ActivityEventType.LOGIN,
             createdAt: Between(todayFrom, todayTo),
+            userId: In(userIds),
           },
         })
       : 0;
@@ -637,12 +639,14 @@ export class UserActivityService {
   }
 
   private resolveRange(range: ActivityRange): { from: Date; to: Date } {
+    if (range === ActivityRange.DAY) {
+      const { from, to } = tashkentDayBounds(tashkentToday());
+      return { from, to: new Date(to.getTime() - 1) };
+    }
+
     const to = new Date();
     const from = new Date(to);
     switch (range) {
-      case ActivityRange.DAY:
-        from.setHours(0, 0, 0, 0);
-        break;
       case ActivityRange.WEEK:
         from.setDate(from.getDate() - 7);
         break;
@@ -651,6 +655,8 @@ export class UserActivityService {
         break;
       case ActivityRange.YEAR:
         from.setFullYear(from.getFullYear() - 1);
+        break;
+      default:
         break;
     }
     return { from, to };
