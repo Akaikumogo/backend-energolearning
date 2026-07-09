@@ -1367,70 +1367,133 @@ export class BranchAnalyticsService {
     return { dailyGoalCorrect: DAILY_GOAL_CORRECT, points };
   }
 
-  /** Filiallar × hafta kuni heatmap. */
+  /** Filiallar × hafta kuni heatmap (barcha xodimlar asosida, faqat faollar emas). */
   async getBranchWeekdayHeatmap(
     from?: string,
     to?: string,
     allowedOrgIds: string[] | null = null,
   ) {
     const { from: rangeFrom, to: rangeTo } = this.parseRange(from, to);
+    const days = this.listDays(rangeFrom, rangeTo);
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault']);
     if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
-    const orgs = await orgQb.getMany();
+    const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
-    if (!orgIds.length) return { weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], branches: [] };
+    if (!orgIds.length) {
+      return { weekdays: ['Dush', 'Sesh', 'Chor', 'Pay', 'Juma'], branches: [], rangeFrom: '', rangeTo: '' };
+    }
 
-    const rows = (await this.attemptRepo.query(
+    const empCountMap = await this.countEmployeesByOrg(orgIds);
+
+    const orgUsersRows = await this.userRepo
+      .createQueryBuilder('u')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role = :role', { role: Role.USER })
+      .select('org.id', 'orgId')
+      .addSelect('u.id', 'userId')
+      .getRawMany<{ orgId: string; userId: string }>();
+
+    const usersByOrg = new Map<string, string[]>();
+    for (const r of orgUsersRows) {
+      if (!usersByOrg.has(r.orgId)) usersByOrg.set(r.orgId, []);
+      usersByOrg.get(r.orgId)!.push(r.userId);
+    }
+
+    const rangeEnd = new Date(rangeTo);
+    rangeEnd.setHours(23, 59, 59, 999);
+
+    const attemptRows = (await this.attemptRepo.query(
       `
       SELECT
         a.organization_id AS "orgId",
-        EXTRACT(DOW FROM a.answered_at AT TIME ZONE 'Asia/Tashkent')::int AS dow,
-        a.user_id,
-        (a.answered_at AT TIME ZONE 'Asia/Tashkent')::date AS day,
-        COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct) AS correct
+        TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') AS day,
+        a.user_id AS "userId",
+        LEAST(COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct), $4)::int AS correct
       FROM user_question_attempts a
       INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
       WHERE a.organization_id = ANY($1::uuid[])
         AND a.answered_at >= $2 AND a.answered_at <= $3
-      GROUP BY 1, 2, 3, 4
+      GROUP BY 1, 2, 3
       `,
-      [orgIds, rangeFrom, rangeTo],
-    )) as Array<{ orgId: string; dow: number; user_id: string; day: string; correct: number }>;
+      [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT],
+    )) as Array<{ orgId: string; day: string; userId: string; correct: number }>;
 
-    const weekdays = [1, 2, 3, 4, 5];
+    // orgId -> day -> userId -> correct
+    const correctLookup = new Map<string, Map<string, Map<string, number>>>();
+    for (const r of attemptRows) {
+      if (!correctLookup.has(r.orgId)) correctLookup.set(r.orgId, new Map());
+      const dayMap = correctLookup.get(r.orgId)!;
+      if (!dayMap.has(r.day)) dayMap.set(r.day, new Map());
+      dayMap.get(r.day)!.set(r.userId, Number(r.correct) || 0);
+    }
+
     const weekdayLabels = ['Dush', 'Sesh', 'Chor', 'Pay', 'Juma'];
+    const weekdayDows = [1, 2, 3, 4, 5];
+
+    const tashkentDow = (dateStr: string): number => {
+      const d = new Date(`${dateStr}T12:00:00.000+05:00`);
+      return d.getUTCDay();
+    };
 
     const branches = orgs.map((o) => {
-      const cells = weekdays.map((dow) => {
-        const dayRows = rows.filter((r) => r.orgId === o.id && Number(r.dow) === dow);
-        const dayMap = new Map<string, Map<string, number>>();
-        for (const r of dayRows) {
-          if (!dayMap.has(r.day)) dayMap.set(r.day, new Map());
-          dayMap.get(r.day)!.set(r.user_id, Number(r.correct) || 0);
+      const totalEmployees = empCountMap.get(o.id) ?? 0;
+      const userIds = usersByOrg.get(o.id) ?? [];
+      const dailyPlan = totalEmployees * DAILY_GOAL_CORRECT;
+
+      const dowBuckets = new Map<number, { sumPct: number; dayCount: number }>();
+      for (const dow of weekdayDows) {
+        dowBuckets.set(dow, { sumPct: 0, dayCount: 0 });
+      }
+
+      for (const day of days) {
+        const dow = tashkentDow(day);
+        if (!weekdayDows.includes(dow)) continue;
+        if (dailyPlan <= 0) continue;
+
+        const dayCorrect = correctLookup.get(o.id)?.get(day);
+        let completed = 0;
+        for (const uid of userIds) {
+          completed += Math.min(dayCorrect?.get(uid) ?? 0, DAILY_GOAL_CORRECT);
         }
-        let totalPct = 0;
-        let count = 0;
-        for (const [, userMap] of dayMap) {
-          let dayCompleted = 0;
-          let dayPlan = 0;
-          for (const [, correct] of userMap) {
-            dayPlan += DAILY_GOAL_CORRECT;
-            dayCompleted += Math.min(correct, DAILY_GOAL_CORRECT);
-          }
-          if (dayPlan > 0) {
-            totalPct += (dayCompleted / dayPlan) * 100;
-            count++;
-          }
-        }
-        const avg = count > 0 ? Math.round(totalPct / count) : 0;
-        return { dow, label: weekdayLabels[weekdays.indexOf(dow)], percent: avg, status: this.statusFromPercent(avg) };
+        const pct = Math.round((completed / dailyPlan) * 1000) / 10;
+        const bucket = dowBuckets.get(dow)!;
+        bucket.sumPct += pct;
+        bucket.dayCount += 1;
+      }
+
+      const cells = weekdayDows.map((dow) => {
+        const bucket = dowBuckets.get(dow)!;
+        const percent =
+          bucket.dayCount > 0
+            ? Math.round((bucket.sumPct / bucket.dayCount) * 10) / 10
+            : 0;
+        return {
+          dow,
+          label: weekdayLabels[weekdayDows.indexOf(dow)],
+          percent,
+          sampleDays: bucket.dayCount,
+          totalEmployees,
+          status: this.statusFromPercent(percent),
+        };
       });
-      return { orgId: o.id, orgName: o.name, isDefault: !!o.isDefault, cells };
+
+      return { orgId: o.id, orgName: o.name, isDefault: !!o.isDefault, totalEmployees, cells };
     });
 
-    return { weekdays: weekdayLabels, branches };
+    const rangeFromStr = days[0] ?? '';
+    const rangeToStr = days[days.length - 1] ?? '';
+
+    return {
+      weekdays: weekdayLabels,
+      branches,
+      rangeFrom: rangeFromStr,
+      rangeTo: rangeToStr,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+    };
   }
 
   /** Rejani bajarmayotganlar — filial / bo'lim / xodim soni. */
