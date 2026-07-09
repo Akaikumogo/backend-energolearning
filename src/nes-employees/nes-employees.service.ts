@@ -613,21 +613,60 @@ export class NesEmployeesService {
     return null;
   }
 
+  private isDuplicatePersonnelOrgError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      message.includes('duplicate key') ||
+      message.includes('UQ_nes_employee_number_org') ||
+      message.includes('nes_employees_personnel_number_key')
+    );
+  }
+
+  /** Bir filialda (organization_id/name) tabel raqam bandligini tekshiradi. */
+  private async hasPersonnelOrgConflict(
+    candidate: string,
+    organizationId: string,
+    organizationName: string,
+    userId: string,
+    excludeMirrorId?: string | null,
+  ): Promise<boolean> {
+    const qb = this.employeeRepo
+      .createQueryBuilder('e')
+      .where('e.personnel_number = :candidate', { candidate })
+      .andWhere(
+        '(e.organization_id = :organizationId OR TRIM(e.organization_name) = TRIM(:organizationName))',
+        { organizationId, organizationName: organizationName.trim() },
+      );
+
+    if (excludeMirrorId) {
+      qb.andWhere('e.id != :excludeMirrorId', { excludeMirrorId });
+    }
+
+    const conflict = await qb.getOne();
+    if (!conflict) return false;
+    if (conflict.userId === userId) return false;
+    return true;
+  }
+
   /** Bir filialda bir xil tabel raqam bo'lsa oxiriga 1, 2, ... qo'shib noyob qiladi. */
   private async resolveUniquePersonnelNumberInOrg(
     basePersonnelNumber: string,
+    organizationId: string,
     organizationName: string,
     userId: string,
     existingMirrorId?: string | null,
+    startSuffix = 0,
   ): Promise<string> {
-    for (let suffix = 0; suffix <= 99; suffix += 1) {
+    for (let suffix = startSuffix; suffix <= 99; suffix += 1) {
       const candidate = withPersonnelNumberSuffix(basePersonnelNumber, suffix);
-      const conflict = await this.employeeRepo.findOne({
-        where: { personnelNumber: candidate, organizationName },
-      });
-      if (!conflict) return candidate;
-      if (conflict.userId === userId) return candidate;
-      if (existingMirrorId && conflict.id === existingMirrorId) return candidate;
+      const hasConflict = await this.hasPersonnelOrgConflict(
+        candidate,
+        organizationId,
+        organizationName,
+        userId,
+        existingMirrorId,
+      );
+      if (!hasConflict) return candidate;
     }
 
     const fallback = `${basePersonnelNumber}${Date.now() % 10000}`;
@@ -637,11 +676,77 @@ export class NesEmployeesService {
     return fallback;
   }
 
+  private async persistNesEmployeeMirror(
+    basePersonnelNumber: string,
+    organizationId: string,
+    organizationName: string,
+    userId: string,
+    payload: Omit<
+      Partial<NesEmployee>,
+      'personnelNumber' | 'userId' | 'organizationId' | 'organizationName'
+    >,
+    existing: NesEmployee | null,
+    login: string,
+  ): Promise<void> {
+    let mirror = existing;
+    let startSuffix = 0;
+
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const personnelNumber = await this.resolveUniquePersonnelNumberInOrg(
+        basePersonnelNumber,
+        organizationId,
+        organizationName,
+        userId,
+        mirror?.id,
+        startSuffix,
+      );
+      startSuffix =
+        personnelNumber === basePersonnelNumber
+          ? 1
+          : Number.parseInt(personnelNumber.slice(basePersonnelNumber.length), 10) + 1;
+
+      const record = {
+        ...payload,
+        personnelNumber,
+        userId,
+        organizationId,
+        organizationName,
+      };
+
+      try {
+        if (!mirror) {
+          mirror = await this.employeeRepo.save(this.employeeRepo.create(record));
+        } else {
+          Object.assign(mirror, record);
+          mirror = await this.employeeRepo.save(mirror);
+        }
+
+        if (personnelNumber !== basePersonnelNumber) {
+          this.logger.warn(
+            `Filial "${organizationName}" da tabel ${basePersonnelNumber} band — ${personnelNumber} ishlatildi: ${login}`,
+          );
+        }
+        return;
+      } catch (error) {
+        if (!this.isDuplicatePersonnelOrgError(error)) throw error;
+
+        mirror =
+          (await this.employeeRepo.findOne({ where: { userId } })) ?? mirror;
+        this.logger.warn(
+          `Tabel ${personnelNumber} duplicate, qayta uriniladi: ${login}`,
+        );
+      }
+    }
+
+    throw new Error(`nes mirror saqlanmadi: ${login}`);
+  }
+
   private async upsertEnergoEmployeeMirror(user: User, employee: EnergoIdUser) {
     const organization = await this.resolveEmployeeOrganization(employee);
     await this.attachUserToOrganization(user.id, organization.id);
 
-    const organizationName = organization.name;
+    const organizationName = organization.name.trim();
+    const organizationId = organization.id;
 
     const basePersonnelNumber = resolvePersonnelNumber(employee);
     if (!basePersonnelNumber) {
@@ -651,72 +756,36 @@ export class NesEmployeesService {
       return;
     }
 
-    let existing = await this.findNesMirrorForUpsert(
+    const existing = await this.findNesMirrorForUpsert(
       user,
       employee,
       basePersonnelNumber,
       organizationName,
     );
 
-    const personnelNumber = await this.resolveUniquePersonnelNumberInOrg(
+    await this.persistNesEmployeeMirror(
       basePersonnelNumber,
+      organizationId,
       organizationName,
       user.id,
-      existing?.id,
+      {
+        division: employee.division ?? '',
+        post: employee.post ?? '',
+        fullName: `${employee.lastName ?? ''} ${employee.firstName ?? ''}`.trim(),
+        lastName: employee.lastName ?? '',
+        firstName: employee.firstName ?? '',
+        middleName: '',
+        modifiedAt: null,
+        hiredAt: null,
+        login: employee.login,
+        initialPassword:
+          employee.initialPassword ?? existing?.initialPassword ?? null,
+        rawPayload: employee as unknown as Record<string, unknown>,
+        lastSyncedAt: new Date(),
+      },
+      existing,
+      employee.login,
     );
-
-    if (personnelNumber !== basePersonnelNumber) {
-      this.logger.warn(
-        `Filial "${organizationName}" da tabel ${basePersonnelNumber} band — ${personnelNumber} ishlatildi: ${employee.login}`,
-      );
-    }
-
-    const payload = {
-      personnelNumber,
-      userId: user.id,
-      organizationId: organization.id,
-      organizationName,
-      division: employee.division ?? '',
-      post: employee.post ?? '',
-      fullName: `${employee.lastName ?? ''} ${employee.firstName ?? ''}`.trim(),
-      lastName: employee.lastName ?? '',
-      firstName: employee.firstName ?? '',
-      middleName: '',
-      modifiedAt: null,
-      hiredAt: null,
-      login: employee.login,
-      initialPassword: employee.initialPassword ?? existing?.initialPassword ?? null,
-      rawPayload: employee as unknown as Record<string, unknown>,
-      lastSyncedAt: new Date(),
-    };
-
-    if (!existing) {
-      try {
-        await this.employeeRepo.save(this.employeeRepo.create(payload));
-        await this.syncUserInitialPassword(user.id, employee.initialPassword);
-        return;
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
-        if (
-          !message.includes('duplicate key') &&
-          !message.includes('UQ_nes_employee_number_org') &&
-          !message.includes('nes_employees_personnel_number_key')
-        ) {
-          throw error;
-        }
-        existing =
-          (await this.employeeRepo.findOne({ where: { userId: user.id } })) ??
-          (await this.employeeRepo.findOne({
-            where: { personnelNumber, organizationName },
-          })) ??
-          (await this.employeeRepo.findOne({ where: { personnelNumber } }));
-        if (!existing) throw error;
-      }
-    }
-
-    Object.assign(existing, payload);
-    await this.employeeRepo.save(existing);
     await this.syncUserInitialPassword(user.id, employee.initialPassword);
   }
 
