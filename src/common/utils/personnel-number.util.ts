@@ -27,3 +27,12 @@ export function resolvePersonnelNumber(source: PersonnelSource): string | null {
     extractPersonnelNumberFromLogin(source.email)
   );
 }
+
+/** Bir filialda tabel raqam to'qnashganda oxiriga suffix qo'shadi (6109 → 61091). */
+export function withPersonnelNumberSuffix(
+  base: string,
+  suffix: number,
+): string {
+  if (suffix <= 0) return base;
+  return `${base}${suffix}`;
+}
