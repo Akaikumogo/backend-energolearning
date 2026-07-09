@@ -266,13 +266,19 @@ export class BranchAnalyticsController {
   @ApiOperation({ summary: 'Filiallar × hafta kuni heatmap' })
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })
+  @ApiQuery({ name: 'orgId', required: false })
   async weekdayHeatmap(
     @Query('from') from: string | undefined,
     @Query('to') to: string | undefined,
+    @Query('orgId') orgId: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
     const allowedOrgIds = await this.moderatorOrgIds(req);
-    return this.analyticsService.getBranchWeekdayHeatmap(from, to, allowedOrgIds);
+    let safeOrgId: string | undefined;
+    if (orgId) {
+      safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
+    }
+    return this.analyticsService.getBranchWeekdayHeatmap(from, to, allowedOrgIds, safeOrgId);
   }
 
   @Get('underperformers')

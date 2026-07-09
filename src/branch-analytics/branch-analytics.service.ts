@@ -18,10 +18,15 @@ import {
   DAILY_GOAL_CORRECT,
   MIN_DAILY_PLAN_QUESTIONS,
 } from './daily-plan.service';
+import {
+  listTashkentDays,
+  parseTashkentRange,
+  tashkentDayBounds,
+  tashkentMonthBounds,
+  tashkentToday,
+} from '../common/utils/tashkent-time.util';
 
 export type DayStatus = 'active' | 'offline' | 'never';
-
-const TZ_OFFSET_MS = 5 * 3600 * 1000; // Asia/Tashkent (UTC+5, DST yo'q)
 
 @Injectable()
 export class BranchAnalyticsService {
@@ -62,60 +67,17 @@ export class BranchAnalyticsService {
     return orgId;
   }
 
-  /** Toshkent bo'yicha bugungi sana (YYYY-MM-DD). */
-  private tashkentToday(): string {
-    return new Date(Date.now() + TZ_OFFSET_MS).toISOString().slice(0, 10);
-  }
-
-  /** Toshkent kuni chegaralari (UTC instantlarda). */
-  private tashkentDayBounds(dateStr: string): { from: Date; to: Date } {
-    const from = new Date(`${dateStr}T00:00:00.000+05:00`);
-    return { from, to: new Date(from.getTime() + 24 * 3600 * 1000) };
-  }
-
-  /** Oy chegaralari va oy kunlari soni. month: YYYY-MM (Toshkent). */
-  private tashkentMonthBounds(month?: string): {
-    month: string;
-    daysInMonth: number;
+  private parseRange(from?: string, to?: string): {
     from: Date;
     to: Date;
+    fromStr: string;
+    toStr: string;
   } {
-    const m = /^\d{4}-\d{2}$/.test(month ?? '')
-      ? (month as string)
-      : this.tashkentToday().slice(0, 7);
-    const [y, mo] = m.split('-').map(Number);
-    const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-    const from = new Date(`${m}-01T00:00:00.000+05:00`);
-    const nextMonth =
-      mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
-    const to = new Date(`${nextMonth}-01T00:00:00.000+05:00`);
-    return { month: m, daysInMonth, from, to };
+    return parseTashkentRange(from, to, 28);
   }
 
-  private parseRange(from?: string, to?: string): { from: Date; to: Date } {
-    const end = to ? new Date(`${to}T23:59:59.999Z`) : new Date();
-    const start = from
-      ? new Date(`${from}T00:00:00.000Z`)
-      : (() => {
-          const d = new Date(end);
-          d.setDate(d.getDate() - 27);
-          d.setHours(0, 0, 0, 0);
-          return d;
-        })();
-    return { from: start, to: end };
-  }
-
-  private listDays(from: Date, to: Date): string[] {
-    const days: string[] = [];
-    const cur = new Date(from);
-    cur.setHours(0, 0, 0, 0);
-    const end = new Date(to);
-    end.setHours(0, 0, 0, 0);
-    while (cur <= end) {
-      days.push(cur.toISOString().slice(0, 10));
-      cur.setDate(cur.getDate() + 1);
-    }
-    return days;
+  private listDays(fromStr: string, toStr: string): string[] {
+    return listTashkentDays(fromStr, toStr);
   }
 
   private async getAvailableLevelIdsForUser(userId: string): Promise<string[]> {
@@ -230,7 +192,7 @@ export class BranchAnalyticsService {
     from?: string,
     to?: string,
   ) {
-    const { from: rangeFrom, to: rangeTo } = this.parseRange(from, to);
+    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
     const employees = await this.getEmployeeIds(orgId);
     const userIds = employees.map((e) => e.userId);
 
@@ -238,8 +200,8 @@ export class BranchAnalyticsService {
       return {
         orgId,
         range: {
-          from: rangeFrom.toISOString().slice(0, 10),
-          to: rangeTo.toISOString().slice(0, 10),
+          from: fromStr,
+          to: toStr,
         },
         totalEmployees: 0,
         firstLoginCount: 0,
@@ -268,26 +230,23 @@ export class BranchAnalyticsService {
       .select('DISTINCT a.user_id', 'userId')
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
-      .andWhere('a.answered_at BETWEEN :from AND :to', {
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
         from: rangeFrom,
         to: rangeTo,
       })
       .getRawMany();
     const quizTakersCount = quizTakers.length;
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const { from: todayFrom, to: todayTo } = tashkentDayBounds(tashkentToday());
 
     const activeToday = await this.attemptRepo
       .createQueryBuilder('a')
       .select('DISTINCT a.user_id', 'userId')
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
-      .andWhere('a.answered_at BETWEEN :from AND :to', {
-        from: todayStart,
-        to: todayEnd,
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
+        from: todayFrom,
+        to: todayTo,
       })
       .getRawMany();
 
@@ -298,7 +257,7 @@ export class BranchAnalyticsService {
       .select('DISTINCT a.user_id', 'userId')
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
-      .andWhere('a.answered_at BETWEEN :from AND :to', {
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
         from: rangeFrom,
         to: rangeTo,
       })
@@ -310,7 +269,7 @@ export class BranchAnalyticsService {
 
     // Bugun kunlik planni bajarganlar: Toshkent kuni ichida kamida
     // DAILY_GOAL_CORRECT ta har xil savolga to'g'ri javob berganlar.
-    const { from: tFrom, to: tTo } = this.tashkentDayBounds(this.tashkentToday());
+    const { from: tFrom, to: tTo } = tashkentDayBounds(tashkentToday());
     const completedTodayRows = await this.attemptRepo
       .createQueryBuilder('a')
       .select('a.user_id', 'userId')
@@ -330,8 +289,8 @@ export class BranchAnalyticsService {
     return {
       orgId,
       range: {
-        from: rangeFrom.toISOString().slice(0, 10),
-        to: rangeTo.toISOString().slice(0, 10),
+        from: fromStr,
+        to: toStr,
       },
       totalEmployees: employees.length,
       firstLoginCount,
@@ -345,8 +304,8 @@ export class BranchAnalyticsService {
   }
 
   async getActivityMatrix(orgId: string, from?: string, to?: string) {
-    const { from: rangeFrom, to: rangeTo } = this.parseRange(from, to);
-    const days = this.listDays(rangeFrom, rangeTo);
+    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
+    const days = this.listDays(fromStr, toStr);
     const employees = await this.getEmployeeIds(orgId);
     const userIds = employees.map((e) => e.userId);
 
@@ -357,30 +316,30 @@ export class BranchAnalyticsService {
     const attemptRows = await this.attemptRepo
       .createQueryBuilder('a')
       .select('a.user_id', 'userId')
-      .addSelect("TO_CHAR(a.answered_at, 'YYYY-MM-DD')", 'day')
+      .addSelect("TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')", 'day')
       .addSelect('COUNT(*)::int', 'count')
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
-      .andWhere('a.answered_at BETWEEN :from AND :to', {
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
         from: rangeFrom,
         to: rangeTo,
       })
       .groupBy('a.user_id')
-      .addGroupBy("TO_CHAR(a.answered_at, 'YYYY-MM-DD')")
+      .addGroupBy("TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')")
       .getRawMany<{ userId: string; day: string; count: number }>();
 
     const sessionRows = await this.sessionRepo
       .createQueryBuilder('s')
       .select('s.user_id', 'userId')
-      .addSelect("TO_CHAR(s.login_at, 'YYYY-MM-DD')", 'day')
+      .addSelect("TO_CHAR(s.login_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')", 'day')
       .where('s.user_id IN (:...userIds)', { userIds })
       .andWhere('s.organization_id = :orgId', { orgId })
-      .andWhere('s.login_at BETWEEN :from AND :to', {
+      .andWhere('s.login_at >= :from AND s.login_at < :to', {
         from: rangeFrom,
         to: rangeTo,
       })
       .groupBy('s.user_id')
-      .addGroupBy("TO_CHAR(s.login_at, 'YYYY-MM-DD')")
+      .addGroupBy("TO_CHAR(s.login_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')")
       .getRawMany<{ userId: string; day: string }>();
 
     const firstLoginRows = await this.sessionRepo
@@ -439,11 +398,11 @@ export class BranchAnalyticsService {
 
   async getDailyPlanResult(orgId: string, date?: string) {
     const planDate =
-      date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : this.tashkentToday();
+      date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : tashkentToday();
 
     const employees = await this.getEmployeeIds(orgId);
     const userIds = employees.map((e) => e.userId);
-    const { from: dayStart, to: dayEnd } = this.tashkentDayBounds(planDate);
+    const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
     // Yangi model: plan bajarilishi shu kunda DAILY_GOAL_CORRECT ta har xil
     // savolga TO'G'RI javob berish bilan o'lchanadi — savollar plan
@@ -526,8 +485,8 @@ export class BranchAnalyticsService {
 
   /** Bugungi (Toshkent) plan statistikasi: sariq/yashil/qizil chiplar uchun. */
   private async getDayPlanStats(userId: string, organizationId: string) {
-    const planDate = this.tashkentToday();
-    const { from: dayStart, to: dayEnd } = this.tashkentDayBounds(planDate);
+    const planDate = tashkentToday();
+    const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
     const row = await this.attemptRepo
       .createQueryBuilder('a')
@@ -683,10 +642,10 @@ export class BranchAnalyticsService {
     }
 
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
-    const fromStr = from && dateRe.test(from) ? from : this.tashkentToday();
+    const fromStr = from && dateRe.test(from) ? from : tashkentToday();
     const toStr = to && dateRe.test(to) ? to : fromStr;
-    const rangeFrom = this.tashkentDayBounds(fromStr).from;
-    const rangeTo = this.tashkentDayBounds(toStr).to;
+    const rangeFrom = tashkentDayBounds(fromStr).from;
+    const rangeTo = tashkentDayBounds(toStr).to;
 
     const safeLimit = Math.min(Math.max(1, limit), 200);
     const safePage = Math.max(1, page);
@@ -785,7 +744,7 @@ export class BranchAnalyticsService {
     const org = await this.orgRepo.findOne({ where: { id: orgId } });
     if (!org) throw new NotFoundException('Tashkilot topilmadi');
 
-    const { month: m, daysInMonth, from, to } = this.tashkentMonthBounds(month);
+    const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
     const employees = await this.getEmployeeIds(orgId);
     const userIds = employees.map((e) => e.userId);
 
@@ -903,7 +862,7 @@ export class BranchAnalyticsService {
    * allowedOrgIds = null — barcha filiallar (SUPERADMIN).
    */
   async getBranchComparison(month?: string, allowedOrgIds: string[] | null = null) {
-    const { month: m, daysInMonth, from, to } = this.tashkentMonthBounds(month);
+    const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
 
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
@@ -985,7 +944,7 @@ export class BranchAnalyticsService {
   }
 
   private parsePlanDate(date?: string): string {
-    return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : this.tashkentToday();
+    return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : tashkentToday();
   }
 
   private statusFromPercent(p: number): 'green' | 'yellow' | 'red' {
@@ -1001,16 +960,18 @@ export class BranchAnalyticsService {
     userIds?: string[],
   ): Promise<Map<string, number>> {
     if (orgIds.length === 0) return new Map();
-    const { from: dayStart, to: dayEnd } = this.tashkentDayBounds(planDate);
+    const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
     const qb = this.attemptRepo
       .createQueryBuilder('a')
+      .innerJoin(User, 'u', 'u.id = a.user_id')
       .select('a.user_id', 'userId')
       .addSelect(
         'LEAST(COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct), :goal)::int',
         'correct',
       )
       .where('a.organization_id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role = :role', { role: Role.USER })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
         from: dayStart,
         to: dayEnd,
@@ -1284,7 +1245,7 @@ export class BranchAnalyticsService {
   /** Kun davomida bajarilish (soat bo'yicha kumulyativ). */
   async getHourlyProgress(date?: string, orgId?: string) {
     const planDate = this.parsePlanDate(date);
-    const { from: dayStart, to: dayEnd } = this.tashkentDayBounds(planDate);
+    const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
     const params: unknown[] = [dayStart, dayEnd, DAILY_GOAL_CORRECT];
     let orgFilter = '';
@@ -1295,25 +1256,33 @@ export class BranchAnalyticsService {
 
     const rows = (await this.attemptRepo.query(
       `
-      WITH hourly AS (
+      WITH tz_attempts AS (
         SELECT
           EXTRACT(HOUR FROM a.answered_at AT TIME ZONE 'Asia/Tashkent')::int AS hour,
           a.user_id,
-          COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct) AS correct
+          a.question_id,
+          a.is_correct
         FROM user_question_attempts a
         INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
         WHERE a.answered_at >= $1 AND a.answered_at < $2
         ${orgFilter}
-        GROUP BY 1, a.user_id
       ),
-      cumulative AS (
-        SELECT hour, user_id,
-          SUM(correct) OVER (PARTITION BY user_id ORDER BY hour) AS cum_correct
-        FROM hourly
+      hours AS (
+        SELECT generate_series(6, 20) AS hour
+      ),
+      user_hour_cumulative AS (
+        SELECT
+          h.hour,
+          t.user_id,
+          COUNT(DISTINCT t.question_id) FILTER (WHERE t.is_correct) AS distinct_correct
+        FROM hours h
+        INNER JOIN tz_attempts t ON t.hour <= h.hour
+        GROUP BY h.hour, t.user_id
       )
-      SELECT hour,
-        COUNT(*) FILTER (WHERE cum_correct >= $3)::int AS completed_employees
-      FROM cumulative
+      SELECT
+        hour,
+        COUNT(*) FILTER (WHERE distinct_correct >= $3)::int AS completed_employees
+      FROM user_hour_cumulative
       GROUP BY hour
       ORDER BY hour
       `,
@@ -1339,8 +1308,8 @@ export class BranchAnalyticsService {
     orgId?: string,
     allowedOrgIds: string[] | null = null,
   ) {
-    const { from: rangeFrom, to: rangeTo } = this.parseRange(from, to);
-    const days = this.listDays(rangeFrom, rangeTo).slice(-30);
+    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
+    const days = this.listDays(fromStr, toStr).slice(-30);
 
     let orgIds: string[];
     if (orgId) {
@@ -1372,13 +1341,18 @@ export class BranchAnalyticsService {
     from?: string,
     to?: string,
     allowedOrgIds: string[] | null = null,
+    orgId?: string,
   ) {
-    const { from: rangeFrom, to: rangeTo } = this.parseRange(from, to);
-    const days = this.listDays(rangeFrom, rangeTo);
+    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
+    const days = this.listDays(fromStr, toStr);
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault']);
-    if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    if (orgId) {
+      orgQb.where('o.id = :orgId', { orgId });
+    } else if (allowedOrgIds?.length) {
+      orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    }
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
     if (!orgIds.length) {
@@ -1403,8 +1377,7 @@ export class BranchAnalyticsService {
       usersByOrg.get(r.orgId)!.push(r.userId);
     }
 
-    const rangeEnd = new Date(rangeTo);
-    rangeEnd.setHours(23, 59, 59, 999);
+    const rangeEnd = rangeTo;
 
     const attemptRows = (await this.attemptRepo.query(
       `
@@ -1416,7 +1389,7 @@ export class BranchAnalyticsService {
       FROM user_question_attempts a
       INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
       WHERE a.organization_id = ANY($1::uuid[])
-        AND a.answered_at >= $2 AND a.answered_at <= $3
+        AND a.answered_at >= $2 AND a.answered_at < $3
       GROUP BY 1, 2, 3
       `,
       [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT],
