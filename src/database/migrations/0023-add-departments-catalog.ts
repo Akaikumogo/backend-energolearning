@@ -14,31 +14,9 @@ export class AddDepartmentsCatalog1746900000000 implements MigrationInterface {
         "updated_at" timestamptz NOT NULL DEFAULT now()
       );
     `);
-
-    await queryRunner.query(`
-      ALTER TABLE "positions"
-      ADD COLUMN IF NOT EXISTS "employee_count" int NOT NULL DEFAULT 0;
-    `);
-    await queryRunner.query(`
-      ALTER TABLE "positions"
-      ADD COLUMN IF NOT EXISTS "last_synced_at" timestamptz NULL;
-    `);
-    await queryRunner.query(`
-      ALTER TABLE "positions"
-      ADD COLUMN IF NOT EXISTS "source" text NOT NULL DEFAULT 'manual';
-    `);
   }
 
   async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `ALTER TABLE "positions" DROP COLUMN IF EXISTS "source";`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "positions" DROP COLUMN IF EXISTS "last_synced_at";`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "positions" DROP COLUMN IF EXISTS "employee_count";`,
-    );
     await queryRunner.query(`DROP TABLE IF EXISTS "departments";`);
   }
 }

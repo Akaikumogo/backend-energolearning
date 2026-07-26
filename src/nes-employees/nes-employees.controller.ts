@@ -45,6 +45,14 @@ export class NesEmployeesController {
     return this.nesEmployeesService.getFilterOptions();
   }
 
+  @Get('departments')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Energo ID bo`limlar katalogi' })
+  @ApiQuery({ name: 'search', required: false })
+  departments(@Query('search') search?: string) {
+    return this.nesEmployeesService.listDepartmentsCatalog({ search });
+  }
+
   @Get('sync-status')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Hozirgi sync holati va progressi' })

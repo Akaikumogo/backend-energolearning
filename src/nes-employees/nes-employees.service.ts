@@ -1034,7 +1034,6 @@ export class NesEmployeesService {
   private async syncPositionsFromEnergoId() {
     try {
       const positions = await this.energoIdAuthClient.listPositions();
-      const now = new Date();
       let upserted = 0;
       for (const row of positions) {
         const title = String(row.name ?? '').trim();
@@ -1043,28 +1042,12 @@ export class NesEmployeesService {
           where: { title },
           withDeleted: true,
         });
-        const employeeCount = Number(row.employeeCount ?? 0) || 0;
         if (existing) {
-          await this.positionRepo
-            .createQueryBuilder()
-            .update(Position)
-            .set({
-              employeeCount,
-              lastSyncedAt: now,
-              source: 'energo-id',
-              deletedAt: null,
-            })
-            .where('id = :id', { id: existing.id })
-            .execute();
+          if (existing.deletedAt) {
+            await this.positionRepo.recover(existing);
+          }
         } else {
-          await this.positionRepo.save(
-            this.positionRepo.create({
-              title,
-              employeeCount,
-              lastSyncedAt: now,
-              source: 'energo-id',
-            }),
-          );
+          await this.positionRepo.save(this.positionRepo.create({ title }));
         }
         upserted += 1;
       }
@@ -1076,6 +1059,19 @@ export class NesEmployeesService {
         }`,
       );
     }
+  }
+
+  async listDepartmentsCatalog(filters?: { search?: string }) {
+    const qb = this.departmentRepo
+      .createQueryBuilder('d')
+      .orderBy('d.name', 'ASC');
+    if (filters?.search?.trim()) {
+      qb.andWhere('LOWER(d.name) LIKE :q', {
+        q: `%${filters.search.trim().toLowerCase()}%`,
+      });
+    }
+    const data = await qb.getMany();
+    return { data, total: data.length };
   }
 
   private async resolveEmployeeOrganization(employee: EnergoIdUser) {
