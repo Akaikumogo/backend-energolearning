@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, IsNull, QueryFailedError, Repository } from 'typeorm';
 import { Level } from '../database/entities/level.entity';
 import { Theory } from '../database/entities/theory.entity';
 import { Question } from '../database/entities/question.entity';
@@ -265,7 +265,25 @@ export class ProgressService {
       countsForXp: xpMeta.countsForXp,
       attemptSource: xpMeta.attemptSource,
     });
-    await this.attemptRepo.save(attempt);
+    try {
+      await this.attemptRepo.save(attempt);
+    } catch (err) {
+      if (this.isUniqueViolation(err)) {
+        const hearts = await this.heartsService.getMyHearts(userId, orgId);
+        return {
+          isCorrect,
+          correctOptionId: correctOption?.id ?? null,
+          xpEarned: 0,
+          countsForXp: false,
+          xpDeniedReason: 'ALREADY_COUNTED' as const,
+          xpMessage:
+            'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.',
+          hearts,
+          duplicate: true,
+        };
+      }
+      throw err;
+    }
 
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
 
@@ -374,7 +392,24 @@ export class ProgressService {
       countsForXp: xpMeta.countsForXp,
       attemptSource: xpMeta.attemptSource,
     });
-    await this.attemptRepo.save(attempt);
+    try {
+      await this.attemptRepo.save(attempt);
+    } catch (err) {
+      if (this.isUniqueViolation(err)) {
+        const hearts = await this.heartsService.getMyHearts(userId, orgId);
+        return {
+          isCorrect,
+          xpEarned: 0,
+          countsForXp: false,
+          xpDeniedReason: 'ALREADY_COUNTED' as const,
+          xpMessage:
+            'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.',
+          hearts,
+          duplicate: true,
+        };
+      }
+      throw err;
+    }
 
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
 
@@ -464,30 +499,32 @@ export class ProgressService {
     };
   }
 
+  private isUniqueViolation(err: unknown): boolean {
+    if (!(err instanceof QueryFailedError)) return false;
+    const code = (err as QueryFailedError & { driverError?: { code?: string } })
+      .driverError?.code;
+    return code === '23505';
+  }
+
   /**
-   * Takroriy submit himoyasi:
-   * - DAILY_PLAN: 24 soat ichida shu savolga allaqachon javob bo‘lsa — yangi yozuv yo‘q
-   * - LESSON: 15 soniya ichida dubl — double-tap / qotishdan himoya
+   * Takroriy submit himoyasi (DB unique: user+savol+Toshkent kuni).
+   * Bir kunda bir savolga faqat 1 ta urinish.
    */
   private async findDuplicateAttempt(
     userId: string,
     questionId: string,
-    source: AttemptSource,
+    _source: AttemptSource,
   ): Promise<UserQuestionAttempt | null> {
-    const qb = this.attemptRepo
+    return this.attemptRepo
       .createQueryBuilder('a')
       .where('a.user_id = :userId', { userId })
       .andWhere('a.question_id = :questionId', { questionId })
+      .andWhere(
+        `(a.answered_at AT TIME ZONE 'Asia/Tashkent')::date = (NOW() AT TIME ZONE 'Asia/Tashkent')::date`,
+      )
       .orderBy('a.answered_at', 'DESC')
-      .take(1);
-
-    if (source === AttemptSource.DAILY_PLAN) {
-      qb.andWhere(`a.answered_at > NOW() - INTERVAL '24 hours'`);
-    } else {
-      qb.andWhere(`a.answered_at > NOW() - INTERVAL '15 seconds'`);
-    }
-
-    return qb.getOne();
+      .take(1)
+      .getOne();
   }
 
   /**
