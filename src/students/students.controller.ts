@@ -127,6 +127,30 @@ export class StudentsController {
     return this.studentsService.getLostQuestions(id, req.user);
   }
 
+  @Get(':id/xp-history')
+  @ApiOperation({
+    summary:
+      'XP tarixi — qachon, qaysi savoldan necha ball (reyting shikoyatlari uchun)',
+  })
+  @ApiParam({ name: 'id', description: 'Employee ID' })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  getXpHistory(
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.studentsService.getXpHistory(id, req.user, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      onlyCorrect: true,
+    });
+  }
+
   @Get(':id/activity')
   @ApiOperation({ summary: '28 kunlik faollik heatmap' })
   @ApiParam({ name: 'id', description: 'Employee ID' })

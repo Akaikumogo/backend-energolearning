@@ -260,6 +260,18 @@ export class StudentsService {
           ? { userId: id, isCorrect: false, organizationId: In(orgIds) }
           : { userId: id, isCorrect: false },
     });
+
+    const uniqueCorrectQb = this.attemptRepo
+      .createQueryBuilder('a')
+      .select('COUNT(DISTINCT a.question_id)', 'cnt')
+      .where('a.user_id = :userId', { userId: id })
+      .andWhere('a.is_correct = true');
+    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+      uniqueCorrectQb.andWhere('a.organization_id IN (:...orgIds)', { orgIds });
+    }
+    const uniqueCorrectRow = await uniqueCorrectQb.getRawOne<{ cnt: string }>();
+    const uniqueCorrectQuestions = Number(uniqueCorrectRow?.cnt ?? 0);
+
     const totalXp = correctCount * 10;
     const completedLevels = Array.from(completionMap.values()).filter(
       (c) => c.completionPercent >= 100,
@@ -297,6 +309,8 @@ export class StudentsService {
               name: uo.organization?.name,
             })),
       totalXp,
+      correctAnswers: correctCount,
+      uniqueCorrectQuestions,
       completedLevels,
       totalErrors: wrongCount,
       badge: BADGES[badgeIndex],
@@ -368,6 +382,108 @@ export class StudentsService {
       wrongCount: parseInt(r.wrongCount, 10),
       totalAttempts: parseInt(r.totalAttempts, 10),
     }));
+  }
+
+  /**
+   * XP tarixi: har bir to‘g‘ri javob = +10 XP (reyting bilan bir xil formula).
+   * Shikoyatlar uchun: qachon, qaysi savol, necha ball.
+   */
+  async getXpHistory(
+    studentId: string,
+    requestingUser: { id: string; role: Role; organizationIds: string[] },
+    filters?: { page?: number; limit?: number; onlyCorrect?: boolean },
+  ) {
+    const user = await this.userRepo.findOne({
+      where: { id: studentId, role: Role.USER },
+      relations: ['organizations', 'organizations.organization'],
+    });
+    if (!user || !user.energoId) {
+      throw new NotFoundException('Xodim topilmadi');
+    }
+
+    const orgIds =
+      requestingUser.role === Role.MODERATOR
+        ? await this.organizationsService.resolveModeratorScope(
+            requestingUser.organizationIds,
+          )
+        : undefined;
+    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+      const allowed = (user.organizations ?? []).some((uo) =>
+        orgIds.includes(uo.organization?.id ?? ''),
+      );
+      if (!allowed) {
+        return { data: [], total: 0, page: 1, limit: 20, totalXp: 0, correctAnswers: 0 };
+      }
+    }
+
+    const page = Math.max(1, filters?.page ?? 1);
+    const limit = Math.min(100, Math.max(1, filters?.limit ?? 30));
+    const onlyCorrect = filters?.onlyCorrect !== false;
+
+    const qb = this.attemptRepo
+      .createQueryBuilder('a')
+      .innerJoin('a.question', 'q')
+      .leftJoin('q.level', 'l')
+      .leftJoin('q.theory', 't')
+      .where('a.user_id = :userId', { userId: studentId });
+
+    if (onlyCorrect) {
+      qb.andWhere('a.is_correct = true');
+    }
+    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+      qb.andWhere('a.organization_id IN (:...orgIds)', { orgIds });
+    }
+
+    const total = await qb.clone().getCount();
+
+    const rows = await qb
+      .select([
+        'a.id AS "id"',
+        'a.is_correct AS "isCorrect"',
+        'a.answered_at AS "answeredAt"',
+        'q.id AS "questionId"',
+        'q.prompt AS "prompt"',
+        'l.title AS "levelTitle"',
+        't.title AS "theoryTitle"',
+      ])
+      .orderBy('a.answered_at', 'DESC')
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany<{
+        id: string;
+        isCorrect: boolean;
+        answeredAt: Date | string;
+        questionId: string;
+        prompt: string;
+        levelTitle: string | null;
+        theoryTitle: string | null;
+      }>();
+
+    const data = rows.map((r) => {
+      const isCorrect = Boolean(r.isCorrect);
+      return {
+        id: r.id,
+        questionId: r.questionId,
+        prompt: r.prompt ?? '',
+        levelTitle: r.levelTitle ?? '—',
+        theoryTitle: r.theoryTitle ?? '—',
+        isCorrect,
+        xpEarned: isCorrect ? 10 : 0,
+        answeredAt:
+          r.answeredAt instanceof Date
+            ? r.answeredAt.toISOString()
+            : new Date(r.answeredAt).toISOString(),
+      };
+    });
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalXp: total * (onlyCorrect ? 10 : 0),
+      correctAnswers: onlyCorrect ? total : data.filter((d) => d.isCorrect).length,
+    };
   }
 
   async getActivity(

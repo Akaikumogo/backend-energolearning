@@ -10,6 +10,7 @@ export type LeaderboardRow = {
   email: string;
   avatarUrl: string | null;
   xp: number;
+  correctAnswers: number;
   rank: number;
 };
 
@@ -59,7 +60,8 @@ export class LeaderboardService {
           u.last_name AS "lastName",
           u.email AS "email",
           u.avatar_url AS "avatarUrl",
-          (COUNT(*) FILTER (WHERE uqa.is_correct = true) * 10)::int AS "xp"
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true) * 10)::int AS "xp",
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true))::int AS "correctAnswers"
         FROM user_question_attempts uqa
         JOIN users u ON u.id = uqa.user_id
         WHERE 1=1
@@ -88,7 +90,8 @@ export class LeaderboardService {
           u.last_name AS "lastName",
           u.email AS "email",
           u.avatar_url AS "avatarUrl",
-          (COUNT(*) FILTER (WHERE uqa.is_correct = true) * 10)::int AS "xp"
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true) * 10)::int AS "xp",
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true))::int AS "correctAnswers"
         FROM user_question_attempts uqa
         JOIN users u ON u.id = uqa.user_id
         WHERE 1=1
@@ -115,6 +118,7 @@ export class LeaderboardService {
       email: r.email ?? '',
       avatarUrl: r.avatarUrl ?? null,
       xp: Number(r.xp) || 0,
+      correctAnswers: Number(r.correctAnswers) || Math.floor((Number(r.xp) || 0) / 10),
       rank: Number(r.rank) || 0,
     });
 
