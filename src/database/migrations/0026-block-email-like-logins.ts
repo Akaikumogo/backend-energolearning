@@ -32,12 +32,27 @@ export class BlockEmailLikeLogins1747200000000 implements MigrationInterface {
         AND "email" LIKE '%@%';
     `);
 
-    await queryRunner.query(`
-      DELETE FROM "refresh_tokens" rt
-      USING "users" u
-      WHERE rt.user_id = u.id
-        AND u.login_blocked = true;
+    // Ba'zi DB larda camelCase "userId", ba'zilarida "user_id"
+    const cols: Array<{ column_name: string }> = await queryRunner.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'refresh_tokens'
+        AND column_name IN ('user_id', 'userId');
     `);
+    const userCol = cols.some((c) => c.column_name === 'user_id')
+      ? 'user_id'
+      : cols.some((c) => c.column_name === 'userId')
+        ? '"userId"'
+        : null;
+
+    if (userCol) {
+      await queryRunner.query(`
+        DELETE FROM "refresh_tokens" rt
+        USING "users" u
+        WHERE rt.${userCol} = u.id
+          AND u.login_blocked = true;
+      `);
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
