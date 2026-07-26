@@ -413,6 +413,8 @@ export class BranchAnalyticsService {
       fullName: string;
       answeredCount: number;
       correctCount: number;
+      planCorrectCount: number;
+      extraCorrectCount: number;
       completed: boolean;
       completionPercent: number;
     }> = [];
@@ -444,17 +446,21 @@ export class BranchAnalyticsService {
       userResults = employees.map((emp) => {
         const stats = byUser.get(emp.userId);
         const answeredCount = Number(stats?.answeredCount) || 0;
-        const correctCount = Number(stats?.correctCount) || 0;
+        const rawCorrect = Number(stats?.correctCount) || 0;
+        const planCorrectCount = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
+        const extraCorrectCount = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
         const completionPercent = Math.min(
           100,
-          Math.round((correctCount / DAILY_GOAL_CORRECT) * 100),
+          Math.round((planCorrectCount / DAILY_GOAL_CORRECT) * 100),
         );
         return {
           userId: emp.userId,
           fullName: `${emp.lastName} ${emp.firstName}`.trim(),
           answeredCount,
-          correctCount,
-          completed: correctCount >= DAILY_GOAL_CORRECT,
+          correctCount: planCorrectCount,
+          planCorrectCount,
+          extraCorrectCount,
+          completed: rawCorrect >= DAILY_GOAL_CORRECT,
           completionPercent,
         };
       });
@@ -504,21 +510,25 @@ export class BranchAnalyticsService {
       .getRawOne<{ answered: number; correct: number }>();
 
     const answeredCount = Number(row?.answered) || 0;
-    const correctCount = Math.min(Number(row?.correct) || 0, DAILY_GOAL_CORRECT);
+    const rawCorrectCount = Number(row?.correct) || 0;
+    const correctCount = Math.min(rawCorrectCount, DAILY_GOAL_CORRECT);
+    const extraCorrectCount = Math.max(0, rawCorrectCount - DAILY_GOAL_CORRECT);
     // Qizil chip: urinilgan, lekin (hali) to'g'ri topilmagan savollar.
-    const wrongCount = Math.max(0, answeredCount - (Number(row?.correct) || 0));
+    const wrongCount = Math.max(0, answeredCount - rawCorrectCount);
 
     return {
       planDate,
       answeredCount,
       correctCount,
+      rawCorrectCount,
+      extraCorrectCount,
       wrongCount,
       dailyGoalCorrect: DAILY_GOAL_CORRECT,
       completionPercent: Math.min(
         100,
         Math.round((correctCount / DAILY_GOAL_CORRECT) * 100),
       ),
-      completed: correctCount >= DAILY_GOAL_CORRECT,
+      completed: rawCorrectCount >= DAILY_GOAL_CORRECT,
     };
   }
 
@@ -538,6 +548,8 @@ export class BranchAnalyticsService {
       questionCount: 0,
       answeredCount: stats.answeredCount,
       correctCount: stats.correctCount,
+      rawCorrectCount: stats.rawCorrectCount,
+      extraCorrectCount: stats.extraCorrectCount,
       wrongCount: stats.wrongCount,
       completionPercent: stats.completionPercent,
       completed: stats.completed,
@@ -552,15 +564,11 @@ export class BranchAnalyticsService {
    * - oxirgi 24 soat (rolling) ichida ishlangan savol takrorlanmaydi
    *   (istalgan kontekstdagi urinish hisobga olinadi);
    * - random tanlanadi;
-   * - maqsad (10 ta to'g'ri) bajarilgan bo'lsa done=true, pool tugagan
-   *   bo'lsa exhausted=true qaytadi.
+   * - maqsad (10 ta to'g'ri) bajarilgandan keyin ham qo'shimcha savollar
+   *   beriladi; pool tugagan bo'lsa exhausted=true qaytadi.
    */
   async getNextDailyQuizQuestion(userId: string, organizationId: string) {
     const progress = await this.getDayPlanStats(userId, organizationId);
-
-    if (progress.completed) {
-      return { done: true, exhausted: false, question: null, progress };
-    }
 
     const availableLevelIds = await this.getAvailableLevelIdsForUser(userId);
     if (availableLevelIds.length === 0) {
@@ -787,11 +795,20 @@ export class BranchAnalyticsService {
       .getRawMany<{ userId: string; day: string; correct: number }>();
 
     const daysCompletedMap = new Map<string, number>();
+    const extraTotalMap = new Map<string, number>();
     for (const row of dayRows) {
-      if (Number(row.correct) >= DAILY_GOAL_CORRECT) {
+      const rawCorrect = Number(row.correct) || 0;
+      if (rawCorrect >= DAILY_GOAL_CORRECT) {
         daysCompletedMap.set(
           row.userId,
           (daysCompletedMap.get(row.userId) ?? 0) + 1,
+        );
+      }
+      const extra = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
+      if (extra > 0) {
+        extraTotalMap.set(
+          row.userId,
+          (extraTotalMap.get(row.userId) ?? 0) + extra,
         );
       }
     }
@@ -827,6 +844,7 @@ export class BranchAnalyticsService {
         monthlyPercent: Math.round((daysCompleted / daysInMonth) * 1000) / 10,
         correctTotal: Number(totals?.correctTotal) || 0,
         wrongTotal: Number(totals?.wrongTotal) || 0,
+        extraCorrectTotal: extraTotalMap.get(emp.userId) ?? 0,
         lastActiveAt: lastActive ? new Date(lastActive).toISOString() : null,
       };
     });
@@ -953,12 +971,14 @@ export class BranchAnalyticsService {
     return 'red';
   }
 
-  /** Kunlik reja statistikasi: userId -> to'g'ri javoblar (max DAILY_GOAL_CORRECT). */
-  private async getUserCorrectMap(
+  /** Kunlik reja statistikasi: userId -> planCorrect / extraCorrect / rawCorrect. */
+  private async getUserDayStatsMap(
     orgIds: string[],
     planDate: string,
     userIds?: string[],
-  ): Promise<Map<string, number>> {
+  ): Promise<
+    Map<string, { planCorrect: number; extraCorrect: number; rawCorrect: number }>
+  > {
     if (orgIds.length === 0) return new Map();
     const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
@@ -967,8 +987,8 @@ export class BranchAnalyticsService {
       .innerJoin(User, 'u', 'u.id = a.user_id')
       .select('a.user_id', 'userId')
       .addSelect(
-        'LEAST(COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct), :goal)::int',
-        'correct',
+        'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
+        'rawCorrect',
       )
       .where('a.organization_id IN (:...orgIds)', { orgIds })
       .andWhere('u.role = :role', { role: Role.USER })
@@ -976,15 +996,33 @@ export class BranchAnalyticsService {
         from: dayStart,
         to: dayEnd,
       })
-      .setParameter('goal', DAILY_GOAL_CORRECT)
       .groupBy('a.user_id');
 
     if (userIds?.length) {
       qb.andWhere('a.user_id IN (:...userIds)', { userIds });
     }
 
-    const rows = await qb.getRawMany<{ userId: string; correct: number }>();
-    return new Map(rows.map((r) => [r.userId, Number(r.correct) || 0]));
+    const rows = await qb.getRawMany<{ userId: string; rawCorrect: number }>();
+    return new Map(
+      rows.map((r) => {
+        const rawCorrect = Number(r.rawCorrect) || 0;
+        const planCorrect = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
+        const extraCorrect = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
+        return [r.userId, { planCorrect, extraCorrect, rawCorrect }];
+      }),
+    );
+  }
+
+  /** Kunlik reja statistikasi: userId -> to'g'ri javoblar (max DAILY_GOAL_CORRECT). */
+  private async getUserCorrectMap(
+    orgIds: string[],
+    planDate: string,
+    userIds?: string[],
+  ): Promise<Map<string, number>> {
+    const statsMap = await this.getUserDayStatsMap(orgIds, planDate, userIds);
+    return new Map(
+      [...statsMap.entries()].map(([uid, s]) => [uid, s.planCorrect]),
+    );
   }
 
   private async countEmployeesByOrg(orgIds: string[]): Promise<Map<string, number>> {
@@ -1018,13 +1056,18 @@ export class BranchAnalyticsService {
     const totalPlan = totalEmployees * DAILY_GOAL_CORRECT;
 
     const correctMap = await this.getUserCorrectMap(orgIds, planDate);
+    const dayStatsMap = await this.getUserDayStatsMap(orgIds, planDate);
     let completedTotal = 0;
+    let extraCorrectTotal = 0;
     let activeEmployees = 0;
     let completedEmployees = 0;
     for (const [, correct] of correctMap) {
       if (correct > 0) activeEmployees++;
       completedTotal += correct;
       if (correct >= DAILY_GOAL_CORRECT) completedEmployees++;
+    }
+    for (const [, stats] of dayStatsMap) {
+      extraCorrectTotal += stats.extraCorrect;
     }
 
     const completionPercent =
@@ -1035,6 +1078,7 @@ export class BranchAnalyticsService {
       dailyGoalCorrect: DAILY_GOAL_CORRECT,
       totalPlan,
       completedTotal,
+      extraCorrectTotal,
       remaining: Math.max(0, totalPlan - completedTotal),
       completionPercent,
       totalEmployees,
@@ -1059,6 +1103,7 @@ export class BranchAnalyticsService {
 
     const empMap = await this.countEmployeesByOrg(orgIds);
     const correctMap = await this.getUserCorrectMap(orgIds, planDate);
+    const dayStatsMap = await this.getUserDayStatsMap(orgIds, planDate);
 
     const employeesByOrg = await this.userRepo
       .createQueryBuilder('u')
@@ -1082,10 +1127,12 @@ export class BranchAnalyticsService {
         const plan = employees * DAILY_GOAL_CORRECT;
         const userIds = orgUserMap.get(o.id) ?? [];
         let completed = 0;
+        let extraCorrect = 0;
         let completedEmployees = 0;
         for (const uid of userIds) {
           const c = correctMap.get(uid) ?? 0;
           completed += c;
+          extraCorrect += dayStatsMap.get(uid)?.extraCorrect ?? 0;
           if (c >= DAILY_GOAL_CORRECT) completedEmployees++;
         }
         const percent = plan > 0 ? Math.round((completed / plan) * 1000) / 10 : 0;
@@ -1096,6 +1143,7 @@ export class BranchAnalyticsService {
           totalEmployees: employees,
           plan,
           completed,
+          extraCorrect,
           percent,
           completedEmployees,
           status: this.statusFromPercent(percent),
@@ -1212,10 +1260,12 @@ export class BranchAnalyticsService {
 
     const userIds = employees.map((e) => e.userId);
     const correctMap = await this.getUserCorrectMap([orgId], planDate, userIds);
+    const dayStatsMap = await this.getUserDayStatsMap([orgId], planDate, userIds);
 
     const employees_ranked = employees
       .map((emp) => {
         const correct = correctMap.get(emp.userId) ?? 0;
+        const extraCorrect = dayStatsMap.get(emp.userId)?.extraCorrect ?? 0;
         const percent = Math.min(
           100,
           Math.round((correct / DAILY_GOAL_CORRECT) * 1000) / 10,
@@ -1224,6 +1274,8 @@ export class BranchAnalyticsService {
           userId: emp.userId,
           fullName: `${emp.lastName} ${emp.firstName}`.trim(),
           correct,
+          planCorrect: correct,
+          extraCorrect,
           goal: DAILY_GOAL_CORRECT,
           percent,
           completed: correct >= DAILY_GOAL_CORRECT,
@@ -1515,6 +1567,133 @@ export class BranchAnalyticsService {
       divisionCount: badDivisions,
       employeeCount: badEmployees,
       branches: branchDetails,
+    };
+  }
+
+  /** Kunlik hisobot — dashboard + filiallar + barcha xodimlar. */
+  async getDailyReport(
+    date?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const dashboard = await this.getExecutiveDashboard(date, allowedOrgIds);
+    const ranking = await this.getBranchRanking(date, allowedOrgIds);
+    const planDate = ranking.planDate;
+
+    const employees: Array<{
+      orgId: string;
+      orgName: string;
+      userId: string;
+      fullName: string;
+      answeredCount: number;
+      planCorrect: number;
+      extraCorrect: number;
+      percent: number;
+      completed: boolean;
+      status: 'green' | 'yellow' | 'red';
+    }> = [];
+
+    for (const branch of ranking.branches) {
+      const planResult = await this.getDailyPlanResult(branch.orgId, planDate);
+      for (const u of planResult.userResults) {
+        employees.push({
+          orgId: branch.orgId,
+          orgName: branch.orgName,
+          userId: u.userId,
+          fullName: u.fullName,
+          answeredCount: u.answeredCount,
+          planCorrect: u.planCorrectCount,
+          extraCorrect: u.extraCorrectCount,
+          percent: u.completionPercent,
+          completed: u.completed,
+          status: this.statusFromPercent(u.completionPercent),
+        });
+      }
+    }
+
+    employees.sort(
+      (a, b) =>
+        b.percent - a.percent ||
+        b.extraCorrect - a.extraCorrect ||
+        a.fullName.localeCompare(b.fullName),
+    );
+
+    return {
+      ...dashboard,
+      planDate,
+      branches: ranking.branches,
+      employees,
+    };
+  }
+
+  /** Oylik hisobot — filial taqqoslash + kunlik trend + xodimlar. */
+  async getMonthlyReport(
+    month?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const comparison = await this.getBranchComparison(month, allowedOrgIds);
+    const { month: m, daysInMonth } = tashkentMonthBounds(month);
+    const lastDay = `${m}-${String(daysInMonth).padStart(2, '0')}`;
+    const trend = await this.getDailyTrend(`${m}-01`, lastDay, undefined, allowedOrgIds);
+
+    const branchRows: Array<{
+      orgId: string;
+      orgName: string;
+      totalEmployees: number;
+      averageMonthlyPercent: number;
+      extraCorrectTotal: number;
+      rank: number;
+    }> = [];
+
+    const employees: Array<{
+      orgId: string;
+      orgName: string;
+      userId: string;
+      fullName: string;
+      email: string;
+      daysCompleted: number;
+      monthlyPercent: number;
+      extraCorrectTotal: number;
+      correctTotal: number;
+      wrongTotal: number;
+    }> = [];
+
+    for (const branch of comparison.branches) {
+      const progress = await this.getMonthlyProgress(branch.orgId, m);
+      const extraCorrectTotal = progress.employees.reduce(
+        (s, e) => s + (e.extraCorrectTotal ?? 0),
+        0,
+      );
+      branchRows.push({
+        orgId: branch.orgId,
+        orgName: branch.orgName,
+        totalEmployees: branch.totalEmployees,
+        averageMonthlyPercent: branch.averageMonthlyPercent,
+        extraCorrectTotal,
+        rank: branch.rank,
+      });
+      for (const emp of progress.employees) {
+        employees.push({
+          orgId: branch.orgId,
+          orgName: progress.orgName,
+          userId: emp.userId,
+          fullName: emp.fullName,
+          email: emp.email,
+          daysCompleted: emp.daysCompleted,
+          monthlyPercent: emp.monthlyPercent,
+          extraCorrectTotal: emp.extraCorrectTotal ?? 0,
+          correctTotal: emp.correctTotal,
+          wrongTotal: emp.wrongTotal,
+        });
+      }
+    }
+
+    return {
+      month: m,
+      daysInMonth: comparison.daysInMonth,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      branches: branchRows,
+      trend: trend.points,
+      employees,
     };
   }
 }

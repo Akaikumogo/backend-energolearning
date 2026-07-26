@@ -77,6 +77,7 @@ import { BranchAnalyticsModule } from './branch-analytics/branch-analytics.modul
 import { DailyPlan } from './database/entities/daily-plan.entity';
 import { EmployeeSyncSetting } from './database/entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './database/entities/terminated-employee.entity';
+import { Department } from './database/entities/department.entity';
 import { OAuthIntegrationSetting } from './database/entities/oauth-integration-setting.entity';
 import { AdminScriptsModule } from './admin-scripts/admin-scripts.module';
 import { OneTimeCutoverModule } from './one-time-cutover/one-time-cutover.module';
@@ -135,6 +136,7 @@ import { AdminImportExportModule } from './admin-import-export/admin-import-expo
         EmployeeSyncSetting,
         TerminatedEmployee,
         OAuthIntegrationSetting,
+        Department,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),

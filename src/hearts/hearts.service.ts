@@ -23,9 +23,9 @@ export class HeartsService {
   }
 
   /**
-   * Energiya kamaytirish. Har bir urinish (to'g'ri yoki noto'g'ri) 1 energiya
-   * sarflaydi. Agar energiya yetmasa ForbiddenException tashlanadi — chaqiruvchi
-   * shu xatoni 403 ga aylantirib mobile/web tomonga "qulflangan" signalini beradi.
+   * Energiya kamaytirish — faqat xato javobda chaqiriladi. Agar energiya
+   * yetmasa ForbiddenException tashlanadi — chaqiruvchi shu xatoni 403 ga
+   * aylantirib mobile/web tomonga "qulflangan" signalini beradi.
    *
    * Atomik: regen + decrement + zero-check bir SQL ichida.
    */

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import {
   EnergoIdAuthClient,
@@ -19,9 +19,10 @@ import { UserOrganization } from '../database/entities/user-organization.entity'
 import { User } from '../database/entities/user.entity';
 import { EmployeeSyncSetting } from '../database/entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from '../database/entities/terminated-employee.entity';
+import { Department } from '../database/entities/department.entity';
+import { Position } from '../database/entities/position.entity';
 import { NesSyncGateway } from './nes-sync.gateway';
 import {
-  extractPersonnelNumberFromLogin,
   resolvePersonnelNumber,
   withPersonnelNumberSuffix,
 } from '../common/utils/personnel-number.util';
@@ -123,6 +124,10 @@ export class NesEmployeesService {
     private readonly syncSettingRepo: Repository<EmployeeSyncSetting>,
     @InjectRepository(TerminatedEmployee)
     private readonly terminatedRepo: Repository<TerminatedEmployee>,
+    @InjectRepository(Department)
+    private readonly departmentRepo: Repository<Department>,
+    @InjectRepository(Position)
+    private readonly positionRepo: Repository<Position>,
     private readonly dataSource: DataSource,
     private readonly nesSyncGateway: NesSyncGateway,
     private readonly energoIdAuthClient: EnergoIdAuthClient,
@@ -222,6 +227,8 @@ export class NesEmployeesService {
   private async runSyncJob() {
     try {
       await this.syncOrganizationsFromEnergoId();
+      await this.syncDepartmentsFromEnergoId();
+      await this.syncPositionsFromEnergoId();
 
       const response = await this.energoIdAuthClient.listEmployees();
       const employees = response.employees;
@@ -266,15 +273,14 @@ export class NesEmployeesService {
         );
       }
 
-      const activeEnergoIds = employees.map((employee) => employee.energoUserId);
+      const activeEnergoIds = employees
+        .map((employee) => employee.energoUserId?.trim())
+        .filter((id): id is string => Boolean(id));
 
       this.syncState.phase = 'FINALIZING';
       this.emitProgressUpdate();
 
-      await this.archiveMissingEnergoEmployees(activeEnergoIds);
-      const hidden =
-        await this.usersService.hideStaleEnergoUsers(activeEnergoIds);
-      await this.removeMissingEnergoEmployeeMirrors();
+      const hidden = await this.finalizeMissingEnergoEmployees(activeEnergoIds);
 
       this.syncState.hidden = hidden;
       this.syncState.status = 'SUCCESS';
@@ -290,6 +296,9 @@ export class NesEmployeesService {
         upserted,
         hidden,
       };
+      this.logger.log(
+        `Energo ID sync tugadi: total=${employees.length}, upserted=${upserted}, hidden=${hidden}`,
+      );
       this.nesSyncGateway.emitDone(result);
     } catch (error) {
       const message =
@@ -430,42 +439,138 @@ export class NesEmployeesService {
     );
   }
 
-  private async archiveMissingEnergoEmployees(activeEnergoIds: string[]) {
-    const qb = this.userRepo
-      .createQueryBuilder('u')
-      .where('u.role = :role', { role: Role.USER })
-      .andWhere('u.energo_id IS NOT NULL');
-
-    if (activeEnergoIds.length > 0) {
-      qb.andWhere('u.energo_id NOT IN (:...activeEnergoIds)', {
-        activeEnergoIds,
-      });
-    }
-
-    const users = await qb.getMany();
-    for (const user of users) {
-      const employee = await this.employeeRepo.findOne({
-        where: { userId: user.id },
-      });
-      await this.terminatedRepo.save(
-        this.terminatedRepo.create({
-          userId: user.id,
-          energoId: user.energoId,
-          personnelNumber: employee?.personnelNumber ?? null,
-          login: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          organizationName: employee?.organizationName ?? null,
-          division: employee?.division ?? '',
-          post: employee?.post ?? '',
-          snapshot: {
-            user,
-            employee: employee ?? null,
-          },
-          terminatedAt: new Date(),
-        }),
+  /**
+   * Sync payloadda yo‘q xodimlarni arxivlash + energo_id tozalash + nes mirror o‘chirish.
+   * Katta ro‘yxatda TypeORM NOT IN ishonchsiz — temp table + anti-join ishlatiladi.
+   */
+  private async finalizeMissingEnergoEmployees(
+    activeEnergoIds: string[],
+  ): Promise<number> {
+    if (activeEnergoIds.length === 0) {
+      this.logger.warn(
+        'finalizeMissing: activeEnergoIds bo‘sh — hech narsa arxivlanmadi',
       );
+      return 0;
     }
+
+    const uniqueIds = [...new Set(activeEnergoIds.map((id) => id.trim()).filter(Boolean))];
+
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query(`
+        CREATE TEMP TABLE sync_active_energo_ids (
+          id uuid PRIMARY KEY
+        ) ON COMMIT DROP
+      `);
+
+      const chunkSize = 500;
+      for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+        const chunk = uniqueIds.slice(i, i + chunkSize);
+        await manager.query(
+          `INSERT INTO sync_active_energo_ids (id)
+           SELECT UNNEST($1::uuid[])
+           ON CONFLICT DO NOTHING`,
+          [chunk],
+        );
+      }
+
+      const staleUsers: Array<{
+        id: string;
+        energo_id: string;
+        email: string;
+        first_name: string;
+        last_name: string;
+      }> = await manager.query(`
+        SELECT u.id, u.energo_id, u.email, u.first_name, u.last_name
+        FROM users u
+        WHERE u.role = $1
+          AND u.energo_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM sync_active_energo_ids a WHERE a.id = u.energo_id
+          )
+      `, [Role.USER]);
+
+      for (const user of staleUsers) {
+        const employees: Array<{
+          personnel_number: string | null;
+          organization_name: string | null;
+          division: string | null;
+          post: string | null;
+        }> = await manager.query(
+          `SELECT personnel_number, organization_name, division, post
+           FROM nes_employees WHERE user_id = $1 LIMIT 1`,
+          [user.id],
+        );
+        const employee = employees[0];
+
+        await manager.query(
+          `INSERT INTO terminated_employees (
+             user_id, energo_id, personnel_number, login,
+             first_name, last_name, organization_name, division, post,
+             snapshot, terminated_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, NOW()
+           )`,
+          [
+            user.id,
+            user.energo_id,
+            employee?.personnel_number ?? null,
+            user.email,
+            user.first_name ?? '',
+            user.last_name ?? '',
+            employee?.organization_name ?? null,
+            employee?.division ?? '',
+            employee?.post ?? '',
+            JSON.stringify({ user, employee: employee ?? null }),
+          ],
+        );
+      }
+
+      const hideRows: Array<{ cnt: string }> = await manager.query(`
+        WITH updated AS (
+          UPDATE users u
+          SET energo_id = NULL, updated_at = NOW()
+          WHERE u.role = $1
+            AND u.energo_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM sync_active_energo_ids a WHERE a.id = u.energo_id
+            )
+          RETURNING u.id
+        )
+        SELECT COUNT(*)::int AS cnt FROM updated
+      `, [Role.USER]);
+
+      const staleIds = staleUsers.map((u) => u.id);
+      if (staleIds.length > 0) {
+        for (let i = 0; i < staleIds.length; i += chunkSize) {
+          const chunk = staleIds.slice(i, i + chunkSize);
+          await manager.query(
+            `DELETE FROM nes_employees WHERE user_id = ANY($1::uuid[])`,
+            [chunk],
+          );
+        }
+      }
+
+      // Orphan mirror: user yo‘q yoki energo_id null / syncda yo‘q
+      await manager.query(`
+        DELETE FROM nes_employees e
+        USING users u
+        WHERE e.user_id = u.id
+          AND u.role = $1
+          AND (
+            u.energo_id IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM sync_active_energo_ids a WHERE a.id = u.energo_id
+            )
+          )
+      `, [Role.USER]);
+
+      const hidden = Number(hideRows[0]?.cnt ?? staleUsers.length);
+
+      this.logger.log(
+        `finalizeMissing: archived=${staleUsers.length}, hidden=${hidden}, active=${uniqueIds.length}`,
+      );
+      return Math.max(hidden, staleUsers.length);
+    });
   }
 
   private async backfillMissingNesMirrors(
@@ -488,29 +593,12 @@ export class NesEmployeesService {
       const energoId = user.energoId?.trim();
       if (!energoId) continue;
 
+      // Faqat shu sync payloaddagi userlar uchun mirror tiklash —
+      // aks holda "keraksiz" odamlar qayta paydo bo‘ladi.
       const employee = byEnergoId.get(energoId);
-      if (employee) {
-        await this.upsertEnergoEmployeeMirror(user, employee);
-        repaired += 1;
-        continue;
-      }
+      if (!employee) continue;
 
-      const personnelNumber = extractPersonnelNumberFromLogin(user.email);
-      if (!personnelNumber) continue;
-
-      await this.upsertEnergoEmployeeMirror(user, {
-        energoUserId: energoId,
-        login: user.email,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        role: Role.USER,
-        permissions: [],
-        mustChangePassword: user.mustChangePassword,
-        status: 'ACTIVE',
-        personnelNumber,
-        organization: null,
-      });
+      await this.upsertEnergoEmployeeMirror(user, employee);
       repaired += 1;
     }
 
@@ -798,21 +886,6 @@ export class NesEmployeesService {
     await this.userRepo.update(userId, { initialPassword: plain });
   }
 
-  private async removeMissingEnergoEmployeeMirrors() {
-    const missing = await this.userRepo.find({
-      where: { role: Role.USER, energoId: IsNull() },
-      select: ['id'],
-    });
-    const ids = missing.map((user) => user.id);
-    if (ids.length === 0) return;
-    await this.employeeRepo
-      .createQueryBuilder()
-      .delete()
-      .from('nes_employees')
-      .where('user_id IN (:...ids)', { ids })
-      .execute();
-  }
-
   async listEmployees(filters?: {
     search?: string;
     organizationName?: string;
@@ -920,6 +993,89 @@ export class NesEmployeesService {
     this.logger.log(
       `Energo ID filiallar mirror: ${branches.length} ta organization`,
     );
+  }
+
+  private async syncDepartmentsFromEnergoId() {
+    try {
+      const departments = await this.energoIdAuthClient.listDepartments();
+      const now = new Date();
+      let upserted = 0;
+      for (const row of departments) {
+        const name = String(row.name ?? '').trim();
+        if (!name) continue;
+        const existing = await this.departmentRepo.findOne({ where: { name } });
+        const employeeCount = Number(row.employeeCount ?? 0) || 0;
+        if (existing) {
+          await this.departmentRepo.update(existing.id, {
+            employeeCount,
+            lastSyncedAt: now,
+          });
+        } else {
+          await this.departmentRepo.save(
+            this.departmentRepo.create({
+              name,
+              employeeCount,
+              lastSyncedAt: now,
+            }),
+          );
+        }
+        upserted += 1;
+      }
+      this.logger.log(`Energo ID bo‘limlar: ${upserted} ta`);
+    } catch (error) {
+      this.logger.warn(
+        `Bo‘limlar sync o‘tkazib yuborildi: ${
+          error instanceof Error ? error.message : 'xato'
+        }`,
+      );
+    }
+  }
+
+  private async syncPositionsFromEnergoId() {
+    try {
+      const positions = await this.energoIdAuthClient.listPositions();
+      const now = new Date();
+      let upserted = 0;
+      for (const row of positions) {
+        const title = String(row.name ?? '').trim();
+        if (!title) continue;
+        const existing = await this.positionRepo.findOne({
+          where: { title },
+          withDeleted: true,
+        });
+        const employeeCount = Number(row.employeeCount ?? 0) || 0;
+        if (existing) {
+          await this.positionRepo
+            .createQueryBuilder()
+            .update(Position)
+            .set({
+              employeeCount,
+              lastSyncedAt: now,
+              source: 'energo-id',
+              deletedAt: null,
+            })
+            .where('id = :id', { id: existing.id })
+            .execute();
+        } else {
+          await this.positionRepo.save(
+            this.positionRepo.create({
+              title,
+              employeeCount,
+              lastSyncedAt: now,
+              source: 'energo-id',
+            }),
+          );
+        }
+        upserted += 1;
+      }
+      this.logger.log(`Energo ID lavozimlar: ${upserted} ta`);
+    } catch (error) {
+      this.logger.warn(
+        `Lavozimlar sync o‘tkazib yuborildi: ${
+          error instanceof Error ? error.message : 'xato'
+        }`,
+      );
+    }
   }
 
   private async resolveEmployeeOrganization(employee: EnergoIdUser) {

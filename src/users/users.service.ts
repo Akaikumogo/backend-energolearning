@@ -305,17 +305,44 @@ export class UsersService {
       return 0;
     }
 
-    const hiddenResult = await this.usersRepo
-      .createQueryBuilder()
-      .update(User)
-      .set({ energoId: null })
-      .where('role = :role', { role: Role.USER })
-      .andWhere('energo_id IS NOT NULL')
-      .andWhere('energo_id NOT IN (:...activeEnergoIds)', {
-        activeEnergoIds,
-      })
-      .execute();
-    return hiddenResult.affected ?? 0;
+    const uniqueIds = [
+      ...new Set(activeEnergoIds.map((id) => id.trim()).filter(Boolean)),
+    ];
+
+    return this.dataSource.transaction(async (manager) => {
+      await manager.query(`
+        CREATE TEMP TABLE sync_active_energo_ids (
+          id uuid PRIMARY KEY
+        ) ON COMMIT DROP
+      `);
+
+      const chunkSize = 500;
+      for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+        const chunk = uniqueIds.slice(i, i + chunkSize);
+        await manager.query(
+          `INSERT INTO sync_active_energo_ids (id)
+           SELECT UNNEST($1::uuid[])
+           ON CONFLICT DO NOTHING`,
+          [chunk],
+        );
+      }
+
+      const rows: Array<{ cnt: string }> = await manager.query(`
+        WITH updated AS (
+          UPDATE users u
+          SET energo_id = NULL, updated_at = NOW()
+          WHERE u.role = $1
+            AND u.energo_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM sync_active_energo_ids a WHERE a.id = u.energo_id
+            )
+          RETURNING u.id
+        )
+        SELECT COUNT(*)::int AS cnt FROM updated
+      `, [Role.USER]);
+
+      return Number(rows[0]?.cnt ?? 0);
+    });
   }
 
   async syncEmployeesFromEnergoIdentity(

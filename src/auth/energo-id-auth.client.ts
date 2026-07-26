@@ -47,10 +47,22 @@ type EnergoIdBranch = {
   externalId?: string | null;
 };
 
+type EnergoIdDepartment = {
+  name: string;
+  employeeCount?: number;
+};
+
+type EnergoIdPosition = {
+  name: string;
+  employeeCount?: number;
+};
+
 type EnergoIdPlatformSyncResponse = {
   success: boolean;
   data?: {
     branches?: EnergoIdBranch[];
+    departments?: EnergoIdDepartment[];
+    positions?: EnergoIdPosition[];
   };
 };
 
@@ -327,13 +339,37 @@ export class EnergoIdAuthClient {
   }
 
   async listBranches(): Promise<EnergoIdBranch[]> {
+    const payload = await this.platformSync(['branches']);
+    if (!Array.isArray(payload.data?.branches)) {
+      throw new ServiceUnavailableException(
+        'Energo ID branches javobi noto`g`ri',
+      );
+    }
+    return payload.data.branches;
+  }
+
+  async listDepartments(): Promise<EnergoIdDepartment[]> {
+    const payload = await this.platformSync(['departments']);
+    return Array.isArray(payload.data?.departments)
+      ? payload.data.departments
+      : [];
+  }
+
+  async listPositions(): Promise<EnergoIdPosition[]> {
+    const payload = await this.platformSync(['positions']);
+    return Array.isArray(payload.data?.positions) ? payload.data.positions : [];
+  }
+
+  private async platformSync(
+    resources: Array<'branches' | 'departments' | 'positions' | 'employees'>,
+  ): Promise<EnergoIdPlatformSyncResponse> {
     const config = this.getConfig();
     const response = await this.request(
       `${config.baseUrl}/internal/v1/platform-sync`,
       {
         method: 'POST',
         headers: config.headers,
-        body: JSON.stringify({ resources: ['branches'] }),
+        body: JSON.stringify({ resources }),
       },
       config.timeoutMs,
     );
@@ -342,13 +378,7 @@ export class EnergoIdAuthClient {
       await this.throwMappedError(response);
     }
 
-    const payload = (await response.json()) as EnergoIdPlatformSyncResponse;
-    if (!payload.success || !Array.isArray(payload.data?.branches)) {
-      throw new ServiceUnavailableException(
-        'Energo ID branches javobi noto`g`ri',
-      );
-    }
-    return payload.data.branches;
+    return (await response.json()) as EnergoIdPlatformSyncResponse;
   }
 
   private getConfig() {
