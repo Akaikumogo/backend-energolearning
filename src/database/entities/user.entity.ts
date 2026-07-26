@@ -49,6 +49,14 @@ export class User {
   })
   mustChangePassword: boolean;
 
+  /** Email-login / o‘z-o‘zidan register — kirish yopilgan. */
+  @Column({
+    type: 'boolean',
+    name: 'login_blocked',
+    default: false,
+  })
+  loginBlocked: boolean;
+
   /** Avatar yuklash payti yuz aniqlangan-aniqlanmaganligi (mobilning client-side
    *  face-detection natijasi). Kelajakda yuzni qayta tanish uchun yoki audit
    *  uchun ishlatiladi. */

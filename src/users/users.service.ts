@@ -252,7 +252,23 @@ export class UsersService {
       await this.attachUserToOrganization(user.id, organization.id);
     }
 
-    return this.findByEnergoId(energoUserId) as Promise<User>;
+    // Email-login (loginida @) — SUPERADMIN dan tashqari kirish yopiq.
+    const fresh = (await this.findByEnergoId(energoUserId)) as User;
+    if (
+      fresh &&
+      fresh.role !== Role.SUPERADMIN &&
+      fresh.email.includes('@') &&
+      !fresh.loginBlocked
+    ) {
+      await this.usersRepo.update(fresh.id, {
+        loginBlocked: true,
+        passwordHash: null,
+        initialPassword: null,
+      });
+      return (await this.findByEnergoId(energoUserId)) as User;
+    }
+
+    return fresh;
   }
 
   /** Boshqa user shu email/energo_id ni ushlab turgan bo'lsa, sync oldin bo'shatiladi. */

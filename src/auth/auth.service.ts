@@ -228,6 +228,8 @@ export class AuthService {
   private async issueLoginResponse(
     user: User,
   ): Promise<LoginSuccessResponseDto> {
+    this.assertLoginAllowed(user);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -258,39 +260,20 @@ export class AuthService {
     };
   }
 
-  async register(dto: RegisterDto): Promise<LoginSuccessResponseDto> {
-    const existing = await this.usersService.findByEmail(dto.email);
-    if (existing) {
-      throw new BadRequestException('Bu email allaqachon ro`yxatdan o`tgan');
+  /** SUPERADMIN dan tashqari email-login (@) yoki login_blocked — kirish yopiq. */
+  private assertLoginAllowed(user: User) {
+    if (user.role === Role.SUPERADMIN) return;
+    if (user.loginBlocked || user.email.includes('@')) {
+      throw new ForbiddenException(
+        'Bu akkaunt orqali kirish yopilgan (email-login / ro‘yxatdan o‘tish). Energo ID loginidan foydalaning.',
+      );
     }
+  }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = await this.usersService.createUser({
-      email: dto.email,
-      passwordHash,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      organizationId: dto.organizationId,
-    });
-
-    const fullUser = await this.usersService.findById(user.id);
-    if (!fullUser) throw new BadRequestException('Foydalanuvchi yaratilmadi');
-
-    const payload: JwtPayload = {
-      sub: fullUser.id,
-      email: fullUser.email,
-      role: fullUser.role,
-      organizationIds: this.getOrganizationIds(fullUser),
-    };
-
-    const accessToken = await this.jwtService.signAsync(payload);
-    const refreshToken = await this.issueRefreshToken(fullUser.id);
-
-    return {
-      success: true,
-      message: 'Ro`yxatdan o`tish muvaffaqiyatli',
-      data: { accessToken, refreshToken, user: this.toProfile(fullUser) },
-    };
+  async register(_dto: RegisterDto): Promise<LoginSuccessResponseDto> {
+    throw new ForbiddenException(
+      'Ro‘yxatdan o‘tish yopilgan. Faqat Energo ID orqali kiring.',
+    );
   }
 
   async me(userId: string): Promise<UserProfileDto> {
@@ -373,6 +356,7 @@ export class AuthService {
     }
 
     const user = record.user;
+    this.assertLoginAllowed(user);
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,

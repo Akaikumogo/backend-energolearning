@@ -6,8 +6,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { UsersModule } from '../users/users.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
+import { User } from '../database/entities/user.entity';
+import { UserSession } from '../database/entities/user-session.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { BlockedEmailLoginsController } from './blocked-email-logins.controller';
 import { EnergoIdAuthClient } from './energo-id-auth.client';
 import { OAuthPendingService } from './oauth-pending.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -31,6 +34,8 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
       RefreshToken,
       EmployeeCertificate,
       EmployeeCheck,
+      User,
+      UserSession,
     ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET ?? 'elektrolearn-dev-secret',
@@ -39,7 +44,7 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
       },
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, BlockedEmailLoginsController],
   providers: [AuthService, EnergoIdAuthClient, OAuthPendingService, JwtStrategy, LoginThrottleGuard],
   exports: [AuthService, EnergoIdAuthClient, JwtModule],
 })
