@@ -248,6 +248,12 @@ export class StudentsService {
       }
     }
 
+    const xpCount = await this.attemptRepo.count({
+      where:
+        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+          ? { userId: id, isCorrect: true, countsForXp: true, organizationId: In(orgIds) }
+          : { userId: id, isCorrect: true, countsForXp: true },
+    });
     const correctCount = await this.attemptRepo.count({
       where:
         requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
@@ -272,7 +278,7 @@ export class StudentsService {
     const uniqueCorrectRow = await uniqueCorrectQb.getRawOne<{ cnt: string }>();
     const uniqueCorrectQuestions = Number(uniqueCorrectRow?.cnt ?? 0);
 
-    const totalXp = correctCount * 10;
+    const totalXp = xpCount * 10;
     const completedLevels = Array.from(completionMap.values()).filter(
       (c) => c.completionPercent >= 100,
     ).length;
@@ -440,6 +446,8 @@ export class StudentsService {
       .select([
         'a.id AS "id"',
         'a.is_correct AS "isCorrect"',
+        'a.counts_for_xp AS "countsForXp"',
+        'a.attempt_source AS "attemptSource"',
         'a.answered_at AS "answeredAt"',
         'q.id AS "questionId"',
         'q.prompt AS "prompt"',
@@ -452,6 +460,8 @@ export class StudentsService {
       .getRawMany<{
         id: string;
         isCorrect: boolean;
+        countsForXp: boolean;
+        attemptSource: string | null;
         answeredAt: Date | string;
         questionId: string;
         prompt: string;
@@ -461,6 +471,7 @@ export class StudentsService {
 
     const data = rows.map((r) => {
       const isCorrect = Boolean(r.isCorrect);
+      const countsForXp = Boolean(r.countsForXp);
       return {
         id: r.id,
         questionId: r.questionId,
@@ -468,7 +479,9 @@ export class StudentsService {
         levelTitle: r.levelTitle ?? '—',
         theoryTitle: r.theoryTitle ?? '—',
         isCorrect,
-        xpEarned: isCorrect ? 10 : 0,
+        countsForXp,
+        attemptSource: r.attemptSource ?? null,
+        xpEarned: countsForXp ? 10 : 0,
         answeredAt:
           r.answeredAt instanceof Date
             ? r.answeredAt.toISOString()
@@ -476,12 +489,21 @@ export class StudentsService {
       };
     });
 
+    const xpTotalRow = await this.attemptRepo
+      .createQueryBuilder('a')
+      .select('COUNT(*)', 'cnt')
+      .where('a.user_id = :userId', { userId: studentId })
+      .andWhere('a.is_correct = true')
+      .andWhere('a.counts_for_xp = true')
+      .getRawOne<{ cnt: string }>();
+    const xpAnswers = Number(xpTotalRow?.cnt ?? 0);
+
     return {
       data,
       total,
       page,
       limit,
-      totalXp: total * (onlyCorrect ? 10 : 0),
+      totalXp: xpAnswers * 10,
       correctAnswers: onlyCorrect ? total : data.filter((d) => d.isCorrect).length,
     };
   }
@@ -658,8 +680,13 @@ export class StudentsService {
     const correctCount = await this.attemptRepo.count({
       where:
         requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
-          ? { userId: user.id, isCorrect: true, organizationId: In(orgIds) }
-          : { userId: user.id, isCorrect: true },
+          ? {
+              userId: user.id,
+              isCorrect: true,
+              countsForXp: true,
+              organizationId: In(orgIds),
+            }
+          : { userId: user.id, isCorrect: true, countsForXp: true },
     });
     const totalXp = correctCount * 10;
     const levels = await this.levelRepo.find({ order: { orderIndex: 'ASC' } });

@@ -60,8 +60,8 @@ export class LeaderboardService {
           u.last_name AS "lastName",
           u.email AS "email",
           u.avatar_url AS "avatarUrl",
-          (COUNT(*) FILTER (WHERE uqa.is_correct = true) * 10)::int AS "xp",
-          (COUNT(*) FILTER (WHERE uqa.is_correct = true))::int AS "correctAnswers"
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true AND uqa.counts_for_xp = true) * 10)::int AS "xp",
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true AND uqa.counts_for_xp = true))::int AS "correctAnswers"
         FROM user_question_attempts uqa
         JOIN users u ON u.id = uqa.user_id
         WHERE 1=1
@@ -90,8 +90,8 @@ export class LeaderboardService {
           u.last_name AS "lastName",
           u.email AS "email",
           u.avatar_url AS "avatarUrl",
-          (COUNT(*) FILTER (WHERE uqa.is_correct = true) * 10)::int AS "xp",
-          (COUNT(*) FILTER (WHERE uqa.is_correct = true))::int AS "correctAnswers"
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true AND uqa.counts_for_xp = true) * 10)::int AS "xp",
+          (COUNT(*) FILTER (WHERE uqa.is_correct = true AND uqa.counts_for_xp = true))::int AS "correctAnswers"
         FROM user_question_attempts uqa
         JOIN users u ON u.id = uqa.user_id
         WHERE 1=1

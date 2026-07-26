@@ -12,11 +12,16 @@ import { QuestionOption } from '../database/entities/question-option.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { User } from '../database/entities/user.entity';
-import { SubmitAnswerDto } from './dto/submit-answer.dto';
+import { SubmitAnswerDto, AttemptSource } from './dto/submit-answer.dto';
 import { SubmitMatchingDto } from './dto/submit-matching.dto';
 import { HeartsService } from '../hearts/hearts.service';
 import { TheoryRole } from '../common/enums/theory-role.enum';
 import { QuestionType } from '../common/enums/question-type.enum';
+import { DAILY_GOAL_CORRECT } from '../branch-analytics/daily-plan.service';
+import {
+  tashkentDayBounds,
+  tashkentToday,
+} from '../common/utils/tashkent-time.util';
 
 const BADGES = [
   { label: 'Yangi ishchi', bolts: 1 },
@@ -135,7 +140,7 @@ export class ProgressService {
     );
 
     const correctCount = await this.attemptRepo.count({
-      where: { userId, isCorrect: true },
+      where: { userId, isCorrect: true, countsForXp: true },
     });
     const totalXp = correctCount * 10;
 
@@ -215,11 +220,40 @@ export class ProgressService {
       );
     }
 
+    const attemptSource = dto.source ?? AttemptSource.LESSON;
+    const duplicate = await this.findDuplicateAttempt(
+      userId,
+      dto.questionId,
+      attemptSource,
+    );
+    if (duplicate) {
+      const hearts = await this.heartsService.getMyHearts(userId, orgId);
+      return {
+        isCorrect: duplicate.isCorrect,
+        correctOptionId: correctOption?.id ?? null,
+        xpEarned: 0,
+        countsForXp: false,
+        xpDeniedReason: 'ALREADY_COUNTED' as const,
+        xpMessage: duplicate.isCorrect
+          ? 'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.'
+          : null,
+        hearts,
+        duplicate: true,
+      };
+    }
+
     // Faqat xato javob 1 energiya oladi. Energiya yetmasa consumeHeart
     // attempt yozilmasdan 403 (NO_HEARTS_LEFT) qaytaradi.
     const heartsAfter = isCorrect
       ? await this.heartsService.getMyHearts(userId, orgId)
       : await this.heartsService.consumeHeart(userId, orgId, 1);
+
+    const xpMeta = await this.resolveXpEligibility(
+      userId,
+      dto.questionId,
+      isCorrect,
+      dto.source,
+    );
 
     const attempt = this.attemptRepo.create({
       userId,
@@ -228,6 +262,8 @@ export class ProgressService {
       selectedOptionId: dto.selectedOptionId,
       isCorrect,
       heartLost: !isCorrect,
+      countsForXp: xpMeta.countsForXp,
+      attemptSource: xpMeta.attemptSource,
     });
     await this.attemptRepo.save(attempt);
 
@@ -236,8 +272,12 @@ export class ProgressService {
     return {
       isCorrect,
       correctOptionId: correctOption?.id ?? null,
-      xpEarned: isCorrect ? 10 : 0,
+      xpEarned: xpMeta.xpEarned,
+      countsForXp: xpMeta.countsForXp,
+      xpDeniedReason: xpMeta.xpDeniedReason,
+      xpMessage: xpMeta.xpMessage,
       hearts: heartsAfter,
+      duplicate: false,
     };
   }
 
@@ -290,11 +330,39 @@ export class ProgressService {
       );
     }
 
+    const attemptSource = dto.source ?? AttemptSource.LESSON;
+    const duplicate = await this.findDuplicateAttempt(
+      userId,
+      dto.questionId,
+      attemptSource,
+    );
+    if (duplicate) {
+      const hearts = await this.heartsService.getMyHearts(userId, orgId);
+      return {
+        isCorrect: duplicate.isCorrect,
+        xpEarned: 0,
+        countsForXp: false,
+        xpDeniedReason: 'ALREADY_COUNTED' as const,
+        xpMessage: duplicate.isCorrect
+          ? 'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.'
+          : null,
+        hearts,
+        duplicate: true,
+      };
+    }
+
     // Faqat xato javob 1 energiya oladi. Energiya yetmasa consumeHeart
     // attempt yozilmasdan 403 qaytaradi.
     const heartsAfter = isCorrect
       ? await this.heartsService.getMyHearts(userId, orgId)
       : await this.heartsService.consumeHeart(userId, orgId, 1);
+
+    const xpMeta = await this.resolveXpEligibility(
+      userId,
+      dto.questionId,
+      isCorrect,
+      dto.source,
+    );
 
     const attempt = this.attemptRepo.create({
       userId,
@@ -303,12 +371,22 @@ export class ProgressService {
       selectedOptionId: dto.pairs[0]?.leftOptionId ?? options[0].id,
       isCorrect,
       heartLost: !isCorrect,
+      countsForXp: xpMeta.countsForXp,
+      attemptSource: xpMeta.attemptSource,
     });
     await this.attemptRepo.save(attempt);
 
     await this.recalcLevelCompletion(userId, question.levelId, orgId);
 
-    return { isCorrect, xpEarned: isCorrect ? 10 : 0, hearts: heartsAfter };
+    return {
+      isCorrect,
+      xpEarned: xpMeta.xpEarned,
+      countsForXp: xpMeta.countsForXp,
+      xpDeniedReason: xpMeta.xpDeniedReason,
+      xpMessage: xpMeta.xpMessage,
+      hearts: heartsAfter,
+      duplicate: false,
+    };
   }
 
   async getLevelDetail(userId: string, levelId: string) {
@@ -383,6 +461,123 @@ export class ProgressService {
       title: level.title,
       orderIndex: level.orderIndex,
       theories: theoriesWithProgress,
+    };
+  }
+
+  /**
+   * Takroriy submit himoyasi:
+   * - DAILY_PLAN: 24 soat ichida shu savolga allaqachon javob bo‘lsa — yangi yozuv yo‘q
+   * - LESSON: 15 soniya ichida dubl — double-tap / qotishdan himoya
+   */
+  private async findDuplicateAttempt(
+    userId: string,
+    questionId: string,
+    source: AttemptSource,
+  ): Promise<UserQuestionAttempt | null> {
+    const qb = this.attemptRepo
+      .createQueryBuilder('a')
+      .where('a.user_id = :userId', { userId })
+      .andWhere('a.question_id = :questionId', { questionId })
+      .orderBy('a.answered_at', 'DESC')
+      .take(1);
+
+    if (source === AttemptSource.DAILY_PLAN) {
+      qb.andWhere(`a.answered_at > NOW() - INTERVAL '24 hours'`);
+    } else {
+      qb.andWhere(`a.answered_at > NOW() - INTERVAL '15 seconds'`);
+    }
+
+    return qb.getOne();
+  }
+
+  /**
+   * XP faqat kunlik majburiyatdan: DAILY_PLAN + yangi noyob to‘g‘ri + kunlik limit ichida.
+   * LESSON / plandan tashqari → 0 XP.
+   */
+  private async resolveXpEligibility(
+    userId: string,
+    questionId: string,
+    isCorrect: boolean,
+    source?: AttemptSource,
+  ): Promise<{
+    countsForXp: boolean;
+    xpEarned: number;
+    attemptSource: AttemptSource;
+    xpDeniedReason: 'WRONG' | 'OFF_PLAN' | 'PLAN_COMPLETE' | 'ALREADY_COUNTED' | null;
+    xpMessage: string | null;
+  }> {
+    const attemptSource = source ?? AttemptSource.LESSON;
+    const offPlanMessage =
+      'Ushbu javob uchun ball berilmaydi. Ball faqat kunlik majburiyat uchun beriladi.';
+
+    if (!isCorrect) {
+      return {
+        countsForXp: false,
+        xpEarned: 0,
+        attemptSource,
+        xpDeniedReason: 'WRONG',
+        xpMessage: null,
+      };
+    }
+
+    if (attemptSource !== AttemptSource.DAILY_PLAN) {
+      return {
+        countsForXp: false,
+        xpEarned: 0,
+        attemptSource,
+        xpDeniedReason: 'OFF_PLAN',
+        xpMessage: offPlanMessage,
+      };
+    }
+
+    const { from, to } = tashkentDayBounds(tashkentToday());
+
+    const distinctRow = await this.attemptRepo
+      .createQueryBuilder('a')
+      .select('COUNT(DISTINCT a.question_id)', 'cnt')
+      .where('a.user_id = :userId', { userId })
+      .andWhere('a.is_correct = true')
+      .andWhere('a.counts_for_xp = true')
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
+      .getRawOne<{ cnt: string }>();
+
+    const planCorrectToday = Number(distinctRow?.cnt ?? 0);
+
+    const alreadyCounted = await this.attemptRepo
+      .createQueryBuilder('a')
+      .where('a.user_id = :userId', { userId })
+      .andWhere('a.question_id = :questionId', { questionId })
+      .andWhere('a.is_correct = true')
+      .andWhere('a.counts_for_xp = true')
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
+      .getCount();
+
+    if (alreadyCounted > 0) {
+      return {
+        countsForXp: false,
+        xpEarned: 0,
+        attemptSource,
+        xpDeniedReason: 'ALREADY_COUNTED',
+        xpMessage: offPlanMessage,
+      };
+    }
+
+    if (planCorrectToday >= DAILY_GOAL_CORRECT) {
+      return {
+        countsForXp: false,
+        xpEarned: 0,
+        attemptSource,
+        xpDeniedReason: 'PLAN_COMPLETE',
+        xpMessage: offPlanMessage,
+      };
+    }
+
+    return {
+      countsForXp: true,
+      xpEarned: 10,
+      attemptSource,
+      xpDeniedReason: null,
+      xpMessage: null,
     };
   }
 

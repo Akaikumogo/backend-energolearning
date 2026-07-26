@@ -54,6 +54,19 @@ export class UserQuestionAttempt {
   @Column({ type: 'boolean', name: 'heart_lost', default: false })
   heartLost: boolean;
 
+  /**
+   * Reyting XP ga qo‘shiladimi.
+   * Faqat kunlik majburiyat (plan) doirasidagi to‘g‘ri javoblar = true.
+   */
+  @Column({ type: 'boolean', name: 'counts_for_xp', default: false })
+  countsForXp: boolean;
+
+  /**
+   * Javob manbai: DAILY_PLAN | LESSON (null = legacy).
+   */
+  @Column({ type: 'text', name: 'attempt_source', nullable: true })
+  attemptSource: string | null;
+
   @Column({ type: 'timestamptz', name: 'answered_at', default: () => 'NOW()' })
   answeredAt: Date;
 }
