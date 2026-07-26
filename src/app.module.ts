@@ -84,6 +84,7 @@ import { OneTimeCutoverModule } from './one-time-cutover/one-time-cutover.module
 import { LegacyModeratorMigrationModule } from './legacy-moderator-migration/legacy-moderator-migration.module';
 import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
 import { AdminImportExportModule } from './admin-import-export/admin-import-export.module';
+import { XpAnomaliesModule } from './xp-anomalies/xp-anomalies.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -167,6 +168,7 @@ import { AdminImportExportModule } from './admin-import-export/admin-import-expo
     LegacyModeratorMigrationModule,
     TelegramBotModule,
     AdminImportExportModule,
+    XpAnomaliesModule,
   ],
   controllers: [AppController],
   providers: [
