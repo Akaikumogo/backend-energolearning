@@ -142,6 +142,26 @@ export class BranchAnalyticsController {
     return this.analyticsService.getMonthlyProgress(safeOrgId, month);
   }
 
+  @Get('monthly-plan-matrix')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'Filial oylik reja jadvali: har xodim × kun (X/10) + oylik plan %',
+  })
+  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  async monthlyPlanMatrix(
+    @Query('orgId') orgId: string,
+    @Query('month') month: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const safeOrgId = await this.analyticsService.resolveOrgScope(
+      orgId,
+      req.user,
+    );
+    return this.analyticsService.getMonthlyPlanMatrix(safeOrgId, month);
+  }
+
   @Get('branch-comparison')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Filiallar oylik reytingi (o`rtacha progress %)' })
@@ -389,6 +409,39 @@ export class BranchAnalyticsController {
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="progress.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    });
+    res.send(buffer);
+  }
+
+  @Get('export/monthly-plan-matrix')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary: 'Filial oylik reja jadvali Excel (kunlar × xodimlar)',
+  })
+  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  async exportMonthlyPlanMatrix(
+    @Query('orgId') orgId: string,
+    @Query('month') month: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Res() res: Response,
+  ) {
+    const safeOrgId = await this.analyticsService.resolveOrgScope(
+      orgId,
+      req.user,
+    );
+    const data = await this.analyticsService.getMonthlyPlanMatrix(
+      safeOrgId,
+      month,
+    );
+    const buffer = await this.exportService.buildMonthlyPlanMatrixExcel(data);
+
+    const safeName = data.orgName.replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    const filename = `${data.month}_${safeName}_oylik_reja.xlsx`;
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="plan-matrix.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
     });
     res.send(buffer);
   }
