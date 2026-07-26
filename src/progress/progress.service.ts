@@ -215,10 +215,11 @@ export class ProgressService {
       );
     }
 
-    // Har bir urinish (to'g'ri yoki noto'g'ri) 1 energiya sarflaydi — bu
-    // taxmin qilib bosishning oldini oladi. Energiya yetmasa consumeHeart
+    // Faqat xato javob 1 energiya oladi. Energiya yetmasa consumeHeart
     // attempt yozilmasdan 403 (NO_HEARTS_LEFT) qaytaradi.
-    const heartsAfter = await this.heartsService.consumeHeart(userId, orgId, 1);
+    const heartsAfter = isCorrect
+      ? await this.heartsService.getMyHearts(userId, orgId)
+      : await this.heartsService.consumeHeart(userId, orgId, 1);
 
     const attempt = this.attemptRepo.create({
       userId,
@@ -289,9 +290,11 @@ export class ProgressService {
       );
     }
 
-    // Har bir urinish (to'g'ri yoki noto'g'ri) 1 energiya sarflaydi.
-    // Energiya yetmasa consumeHeart attempt yozilmasdan 403 qaytaradi.
-    const heartsAfter = await this.heartsService.consumeHeart(userId, orgId, 1);
+    // Faqat xato javob 1 energiya oladi. Energiya yetmasa consumeHeart
+    // attempt yozilmasdan 403 qaytaradi.
+    const heartsAfter = isCorrect
+      ? await this.heartsService.getMyHearts(userId, orgId)
+      : await this.heartsService.consumeHeart(userId, orgId, 1);
 
     const attempt = this.attemptRepo.create({
       userId,

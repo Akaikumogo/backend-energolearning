@@ -27,7 +27,24 @@ Barcha admin analitika KPIlari **Asia/Tashkent (UTC+5)** bo'yicha hisoblanadi.
 | `completionPercent` | `completedTotal / totalPlan × 100` (1 o'nlik) |
 | `activeEmployees` | `correct > 0` bo'lgan xodimlar |
 | `completedEmployees` | `distinct_correct ≥ 10` bo'lgan xodimlar |
+| `extraCorrectTotal` | Har bir `USER` uchun `max(0, raw_distinct_correct - 10)` yig'indisi |
 | `remaining` | `max(0, totalPlan - completedTotal)` |
+
+### `GET /admin/branch-analytics/daily-report?date=`
+
+Kunlik hisobot: executive dashboard + filial reytingi + barcha xodimlar (`planCorrect`, `extraCorrect`).
+
+### `GET /admin/branch-analytics/monthly-report?month=`
+
+Oylik hisobot: filial taqqoslash + kunlik trend + xodimlar (`extraCorrectTotal` oylik yig'indi).
+
+### `GET /admin/branch-analytics/export/daily-report?date=`
+
+Excel: **Xulosa**, **Filiallar**, **Xodimlar** (rangli status).
+
+### `GET /admin/branch-analytics/export/monthly-report?month=`
+
+Excel: **Oylik xulosa**, **Kunlik trend**, **Xodimlar**.
 
 ### `GET /admin/branch-analytics/branch-ranking?date=`
 
@@ -41,7 +58,11 @@ NES `nes_employees.division` bo'yicha guruhlash. Bo'limsiz → `"Bo'lim belgilan
 
 ### `GET /admin/branch-analytics/employee-ranking?orgId=&date=&division=`
 
-Har xodim: `correct` = capped distinct to'g'ri, `percent = min(100, correct/10×100)`.
+Har xodim: `correct` = capped distinct to'g'ri, `extraCorrect` = `max(0, raw - 10)`, `percent = min(100, correct/10×100)`.
+
+### Energiya (hearts)
+
+Faqat **xato javob** 1 energiya oladi (`heart_lost = true`). To'g'ri javob energiya sarflamaydi.
 
 ### `GET /admin/branch-analytics/hourly-progress?date=&orgId=`
 

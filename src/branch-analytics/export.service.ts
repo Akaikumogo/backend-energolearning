@@ -8,6 +8,12 @@ import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { Role } from '../common/enums/role.enum';
 
+const STATUS_FILL: Record<string, string> = {
+  green: 'FFD1FAE5',
+  yellow: 'FFFEF3C7',
+  red: 'FFFEE2E2',
+};
+
 @Injectable()
 export class ExportService {
   constructor(
@@ -142,9 +148,6 @@ export class ExportService {
 
   async buildModeratorsCredentialsExcel(): Promise<Buffer> {
     const accounts = await this.userRepo.find({
-      // SUPERADMIN parolini Excel'ga chiqarmaymiz — moderatorlar uchun
-      // initialPassword zarur (xodimga parol berish uchun), SUPERADMIN
-      // esa env'da sozlanadi va plain ko'rsatilmasligi kerak.
       where: [{ role: Role.MODERATOR }],
       relations: ['organizations', 'organizations.organization'],
       order: { lastName: 'ASC', firstName: 'ASC' },
@@ -177,10 +180,6 @@ export class ExportService {
     );
   }
 
-  /**
-   * Oylik progress hisoboti (masalan "2026-07_Toshkent.xlsx"):
-   * har xodim uchun bajarilgan kunlar, oylik %, to'g'ri/xato javoblar.
-   */
   async buildMonthlyProgressExcel(data: {
     orgName: string;
     month: string;
@@ -192,6 +191,7 @@ export class ExportService {
       monthlyPercent: number;
       correctTotal: number;
       wrongTotal: number;
+      extraCorrectTotal?: number;
       lastActiveAt: string | null;
     }>;
   }): Promise<Buffer> {
@@ -205,6 +205,7 @@ export class ExportService {
         'Oylik progress %',
         'To`g`ri javoblar',
         'Xato javoblar',
+        'Plandan tashqari',
         'Oxirgi faollik',
       ],
       data.employees.map((e, i) => [
@@ -215,9 +216,267 @@ export class ExportService {
         e.monthlyPercent,
         e.correctTotal,
         e.wrongTotal,
+        e.extraCorrectTotal ?? 0,
         e.lastActiveAt ? e.lastActiveAt.slice(0, 16).replace('T', ' ') : '—',
       ]),
     );
+  }
+
+  async buildDailyReportExcel(data: {
+    planDate: string;
+    dailyGoalCorrect: number;
+    totalPlan: number;
+    completedTotal: number;
+    extraCorrectTotal: number;
+    completionPercent: number;
+    totalEmployees: number;
+    activeEmployees: number;
+    completedEmployees: number;
+    branchCount: number;
+    branches: Array<{
+      orgName: string;
+      totalEmployees: number;
+      plan: number;
+      completed: number;
+      extraCorrect?: number;
+      percent: number;
+      completedEmployees: number;
+      status: string;
+    }>;
+    employees: Array<{
+      orgName: string;
+      fullName: string;
+      answeredCount: number;
+      planCorrect: number;
+      extraCorrect: number;
+      percent: number;
+      completed: boolean;
+      status: string;
+    }>;
+  }): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+
+    const summary = wb.addWorksheet('Xulosa');
+    summary.addRow(['Kunlik hisobot', data.planDate]);
+    summary.addRow([]);
+    summary.addRow(['Jami xodimlar', data.totalEmployees]);
+    summary.addRow(['Faol xodimlar', data.activeEmployees]);
+    summary.addRow(['Plan bajargan xodimlar', data.completedEmployees]);
+    summary.addRow(['Plan bajarilishi %', data.completionPercent]);
+    summary.addRow(['Plandan tashqari (jami)', data.extraCorrectTotal]);
+    summary.addRow(['Filiallar soni', data.branchCount]);
+    summary.addRow([]);
+    const branchHeaders = [
+      'Filial',
+      'Xodimlar',
+      'Plan',
+      'Bajarildi',
+      'Plandan tashqari',
+      '%',
+      'Plan bajargan',
+      'Holat',
+    ];
+    summary.addRow(branchHeaders);
+    this.styleHeaderRow(summary.getRow(summary.rowCount));
+    for (const b of data.branches) {
+      const row = summary.addRow([
+        b.orgName,
+        b.totalEmployees,
+        b.plan,
+        b.completed,
+        b.extraCorrect ?? 0,
+        b.percent,
+        b.completedEmployees,
+        b.status,
+      ]);
+      this.applyStatusFill(row, 8, b.status);
+    }
+    summary.columns.forEach((c) => {
+      c.width = 18;
+    });
+
+    const branchesWs = wb.addWorksheet('Filiallar');
+    branchesWs.addRow(branchHeaders);
+    this.styleHeaderRow(branchesWs.getRow(1));
+    for (const b of data.branches) {
+      const row = branchesWs.addRow([
+        b.orgName,
+        b.totalEmployees,
+        b.plan,
+        b.completed,
+        b.extraCorrect ?? 0,
+        b.percent,
+        b.completedEmployees,
+        b.status,
+      ]);
+      this.applyStatusFill(row, 8, b.status);
+    }
+    branchesWs.columns.forEach((c) => {
+      c.width = 18;
+    });
+
+    const empWs = wb.addWorksheet('Xodimlar');
+    const empHeaders = [
+      'Filial',
+      'F.I.O',
+      'Urinilgan',
+      'Plan (to`g`ri)',
+      'Plandan tashqari',
+      'Progress %',
+      'Bajarildi',
+      'Holat',
+    ];
+    empWs.addRow(empHeaders);
+    this.styleHeaderRow(empWs.getRow(1));
+    for (const e of data.employees) {
+      const row = empWs.addRow([
+        e.orgName,
+        e.fullName,
+        e.answeredCount,
+        e.planCorrect,
+        e.extraCorrect,
+        e.percent,
+        e.completed ? 'Ha' : 'Yo`q',
+        e.status,
+      ]);
+      this.applyStatusFill(row, 8, e.status);
+    }
+    empWs.columns.forEach((c) => {
+      c.width = 20;
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf);
+  }
+
+  async buildMonthlyReportExcel(data: {
+    month: string;
+    daysInMonth: number;
+    dailyGoalCorrect: number;
+    branches: Array<{
+      orgName: string;
+      totalEmployees: number;
+      averageMonthlyPercent: number;
+      extraCorrectTotal: number;
+      rank: number;
+    }>;
+    trend: Array<{ date: string; percent: number; completed: number; plan: number }>;
+    employees: Array<{
+      orgName: string;
+      fullName: string;
+      email: string;
+      daysCompleted: number;
+      monthlyPercent: number;
+      extraCorrectTotal: number;
+      correctTotal: number;
+      wrongTotal: number;
+    }>;
+  }): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+
+    const summary = wb.addWorksheet('Oylik xulosa');
+    summary.addRow(['Oylik hisobot', data.month]);
+    summary.addRow(['Kunlar soni', data.daysInMonth]);
+    summary.addRow(['Kunlik maqsad', data.dailyGoalCorrect]);
+    summary.addRow([]);
+    const branchHeaders = [
+      'Reyting',
+      'Filial',
+      'Xodimlar',
+      'O`rtacha oylik %',
+      'Plandan tashqari (jami)',
+    ];
+    summary.addRow(branchHeaders);
+    this.styleHeaderRow(summary.getRow(summary.rowCount));
+    for (const b of data.branches) {
+      const status =
+        b.averageMonthlyPercent >= 90
+          ? 'green'
+          : b.averageMonthlyPercent >= 70
+            ? 'yellow'
+            : 'red';
+      const row = summary.addRow([
+        b.rank,
+        b.orgName,
+        b.totalEmployees,
+        b.averageMonthlyPercent,
+        b.extraCorrectTotal,
+      ]);
+      this.applyStatusFill(row, 4, status);
+    }
+    summary.columns.forEach((c) => {
+      c.width = 20;
+    });
+
+    const trendWs = wb.addWorksheet('Kunlik trend');
+    trendWs.addRow(['Sana', 'Plan', 'Bajarildi', 'Progress %']);
+    this.styleHeaderRow(trendWs.getRow(1));
+    for (const p of data.trend) {
+      const status =
+        p.percent >= 90 ? 'green' : p.percent >= 70 ? 'yellow' : 'red';
+      const row = trendWs.addRow([p.date, p.plan, p.completed, p.percent]);
+      this.applyStatusFill(row, 4, status);
+    }
+    trendWs.columns.forEach((c) => {
+      c.width = 16;
+    });
+
+    const empWs = wb.addWorksheet('Xodimlar');
+    empWs.addRow([
+      'Filial',
+      'F.I.O',
+      'Email',
+      'Bajarilgan kunlar',
+      'Oylik %',
+      'Plandan tashqari',
+      'To`g`ri',
+      'Xato',
+    ]);
+    this.styleHeaderRow(empWs.getRow(1));
+    for (const e of data.employees) {
+      const status =
+        e.monthlyPercent >= 90
+          ? 'green'
+          : e.monthlyPercent >= 70
+            ? 'yellow'
+            : 'red';
+      const row = empWs.addRow([
+        e.orgName,
+        e.fullName,
+        e.email,
+        e.daysCompleted,
+        e.monthlyPercent,
+        e.extraCorrectTotal,
+        e.correctTotal,
+        e.wrongTotal,
+      ]);
+      this.applyStatusFill(row, 5, status);
+    }
+    empWs.columns.forEach((c) => {
+      c.width = 18;
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf);
+  }
+
+  private styleHeaderRow(row: ExcelJS.Row) {
+    row.font = { bold: true, color: { argb: 'FF1E293B' } };
+    row.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE2E8F0' },
+    };
+  }
+
+  private applyStatusFill(row: ExcelJS.Row, colIndex: number, status: string) {
+    const fill = STATUS_FILL[status];
+    if (!fill) return;
+    row.getCell(colIndex).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: fill },
+    };
   }
 
   private async toExcelBuffer(

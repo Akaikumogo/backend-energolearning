@@ -19,6 +19,16 @@ export class Position {
   @Column({ type: 'text', unique: true })
   title: string;
 
+  @Column({ type: 'int', name: 'employee_count', default: 0 })
+  employeeCount: number;
+
+  @Column({ type: 'timestamptz', name: 'last_synced_at', nullable: true })
+  lastSyncedAt: Date | null;
+
+  /** manual | energo-id */
+  @Column({ type: 'text', default: 'manual' })
+  source: string;
+
   @OneToMany(() => UserPosition, (up) => up.position)
   users: UserPosition[];
 

@@ -8,6 +8,8 @@ import { AuthModule } from '../auth/auth.module';
 import { UsersModule } from '../users/users.module';
 import { EmployeeSyncSetting } from '../database/entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from '../database/entities/terminated-employee.entity';
+import { Department } from '../database/entities/department.entity';
+import { Position } from '../database/entities/position.entity';
 import { BranchAnalyticsModule } from '../branch-analytics/branch-analytics.module';
 import { NesEmployeesController } from './nes-employees.controller';
 import { NesEmployeesService } from './nes-employees.service';
@@ -25,6 +27,8 @@ import { NesSyncGateway } from './nes-sync.gateway';
       UserOrganization,
       EmployeeSyncSetting,
       TerminatedEmployee,
+      Department,
+      Position,
     ]),
   ],
   controllers: [NesEmployeesController],

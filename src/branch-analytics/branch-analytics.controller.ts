@@ -296,6 +296,72 @@ export class BranchAnalyticsController {
     return this.analyticsService.getUnderperformers(date, t, allowedOrgIds);
   }
 
+  @Get('daily-report')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Kunlik hisobot (dashboard + filiallar + xodimlar)' })
+  @ApiQuery({ name: 'date', required: false })
+  async dailyReport(
+    @Query('date') date: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    return this.analyticsService.getDailyReport(date, allowedOrgIds);
+  }
+
+  @Get('monthly-report')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Oylik hisobot (filiallar + trend + xodimlar)' })
+  @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  async monthlyReport(
+    @Query('month') month: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    return this.analyticsService.getMonthlyReport(month, allowedOrgIds);
+  }
+
+  @Get('export/daily-report')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Kunlik hisobot Excel (xulosa + filiallar + xodimlar)' })
+  @ApiQuery({ name: 'date', required: false })
+  async exportDailyReport(
+    @Query('date') date: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Res() res: Response,
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    const data = await this.analyticsService.getDailyReport(date, allowedOrgIds);
+    const buffer = await this.exportService.buildDailyReportExcel(data);
+    const filename = `kunlik_${data.planDate}.xlsx`;
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="report.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    });
+    res.send(buffer);
+  }
+
+  @Get('export/monthly-report')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Oylik hisobot Excel (xulosa + trend + xodimlar)' })
+  @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  async exportMonthlyReport(
+    @Query('month') month: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Res() res: Response,
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    const data = await this.analyticsService.getMonthlyReport(month, allowedOrgIds);
+    const buffer = await this.exportService.buildMonthlyReportExcel(data);
+    const filename = `oylik_${data.month}.xlsx`;
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="report.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    });
+    res.send(buffer);
+  }
+
   @Get('export/monthly-progress')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Oylik progress Excel (masalan 2026-07_Toshkent.xlsx)' })

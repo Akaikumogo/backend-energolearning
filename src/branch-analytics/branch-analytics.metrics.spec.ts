@@ -19,9 +19,19 @@ describe('analytics KPI formulas', () => {
     return 'red';
   }
 
+  function extraCorrect(rawDistinctCorrect: number): number {
+    return Math.max(0, rawDistinctCorrect - DAILY_GOAL_CORRECT);
+  }
+
   it('capped correct never exceeds daily goal', () => {
     expect(cappedCorrect(15)).toBe(10);
     expect(cappedCorrect(7)).toBe(7);
+  });
+
+  it('extra correct counts beyond daily goal only', () => {
+    expect(extraCorrect(10)).toBe(0);
+    expect(extraCorrect(13)).toBe(3);
+    expect(extraCorrect(7)).toBe(0);
   });
 
   it('completion percent for full branch', () => {
