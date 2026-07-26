@@ -27,6 +27,26 @@ import { LoginThrottleGuard } from './guards/login-throttle.guard';
 import { JoinOrganizationDto } from './dto/join-organization.dto';
 import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
 
+function clientMetaFromRequest(req: Request) {
+  const forwarded = req.headers['x-forwarded-for'];
+  const forwardedIp =
+    typeof forwarded === 'string'
+      ? forwarded.split(',')[0]?.trim()
+      : Array.isArray(forwarded)
+        ? forwarded[0]?.split(',')[0]?.trim()
+        : undefined;
+  const ipAddress =
+    forwardedIp ||
+    req.ip ||
+    req.socket?.remoteAddress ||
+    null;
+  const userAgent =
+    typeof req.headers['user-agent'] === 'string'
+      ? req.headers['user-agent']
+      : null;
+  return { ipAddress, userAgent };
+}
+
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
@@ -63,8 +83,11 @@ export class AuthController {
     description: 'Noto`g`ri body format',
     type: ApiErrorResponseDto,
   })
-  login(@Body() body: LoginDto): Promise<LoginSuccessResponseDto> {
-    return this.authService.login(body);
+  login(
+    @Body() body: LoginDto,
+    @Req() req: Request,
+  ): Promise<LoginSuccessResponseDto> {
+    return this.authService.login(body, clientMetaFromRequest(req));
   }
 
   @Get('energo-id/authorize-url')
@@ -106,6 +129,7 @@ export class AuthController {
   @ApiOkResponse({ type: LoginSuccessResponseDto })
   exchangeEnergoIdCode(
     @Body() body: EnergoIdExchangeDto,
+    @Req() req: Request,
   ): Promise<LoginSuccessResponseDto> {
     const code = (body.onetime ?? body.code)?.trim();
     if (!code) {
@@ -117,6 +141,7 @@ export class AuthController {
       body.state,
       body.client,
       body.code_verifier,
+      clientMetaFromRequest(req),
     );
   }
 
@@ -140,8 +165,11 @@ export class AuthController {
     description: 'Rol admin panel uchun ruxsat etilmagan',
     type: ApiErrorResponseDto,
   })
-  adminLogin(@Body() body: LoginDto): Promise<LoginSuccessResponseDto> {
-    return this.authService.adminLogin(body);
+  adminLogin(
+    @Body() body: LoginDto,
+    @Req() req: Request,
+  ): Promise<LoginSuccessResponseDto> {
+    return this.authService.adminLogin(body, clientMetaFromRequest(req));
   }
 
   @Post('admin/energo-id/exchange')
@@ -158,6 +186,7 @@ export class AuthController {
   })
   exchangeAdminEnergoIdCode(
     @Body() body: EnergoIdExchangeDto,
+    @Req() req: Request,
   ): Promise<LoginSuccessResponseDto> {
     const code = (body.onetime ?? body.code)?.trim();
     if (!code) {
@@ -169,6 +198,7 @@ export class AuthController {
       body.state,
       body.client,
       body.code_verifier,
+      clientMetaFromRequest(req),
     );
   }
 
