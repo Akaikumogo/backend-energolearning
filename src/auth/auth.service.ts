@@ -57,13 +57,16 @@ export class AuthService {
   ) {}
 
   /** Mobile — faqat OAuth orqali; legacy login/password o‘chirilgan. */
-  async login(dto: LoginDto): Promise<LoginSuccessResponseDto> {
+  async login(
+    dto: LoginDto,
+    clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
+  ): Promise<LoginSuccessResponseDto> {
     if (this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException(
         'Mobil ilova uchun /auth/energo-id/authorize-url va /auth/energo-id/exchange ishlating',
       );
     }
-    return this.loginWithLocalPassword(dto);
+    return this.loginWithLocalPassword(dto, clientMeta);
   }
 
   async getEnergoIdAuthorizeUrl(
@@ -122,6 +125,7 @@ export class AuthService {
     state?: string,
     client?: 'mobile' | 'web',
     codeVerifier?: string,
+    clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
     if (!this.energoIdAuthClient.isConfigured()) {
       throw new BadRequestException('Energo ID sozlanmagan');
@@ -156,7 +160,7 @@ export class AuthService {
       effectiveVerifier,
     );
     const user = await this.usersService.syncFromEnergoIdentity(energoUser);
-    return this.issueLoginResponse(user);
+    return this.issueLoginResponse(user, clientMeta);
   }
 
   async adminLoginWithEnergoIdCode(
@@ -165,6 +169,7 @@ export class AuthService {
     state?: string,
     client?: 'mobile' | 'web',
     codeVerifier?: string,
+    clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
     const response = await this.loginWithEnergoIdCode(
       code,
@@ -172,6 +177,7 @@ export class AuthService {
       state,
       client,
       codeVerifier,
+      clientMeta,
     );
     const role = response.data.user.role;
     if (role !== Role.SUPERADMIN && role !== Role.MODERATOR) {
@@ -183,21 +189,25 @@ export class AuthService {
   }
 
   /** Admin panel — faqat ElektroLearn bazasi, SUPERADMIN va MODERATOR. */
-  async adminLogin(dto: LoginDto): Promise<LoginSuccessResponseDto> {
+  async adminLogin(
+    dto: LoginDto,
+    clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
+  ): Promise<LoginSuccessResponseDto> {
     const user = await this.resolveLocalUser(dto);
     if (user.role !== Role.SUPERADMIN && user.role !== Role.MODERATOR) {
       throw new ForbiddenException(
         'Admin panelga faqat moderator yoki superadmin kira oladi',
       );
     }
-    return this.issueLoginResponse(user);
+    return this.issueLoginResponse(user, clientMeta);
   }
 
   private async loginWithLocalPassword(
     dto: LoginDto,
+    clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
     const user = await this.resolveLocalUser(dto);
-    return this.issueLoginResponse(user);
+    return this.issueLoginResponse(user, clientMeta);
   }
 
   private async resolveLocalUser(dto: LoginDto): Promise<User> {
@@ -227,6 +237,7 @@ export class AuthService {
 
   private async issueLoginResponse(
     user: User,
+    clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
     this.assertLoginAllowed(user);
 
@@ -246,6 +257,8 @@ export class AuthService {
       .startSession({
         userId: user.id,
         organizationId: orgIds[0] ?? null,
+        ipAddress: clientMeta?.ipAddress ?? null,
+        userAgent: clientMeta?.userAgent ?? null,
       })
       .catch(() => undefined);
 
