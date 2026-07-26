@@ -222,6 +222,113 @@ export class ExportService {
     );
   }
 
+  /**
+   * Filial oylik reja matrisi Excel:
+   * F.I.O | 1 | 2 | … | 31 | Bajarilgan kunlar | Oylik %
+   * Katak: 10/10 (yashil), 7/10 (sariq), 0/10 (kulrang)
+   */
+  async buildMonthlyPlanMatrixExcel(data: {
+    orgName: string;
+    month: string;
+    daysInMonth: number;
+    dailyGoalCorrect: number;
+    days: string[];
+    averageMonthlyPercent: number;
+    totalEmployees: number;
+    employees: Array<{
+      fullName: string;
+      email: string;
+      daysCompleted: number;
+      monthlyPercent: number;
+      extraCorrectTotal: number;
+      dayResults: Array<{
+        date: string;
+        day: number;
+        planCorrect: number;
+        completed: boolean;
+        label: string;
+      }>;
+    }>;
+  }): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Oylik reja', {
+      views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }],
+    });
+
+    ws.addRow([`Filial: ${data.orgName}`]);
+    ws.addRow([
+      `Oy: ${data.month}`,
+      `Kunlik maqsad: ${data.dailyGoalCorrect}`,
+      `Xodimlar: ${data.totalEmployees}`,
+      `O‘rtacha oylik %: ${data.averageMonthlyPercent}`,
+    ]);
+    ws.addRow([]);
+
+    const dayHeaders = data.days.map((d) => String(Number(d.slice(8, 10))));
+    const headers = [
+      '№',
+      'F.I.O',
+      'Email',
+      ...dayHeaders,
+      `Bajarilgan kunlar / ${data.daysInMonth}`,
+      'Oylik plan %',
+      'Plandan tashqari',
+    ];
+    const headerRow = ws.addRow(headers);
+    this.styleHeaderRow(headerRow);
+
+    for (let i = 0; i < data.employees.length; i++) {
+      const e = data.employees[i];
+      const cells = e.dayResults.map((d) => d.label);
+      const row = ws.addRow([
+        i + 1,
+        e.fullName,
+        e.email,
+        ...cells,
+        e.daysCompleted,
+        e.monthlyPercent,
+        e.extraCorrectTotal,
+      ]);
+
+      e.dayResults.forEach((d, idx) => {
+        const cell = row.getCell(4 + idx);
+        if (d.completed) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD1FAE5' },
+          };
+        } else if (d.planCorrect > 0) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFEF3C7' },
+          };
+        } else {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFF1F5F9' },
+          };
+        }
+        cell.alignment = { horizontal: 'center' };
+      });
+    }
+
+    ws.getColumn(1).width = 6;
+    ws.getColumn(2).width = 28;
+    ws.getColumn(3).width = 26;
+    for (let c = 4; c < 4 + data.days.length; c++) {
+      ws.getColumn(c).width = 7;
+    }
+    ws.getColumn(4 + data.days.length).width = 18;
+    ws.getColumn(5 + data.days.length).width = 14;
+    ws.getColumn(6 + data.days.length).width = 14;
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf);
+  }
+
   async buildDailyReportExcel(data: {
     planDate: string;
     dailyGoalCorrect: number;

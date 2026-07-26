@@ -19,6 +19,7 @@ import {
   MIN_DAILY_PLAN_QUESTIONS,
 } from './daily-plan.service';
 import {
+  addTashkentDays,
   listTashkentDays,
   parseTashkentRange,
   tashkentDayBounds,
@@ -846,6 +847,128 @@ export class BranchAnalyticsService {
         wrongTotal: Number(totals?.wrongTotal) || 0,
         extraCorrectTotal: extraTotalMap.get(emp.userId) ?? 0,
         lastActiveAt: lastActive ? new Date(lastActive).toISOString() : null,
+      };
+    });
+
+    employeeResults.sort(
+      (a, b) =>
+        b.monthlyPercent - a.monthlyPercent ||
+        a.fullName.localeCompare(b.fullName),
+    );
+
+    const averageMonthlyPercent =
+      employeeResults.length > 0
+        ? Math.round(
+            (employeeResults.reduce((s, e) => s + e.monthlyPercent, 0) /
+              employeeResults.length) *
+              10,
+          ) / 10
+        : 0;
+
+    return {
+      ...base,
+      totalEmployees: employeeResults.length,
+      averageMonthlyPercent,
+      fullCompletedEmployees: employeeResults.filter(
+        (e) => e.daysCompleted >= daysInMonth,
+      ).length,
+      employees: employeeResults,
+    };
+  }
+
+  /**
+   * Filial oylik reja matrisi: har xodim × oy kunlari (necha/10, bajarildimi)
+   * + oylik plan foizi.
+   */
+  async getMonthlyPlanMatrix(orgId: string, month?: string) {
+    const org = await this.orgRepo.findOne({ where: { id: orgId } });
+    if (!org) throw new NotFoundException('Tashkilot topilmadi');
+
+    const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
+    const monthStart = `${m}-01`;
+    const monthEnd = addTashkentDays(monthStart, daysInMonth - 1);
+    const days = listTashkentDays(monthStart, monthEnd);
+
+    const employees = await this.getEmployeeIds(orgId);
+    const userIds = employees.map((e) => e.userId);
+
+    const base = {
+      orgId,
+      orgName: org.name,
+      month: m,
+      daysInMonth,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      days,
+    };
+
+    if (userIds.length === 0) {
+      return {
+        ...base,
+        totalEmployees: 0,
+        averageMonthlyPercent: 0,
+        fullCompletedEmployees: 0,
+        employees: [],
+      };
+    }
+
+    const dayRows = await this.attemptRepo
+      .createQueryBuilder('a')
+      .select('a.user_id', 'userId')
+      .addSelect(
+        `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
+        'day',
+      )
+      .addSelect(
+        'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
+        'correct',
+      )
+      .where('a.user_id IN (:...userIds)', { userIds })
+      .andWhere('a.organization_id = :orgId', { orgId })
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
+      .groupBy('a.user_id')
+      .addGroupBy(
+        `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
+      )
+      .getRawMany<{ userId: string; day: string; correct: number }>();
+
+    const byUserDay = new Map<string, Map<string, number>>();
+    for (const row of dayRows) {
+      const raw = Number(row.correct) || 0;
+      if (!byUserDay.has(row.userId)) byUserDay.set(row.userId, new Map());
+      byUserDay.get(row.userId)!.set(row.day, raw);
+    }
+
+    const employeeResults = employees.map((emp) => {
+      const dayMap = byUserDay.get(emp.userId) ?? new Map<string, number>();
+      let daysCompleted = 0;
+      let extraCorrectTotal = 0;
+      const dayCells = days.map((date) => {
+        const rawCorrect = dayMap.get(date) ?? 0;
+        const planCorrect = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
+        const completed = rawCorrect >= DAILY_GOAL_CORRECT;
+        if (completed) daysCompleted += 1;
+        extraCorrectTotal += Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
+        return {
+          date,
+          day: Number(date.slice(8, 10)),
+          rawCorrect,
+          planCorrect,
+          completed,
+          label: `${planCorrect}/${DAILY_GOAL_CORRECT}`,
+        };
+      });
+
+      const monthlyPercent =
+        Math.round((daysCompleted / daysInMonth) * 1000) / 10;
+
+      return {
+        userId: emp.userId,
+        fullName: `${emp.lastName} ${emp.firstName}`.trim(),
+        email: emp.email,
+        daysCompleted,
+        monthlyPercent,
+        extraCorrectTotal,
+        dayResults: dayCells,
       };
     });
 
