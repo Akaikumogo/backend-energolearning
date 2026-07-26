@@ -68,8 +68,8 @@ export class NesEmployeesController {
   }
 
   @Get('terminated')
-  @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'Bo`shagan xodimlar arxivi (faqat SuperAdmin)' })
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Bo`shagan xodimlar arxivi' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
@@ -83,6 +83,13 @@ export class NesEmployeesController {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Get('archive-summary')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Arxiv hub kartochkalari uchun sonlar' })
+  archiveSummary() {
+    return this.nesEmployeesService.getArchiveSummary();
   }
 
   @Delete()
