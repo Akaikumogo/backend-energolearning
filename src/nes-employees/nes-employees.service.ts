@@ -897,7 +897,11 @@ export class NesEmployeesService {
     const limit = filters?.limit ?? 20;
     const qb = this.employeeRepo
       .createQueryBuilder('e')
+      .innerJoin('e.user', 'u')
       .leftJoinAndSelect('e.organization', 'organization')
+      // Faqat aktiv (energo_id bor) xodimlar — arxiv asosiy ro'yxatda ko'rinmasin
+      .andWhere('u.energo_id IS NOT NULL')
+      .andWhere('u.role = :role', { role: Role.USER })
       .orderBy('e.updatedAt', 'DESC');
 
     if (filters?.search) {
@@ -930,24 +934,40 @@ export class NesEmployeesService {
   async getFilterOptions() {
     const orgs = await this.employeeRepo
       .createQueryBuilder('e')
+      .innerJoin('e.user', 'u')
       .select('DISTINCT e.organizationName', 'organizationName')
       .where(
         'e.organizationName IS NOT NULL AND e.organizationName != :empty',
         { empty: '' },
       )
+      .andWhere('u.energo_id IS NOT NULL')
+      .andWhere('u.role = :role', { role: Role.USER })
       .orderBy('e.organizationName', 'ASC')
       .getRawMany<{ organizationName: string }>();
 
     const divs = await this.employeeRepo
       .createQueryBuilder('e')
+      .innerJoin('e.user', 'u')
       .select('DISTINCT e.division', 'division')
       .where('e.division IS NOT NULL AND e.division != :empty', { empty: '' })
+      .andWhere('u.energo_id IS NOT NULL')
+      .andWhere('u.role = :role', { role: Role.USER })
       .orderBy('e.division', 'ASC')
       .getRawMany<{ division: string }>();
 
     return {
       organizations: orgs.map((r) => r.organizationName),
       divisions: divs.map((r) => r.division),
+    };
+  }
+
+  async getArchiveSummary() {
+    const terminatedEmployees = await this.terminatedRepo.count();
+    return {
+      employees: terminatedEmployees,
+      questions: 0,
+      modules: 0,
+      theories: 0,
     };
   }
 
