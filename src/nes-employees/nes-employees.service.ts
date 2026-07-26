@@ -281,6 +281,12 @@ export class NesEmployeesService {
       this.emitProgressUpdate();
 
       const hidden = await this.finalizeMissingEnergoEmployees(activeEnergoIds);
+      const cleaned = await this.cleanupStaleNesMirrors();
+      if (cleaned.duplicatesRemoved > 0 || cleaned.orphansRemoved > 0) {
+        this.logger.log(
+          `Sync finalize cleanup: dup=${cleaned.duplicatesRemoved}, orphan=${cleaned.orphansRemoved}`,
+        );
+      }
 
       this.syncState.hidden = hidden;
       this.syncState.status = 'SUCCESS';
@@ -895,11 +901,21 @@ export class NesEmployeesService {
   }) {
     const page = filters?.page ?? 1;
     const limit = filters?.limit ?? 20;
+
+    // Birinchi sahifa ochilganda dublikat / orphan mirrorlarni tozalash
+    if (
+      page === 1 &&
+      !filters?.search?.trim() &&
+      !filters?.organizationName?.trim() &&
+      !filters?.division?.trim()
+    ) {
+      await this.cleanupStaleNesMirrors();
+    }
+
     const qb = this.employeeRepo
       .createQueryBuilder('e')
       .innerJoin('e.user', 'u')
       .leftJoinAndSelect('e.organization', 'organization')
-      // Faqat aktiv (energo_id bor) xodimlar — arxiv asosiy ro'yxatda ko'rinmasin
       .andWhere('u.energo_id IS NOT NULL')
       .andWhere('u.role = :role', { role: Role.USER })
       .orderBy('e.updatedAt', 'DESC');
@@ -931,7 +947,62 @@ export class NesEmployeesService {
     return { data, total, page, limit };
   }
 
+  /**
+   * 1) Bir user uchun bir nechta mirror bo'lsa — eng yangisini qoldirish
+   * 2) energo_id yo'q (arxiv) userlar mirrorini o'chirish
+   */
+  private async cleanupStaleNesMirrors(): Promise<{
+    duplicatesRemoved: number;
+    orphansRemoved: number;
+  }> {
+    const dupResult = await this.dataSource.query(`
+      WITH ranked AS (
+        SELECT id,
+          ROW_NUMBER() OVER (
+            PARTITION BY user_id
+            ORDER BY last_synced_at DESC NULLS LAST, updated_at DESC, created_at DESC
+          ) AS rn
+        FROM nes_employees
+      ),
+      deleted AS (
+        DELETE FROM nes_employees e
+        USING ranked r
+        WHERE e.id = r.id AND r.rn > 1
+        RETURNING e.id
+      )
+      SELECT COUNT(*)::int AS cnt FROM deleted
+    `);
+
+    const orphanResult = await this.dataSource.query(
+      `
+      WITH deleted AS (
+        DELETE FROM nes_employees e
+        USING users u
+        WHERE e.user_id = u.id
+          AND (
+            u.energo_id IS NULL
+            OR u.role <> $1
+          )
+        RETURNING e.id
+      )
+      SELECT COUNT(*)::int AS cnt FROM deleted
+    `,
+      [Role.USER],
+    );
+
+    const duplicatesRemoved = Number(dupResult?.[0]?.cnt ?? 0);
+    const orphansRemoved = Number(orphanResult?.[0]?.cnt ?? 0);
+    if (duplicatesRemoved > 0 || orphansRemoved > 0) {
+      this.logger.log(
+        `nes_employees cleanup: duplicates=${duplicatesRemoved}, orphans=${orphansRemoved}`,
+      );
+    }
+    return { duplicatesRemoved, orphansRemoved };
+  }
+
   async getFilterOptions() {
+    await this.cleanupStaleNesMirrors();
+
     const orgs = await this.employeeRepo
       .createQueryBuilder('e')
       .innerJoin('e.user', 'u')
