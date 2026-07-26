@@ -63,6 +63,7 @@ import { AddDepartmentsCatalog1746900000000 } from './migrations/0023-add-depart
 import { AddOrganizationParentAndDefault1746300000000 } from './migrations/0017-add-organization-parent-and-default';
 import { AddCountsForXp1747000000000 } from './migrations/0024-add-counts-for-xp';
 import { DedupeQuestionAttemptsPerDay1747100000000 } from './migrations/0025-dedupe-question-attempts-per-day';
+import { BlockEmailLikeLogins1747200000000 } from './migrations/0026-block-email-like-logins';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
@@ -143,6 +144,7 @@ export const AppDataSource = new DataSource({
     AddDepartmentsCatalog1746900000000,
     AddCountsForXp1747000000000,
     DedupeQuestionAttemptsPerDay1747100000000,
+    BlockEmailLikeLogins1747200000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

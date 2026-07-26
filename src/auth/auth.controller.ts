@@ -33,10 +33,12 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
-  @ApiOperation({ summary: 'Yangi foydalanuvchi ro`yxatdan o`tishi' })
+  @ApiOperation({
+    summary: 'YOPIQ — ro‘yxatdan o‘tish o‘chirilgan',
+    deprecated: true,
+  })
   @ApiBody({ type: RegisterDto })
-  @ApiOkResponse({ description: 'Muvaffaqiyatli ro`yxatdan o`tish', type: LoginSuccessResponseDto })
-  @ApiBadRequestResponse({ description: 'Email allaqachon mavjud', type: ApiErrorResponseDto })
+  @ApiForbiddenResponse({ description: 'Ro‘yxatdan o‘tish yopilgan' })
   register(@Body() body: RegisterDto): Promise<LoginSuccessResponseDto> {
     return this.authService.register(body);
   }
