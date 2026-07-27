@@ -1003,18 +1003,14 @@ export class NesEmployeesService {
   async getFilterOptions() {
     await this.cleanupStaleNesMirrors();
 
-    const orgs = await this.employeeRepo
-      .createQueryBuilder('e')
-      .innerJoin('e.user', 'u')
-      .select('DISTINCT e.organizationName', 'organizationName')
+    const orgs = await this.orgRepo
+      .createQueryBuilder('o')
+      .select('o.name', 'name')
       .where(
-        'e.organizationName IS NOT NULL AND e.organizationName != :empty',
-        { empty: '' },
+        '(o.energo_branch_id IS NOT NULL OR o.energo_external_id IS NOT NULL)',
       )
-      .andWhere('u.energo_id IS NOT NULL')
-      .andWhere('u.role = :role', { role: Role.USER })
-      .orderBy('e.organizationName', 'ASC')
-      .getRawMany<{ organizationName: string }>();
+      .orderBy('o.name', 'ASC')
+      .getRawMany<{ name: string }>();
 
     const divs = await this.employeeRepo
       .createQueryBuilder('e')
@@ -1027,7 +1023,7 @@ export class NesEmployeesService {
       .getRawMany<{ division: string }>();
 
     return {
-      organizations: orgs.map((r) => r.organizationName),
+      organizations: orgs.map((r) => r.name).filter(Boolean),
       divisions: divs.map((r) => r.division),
     };
   }
@@ -1073,17 +1069,82 @@ export class NesEmployeesService {
 
   private async syncOrganizationsFromEnergoId() {
     const branches = await this.energoIdAuthClient.listBranches();
+    const activeBranchIds: string[] = [];
     for (const branch of branches) {
+      const branchId = String(branch.id);
+      activeBranchIds.push(branchId);
       await this.upsertOrganizationMirror({
-        energoBranchId: String(branch.id),
+        energoBranchId: branchId,
         name: String(branch.name ?? '').trim() || 'Unknown',
         externalId: branch.externalId ? String(branch.externalId).trim() : null,
         code: branch.code ? String(branch.code).trim() : null,
       });
     }
+    const removed = await this.finalizeStaleOrganizations(activeBranchIds);
     this.logger.log(
-      `Energo ID filiallar mirror: ${branches.length} ta organization`,
+      `Energo ID filiallar: ${branches.length} ta, tozalandi: ${removed}`,
     );
+  }
+
+  /** Energo ID da yo‘q / qo‘lda yaratilgan bo‘sh tashkilotlarni olib tashlash */
+  private async finalizeStaleOrganizations(
+    activeBranchIds: string[],
+  ): Promise<number> {
+    let removed = 0;
+    const uniqueBranchIds = [...new Set(activeBranchIds.filter(Boolean))];
+
+    const manualCandidates = await this.orgRepo
+      .createQueryBuilder('o')
+      .where('o.energo_branch_id IS NULL')
+      .andWhere('o.energo_external_id IS NULL')
+      .getMany();
+
+    for (const org of manualCandidates) {
+      if (await this.canRemoveOrganization(org.id)) {
+        await this.orgRepo.delete(org.id);
+        removed += 1;
+      }
+    }
+
+    if (uniqueBranchIds.length > 0) {
+      const staleEnergo = await this.orgRepo
+        .createQueryBuilder('o')
+        .where('o.energo_branch_id IS NOT NULL')
+        .andWhere('o.energo_branch_id NOT IN (:...ids)', { ids: uniqueBranchIds })
+        .getMany();
+
+      for (const org of staleEnergo) {
+        if (await this.canRemoveOrganization(org.id)) {
+          await this.orgRepo.delete(org.id);
+          removed += 1;
+        }
+      }
+    }
+
+    const legacyOrgs = await this.orgRepo
+      .createQueryBuilder('o')
+      .where('o.name LIKE :prefix', { prefix: 'legacy-%' })
+      .getMany();
+
+    for (const org of legacyOrgs) {
+      if (await this.canRemoveOrganization(org.id)) {
+        await this.orgRepo.delete(org.id);
+        removed += 1;
+      }
+    }
+
+    return removed;
+  }
+
+  private async canRemoveOrganization(orgId: string): Promise<boolean> {
+    const userCount = await this.userOrgRepo.count({
+      where: { organization: { id: orgId } },
+    });
+    if (userCount > 0) return false;
+    const nesCount = await this.employeeRepo.count({
+      where: { organizationId: orgId },
+    });
+    return nesCount === 0;
   }
 
   private async syncDepartmentsFromEnergoId() {
