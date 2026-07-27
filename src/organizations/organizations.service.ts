@@ -90,7 +90,12 @@ export class OrganizationsService {
     organizationIds: string[] | undefined,
     requested?: string,
   ): Promise<string> {
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const req = requested?.trim();
+    if (req && req !== 'all' && !UUID_RE.test(req)) {
+      throw new BadRequestException('orgId UUID formatida bo‘lishi kerak');
+    }
     if (role === Role.SUPERADMIN) {
       return req && req !== 'all' ? req : 'all';
     }
