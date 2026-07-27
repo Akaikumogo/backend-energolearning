@@ -925,30 +925,102 @@ export class BranchAnalyticsService {
   }
 
   /**
-   * Filial oylik reja matrisi: har xodim × oy kunlari (necha/10, bajarildimi)
-   * + oylik plan foizi.
+   * Oylik reja matrisi: har xodim × oy kunlari (necha/10).
+   * orgId bo‘lmasa — ruxsat etilgan barcha filiallar (har qatorda orgName).
    */
-  async getMonthlyPlanMatrix(orgId: string, month?: string) {
-    const org = await this.orgRepo.findOne({ where: { id: orgId } });
-    if (!org) throw new NotFoundException('Tashkilot topilmadi');
-
+  async getMonthlyPlanMatrix(
+    orgId: string | undefined,
+    month?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const scope = this.narrowOrgScope(allowedOrgIds, orgId);
     const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
     const monthStart = `${m}-01`;
     const monthEnd = addTashkentDays(monthStart, daysInMonth - 1);
     const days = listTashkentDays(monthStart, monthEnd);
 
-    const employees = await this.getEmployeeIds(orgId);
-    const userIds = employees.map((e) => e.userId);
+    const orgQb = this.orgRepo
+      .createQueryBuilder('o')
+      .select(['o.id', 'o.name']);
+    if (scope?.length) {
+      orgQb.where('o.id IN (:...ids)', { ids: scope });
+    } else if (orgId?.trim() && orgId !== 'all') {
+      orgQb.where('o.id = :orgId', { orgId: orgId.trim() });
+    }
+    if (!orgId?.trim() || orgId === 'all') {
+      this.applyActiveEnergoOrgFilter(orgQb);
+    }
+    const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
 
     const base = {
-      orgId,
-      orgName: org.name,
+      orgId: orgs.length === 1 ? orgs[0].id : '',
+      orgName:
+        orgs.length === 1
+          ? orgs[0].name
+          : orgs.length === 0
+            ? '—'
+            : 'Barcha filiallar',
       month: m,
       daysInMonth,
       dailyGoalCorrect: DAILY_GOAL_CORRECT,
       days,
     };
 
+    if (orgs.length === 0) {
+      return {
+        ...base,
+        totalEmployees: 0,
+        averageMonthlyPercent: 0,
+        fullCompletedEmployees: 0,
+        employees: [] as Array<{
+          userId: string;
+          orgId: string;
+          orgName: string;
+          fullName: string;
+          email: string;
+          daysCompleted: number;
+          monthlyPercent: number;
+          extraCorrectTotal: number;
+          dayResults: Array<{
+            date: string;
+            day: number;
+            rawCorrect: number;
+            planCorrect: number;
+            completed: boolean;
+            label: string;
+          }>;
+        }>,
+      };
+    }
+
+    const orgIds = orgs.map((o) => o.id);
+    const orgNameById = new Map(orgs.map((o) => [o.id, o.name]));
+
+    const employees = await this.userRepo
+      .createQueryBuilder('u')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role = :role', { role: Role.USER })
+      .select([
+        'u.id AS "userId"',
+        'org.id AS "orgId"',
+        'u.first_name AS "firstName"',
+        'u.last_name AS "lastName"',
+        'u.email AS "email"',
+      ])
+      .orderBy('org.name', 'ASC')
+      .addOrderBy('u.last_name', 'ASC')
+      .addOrderBy('u.first_name', 'ASC')
+      .getRawMany<{
+        userId: string;
+        orgId: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+      }>();
+
+    const userIds = [...new Set(employees.map((e) => e.userId))];
     if (userIds.length === 0) {
       return {
         ...base,
@@ -962,6 +1034,7 @@ export class BranchAnalyticsService {
     const dayRows = await this.attemptRepo
       .createQueryBuilder('a')
       .select('a.user_id', 'userId')
+      .addSelect('a.organization_id', 'orgId')
       .addSelect(
         `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
         'day',
@@ -971,23 +1044,31 @@ export class BranchAnalyticsService {
         'correct',
       )
       .where('a.user_id IN (:...userIds)', { userIds })
-      .andWhere('a.organization_id = :orgId', { orgId })
+      .andWhere('a.organization_id IN (:...orgIds)', { orgIds })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
       .groupBy('a.user_id')
+      .addGroupBy('a.organization_id')
       .addGroupBy(
         `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
       )
-      .getRawMany<{ userId: string; day: string; correct: number }>();
+      .getRawMany<{
+        userId: string;
+        orgId: string;
+        day: string;
+        correct: number;
+      }>();
 
-    const byUserDay = new Map<string, Map<string, number>>();
+    const byUserOrgDay = new Map<string, Map<string, number>>();
     for (const row of dayRows) {
-      const raw = Number(row.correct) || 0;
-      if (!byUserDay.has(row.userId)) byUserDay.set(row.userId, new Map());
-      byUserDay.get(row.userId)!.set(row.day, raw);
+      const key = `${row.orgId}:${row.userId}`;
+      if (!byUserOrgDay.has(key)) byUserOrgDay.set(key, new Map());
+      byUserOrgDay.get(key)!.set(row.day, Number(row.correct) || 0);
     }
 
     const employeeResults = employees.map((emp) => {
-      const dayMap = byUserDay.get(emp.userId) ?? new Map<string, number>();
+      const dayMap =
+        byUserOrgDay.get(`${emp.orgId}:${emp.userId}`) ??
+        new Map<string, number>();
       let daysCompleted = 0;
       let extraCorrectTotal = 0;
       const dayCells = days.map((date) => {
@@ -1011,6 +1092,8 @@ export class BranchAnalyticsService {
 
       return {
         userId: emp.userId,
+        orgId: emp.orgId,
+        orgName: orgNameById.get(emp.orgId) ?? '',
         fullName: `${emp.lastName} ${emp.firstName}`.trim(),
         email: emp.email,
         daysCompleted,
@@ -1023,6 +1106,7 @@ export class BranchAnalyticsService {
     employeeResults.sort(
       (a, b) =>
         b.monthlyPercent - a.monthlyPercent ||
+        a.orgName.localeCompare(b.orgName) ||
         a.fullName.localeCompare(b.fullName),
     );
 

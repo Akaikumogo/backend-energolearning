@@ -146,20 +146,24 @@ export class BranchAnalyticsController {
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary:
-      'Filial oylik reja jadvali: har xodim × kun (X/10) + oylik plan %',
+      'Oylik reja jadvali: xodim × kun (X/10). orgId ixtiyoriy — bo‘lmasa barcha filial',
   })
-  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
   async monthlyPlanMatrix(
-    @Query('orgId') orgId: string,
+    @Query('orgId') orgId: string | undefined,
     @Query('month') month: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
-    const safeOrgId = await this.analyticsService.resolveOrgScope(
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    if (orgId?.trim() && orgId !== 'all') {
+      await this.analyticsService.resolveOrgScope(orgId, req.user);
+    }
+    return this.analyticsService.getMonthlyPlanMatrix(
       orgId,
-      req.user,
+      month,
+      allowedOrgIds,
     );
-    return this.analyticsService.getMonthlyPlanMatrix(safeOrgId, month);
   }
 
   @Get('branch-comparison')
@@ -184,10 +188,12 @@ export class BranchAnalyticsController {
     req: Request & { user: { role: Role; organizationIds: string[] } },
   ): Promise<string[] | null> {
     if (req.user.role !== Role.MODERATOR) return null;
-    return (
-      (await this.orgService.resolveModeratorScope(req.user.organizationIds)) ??
-      req.user.organizationIds
+    const scope = await this.orgService.resolveModeratorScope(
+      req.user.organizationIds,
     );
+    // undefined = asosiy filial moderator → barcha filiallar
+    if (scope === undefined) return null;
+    return scope;
   }
 
   @Get('executive-dashboard')
@@ -464,6 +470,7 @@ export class BranchAnalyticsController {
     const data = await this.analyticsService.getMonthlyPlanMatrix(
       safeOrgId,
       month,
+      null,
     );
     const buffer = await this.exportService.buildMonthlyPlanMatrixExcel(data);
 
