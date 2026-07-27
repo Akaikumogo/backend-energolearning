@@ -1746,13 +1746,27 @@ export class BranchAnalyticsService {
     };
   }
 
+  private narrowOrgScope(
+    allowedOrgIds: string[] | null,
+    orgId?: string,
+  ): string[] | null {
+    const id = orgId?.trim();
+    if (!id || id === 'all') return allowedOrgIds;
+    if (allowedOrgIds && !allowedOrgIds.includes(id)) {
+      throw new ForbiddenException('Bu filialga ruxsat yo‘q');
+    }
+    return [id];
+  }
+
   /** Kunlik hisobot — dashboard + filiallar + barcha xodimlar. */
   async getDailyReport(
     date?: string,
     allowedOrgIds: string[] | null = null,
+    orgId?: string,
   ) {
-    const dashboard = await this.getExecutiveDashboard(date, allowedOrgIds);
-    const ranking = await this.getBranchRanking(date, allowedOrgIds);
+    const scope = this.narrowOrgScope(allowedOrgIds, orgId);
+    const dashboard = await this.getExecutiveDashboard(date, scope);
+    const ranking = await this.getBranchRanking(date, scope);
     const planDate = ranking.planDate;
 
     const employees: Array<{
@@ -1805,11 +1819,13 @@ export class BranchAnalyticsService {
   async getMonthlyReport(
     month?: string,
     allowedOrgIds: string[] | null = null,
+    orgId?: string,
   ) {
-    const comparison = await this.getBranchComparison(month, allowedOrgIds);
+    const scope = this.narrowOrgScope(allowedOrgIds, orgId);
+    const comparison = await this.getBranchComparison(month, scope);
     const { month: m, daysInMonth } = tashkentMonthBounds(month);
     const lastDay = `${m}-${String(daysInMonth).padStart(2, '0')}`;
-    const trend = await this.getDailyTrend(`${m}-01`, lastDay, undefined, allowedOrgIds);
+    const trend = await this.getDailyTrend(`${m}-01`, lastDay, undefined, scope);
 
     const branchRows: Array<{
       orgId: string;
