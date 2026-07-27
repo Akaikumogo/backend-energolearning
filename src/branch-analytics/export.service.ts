@@ -228,6 +228,7 @@ export class ExportService {
    * Katak: 10/10 (yashil), 7/10 (sariq), 0/10 (kulrang)
    */
   async buildMonthlyPlanMatrixExcel(data: {
+    orgId?: string;
     orgName: string;
     month: string;
     daysInMonth: number;
@@ -251,6 +252,19 @@ export class ExportService {
     }>;
   }): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
+
+    // META — solishtirish/upload uchun (orgId, oy)
+    const meta = wb.addWorksheet('META');
+    meta.addRow(['key', 'value']);
+    meta.addRow(['orgId', data.orgId ?? '']);
+    meta.addRow(['orgName', data.orgName]);
+    meta.addRow(['month', data.month]);
+    meta.addRow(['daysInMonth', data.daysInMonth]);
+    meta.addRow(['dailyGoalCorrect', data.dailyGoalCorrect]);
+    meta.addRow(['exportedAt', new Date().toISOString()]);
+    meta.getColumn(1).width = 18;
+    meta.getColumn(2).width = 40;
+
     const ws = wb.addWorksheet('Oylik reja', {
       views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }],
     });

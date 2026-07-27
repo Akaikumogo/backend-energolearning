@@ -85,6 +85,8 @@ import { LegacyModeratorMigrationModule } from './legacy-moderator-migration/leg
 import { TelegramBotModule } from './telegram-bot/telegram-bot.module';
 import { AdminImportExportModule } from './admin-import-export/admin-import-export.module';
 import { XpAnomaliesModule } from './xp-anomalies/xp-anomalies.module';
+import { ReportSubmissionsModule } from './report-submissions/report-submissions.module';
+import { ReportSubmission } from './database/entities/report-submission.entity';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -138,6 +140,7 @@ import { XpAnomaliesModule } from './xp-anomalies/xp-anomalies.module';
         TerminatedEmployee,
         OAuthIntegrationSetting,
         Department,
+        ReportSubmission,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
@@ -169,6 +172,7 @@ import { XpAnomaliesModule } from './xp-anomalies/xp-anomalies.module';
     TelegramBotModule,
     AdminImportExportModule,
     XpAnomaliesModule,
+    ReportSubmissionsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -64,10 +64,12 @@ import { AddOrganizationParentAndDefault1746300000000 } from './migrations/0017-
 import { AddCountsForXp1747000000000 } from './migrations/0024-add-counts-for-xp';
 import { DedupeQuestionAttemptsPerDay1747100000000 } from './migrations/0025-dedupe-question-attempts-per-day';
 import { BlockEmailLikeLogins1747200000000 } from './migrations/0026-block-email-like-logins';
+import { AddReportSubmissions1747300000000 } from './migrations/0027-add-report-submissions';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
 import { Department } from './entities/department.entity';
+import { ReportSubmission } from './entities/report-submission.entity';
 import { getPostgresConnectionOptions } from './postgres-env';
 
 export const AppDataSource = new DataSource({
@@ -115,6 +117,7 @@ export const AppDataSource = new DataSource({
     TerminatedEmployee,
     OAuthIntegrationSetting,
     Department,
+    ReportSubmission,
   ],
   migrations: [
     Init1743074000000,
@@ -145,6 +148,7 @@ export const AppDataSource = new DataSource({
     AddCountsForXp1747000000000,
     DedupeQuestionAttemptsPerDay1747100000000,
     BlockEmailLikeLogins1747200000000,
+    AddReportSubmissions1747300000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
