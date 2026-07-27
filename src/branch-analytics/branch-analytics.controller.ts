@@ -323,39 +323,55 @@ export class BranchAnalyticsController {
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Kunlik hisobot (dashboard + filiallar + xodimlar)' })
   @ApiQuery({ name: 'date', required: false })
+  @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
   async dailyReport(
     @Query('date') date: string | undefined,
+    @Query('orgId') orgId: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
     const allowedOrgIds = await this.moderatorOrgIds(req);
-    return this.analyticsService.getDailyReport(date, allowedOrgIds);
+    return this.analyticsService.getDailyReport(date, allowedOrgIds, orgId);
   }
 
   @Get('monthly-report')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Oylik hisobot (filiallar + trend + xodimlar)' })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
   async monthlyReport(
     @Query('month') month: string | undefined,
+    @Query('orgId') orgId: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
     const allowedOrgIds = await this.moderatorOrgIds(req);
-    return this.analyticsService.getMonthlyReport(month, allowedOrgIds);
+    return this.analyticsService.getMonthlyReport(month, allowedOrgIds, orgId);
   }
 
   @Get('export/daily-report')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Kunlik hisobot Excel (xulosa + filiallar + xodimlar)' })
+  @ApiOperation({
+    summary: 'Kunlik hisobot Excel — Xulosa + har filial alohida sheet (rangli)',
+  })
   @ApiQuery({ name: 'date', required: false })
+  @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
   async exportDailyReport(
     @Query('date') date: string | undefined,
+    @Query('orgId') orgId: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Res() res: Response,
   ) {
     const allowedOrgIds = await this.moderatorOrgIds(req);
-    const data = await this.analyticsService.getDailyReport(date, allowedOrgIds);
+    const data = await this.analyticsService.getDailyReport(
+      date,
+      allowedOrgIds,
+      orgId,
+    );
     const buffer = await this.exportService.buildDailyReportExcel(data);
-    const filename = `kunlik_${data.planDate}.xlsx`;
+    const scope =
+      orgId && data.branches[0]
+        ? data.branches[0].orgName.replace(/[^\p{L}\p{N}_-]+/gu, '_')
+        : 'barcha';
+    const filename = `kunlik_${data.planDate}_${scope}.xlsx`;
     res.set({
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -366,17 +382,29 @@ export class BranchAnalyticsController {
 
   @Get('export/monthly-report')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Oylik hisobot Excel (xulosa + trend + xodimlar)' })
+  @ApiOperation({
+    summary: 'Oylik hisobot Excel — Xulosa + trend + har filial alohida sheet (rangli)',
+  })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
   async exportMonthlyReport(
     @Query('month') month: string | undefined,
+    @Query('orgId') orgId: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Res() res: Response,
   ) {
     const allowedOrgIds = await this.moderatorOrgIds(req);
-    const data = await this.analyticsService.getMonthlyReport(month, allowedOrgIds);
+    const data = await this.analyticsService.getMonthlyReport(
+      month,
+      allowedOrgIds,
+      orgId,
+    );
     const buffer = await this.exportService.buildMonthlyReportExcel(data);
-    const filename = `oylik_${data.month}.xlsx`;
+    const scope =
+      orgId && data.branches[0]
+        ? data.branches[0].orgName.replace(/[^\p{L}\p{N}_-]+/gu, '_')
+        : 'barcha';
+    const filename = `oylik_${data.month}_${scope}.xlsx`;
     res.set({
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

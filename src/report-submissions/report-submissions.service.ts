@@ -12,10 +12,12 @@ import {
   ReportSubmission,
   ReportSubmissionEmployeeRow,
   ReportSubmissionPayload,
+  ReportIntegrityStatus,
 } from '../database/entities/report-submission.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { BranchAnalyticsService } from '../branch-analytics/branch-analytics.service';
+import { verifyReportContentHash } from './report-integrity.util';
 
 type AuthUser = {
   id: string;
@@ -64,26 +66,29 @@ export class ReportSubmissionsService {
     }
 
     const parsed = await this.parseMatrixExcel(file.buffer);
-    const org = await this.orgRepo.findOne({ where: { id: parsed.orgId } });
+    const org = await this.orgRepo.findOne({ where: { id: parsed.payload.orgId } });
     if (!org) {
       throw new BadRequestException('Excel dagi filial topilmadi');
     }
 
     const allowed = await this.resolveUploadOrgIds(user);
-    if (allowed && !allowed.includes(parsed.orgId)) {
+    if (allowed && !allowed.includes(parsed.payload.orgId)) {
       throw new ForbiddenException(
         'Bu filial hisobotini yuklashga ruxsat yo‘q',
       );
     }
 
     const entity = this.submissionRepo.create({
-      organizationId: parsed.orgId,
-      orgName: org.name || parsed.orgName,
-      month: parsed.month,
+      organizationId: parsed.payload.orgId,
+      orgName: org.name || parsed.payload.orgName,
+      month: parsed.payload.month,
       fileName: file.originalname || 'report.xlsx',
       uploadedByUserId: user.id,
-      payload: parsed,
-      employeeCount: parsed.employees.length,
+      payload: parsed.payload,
+      employeeCount: parsed.payload.employees.length,
+      contentHash: parsed.contentHash,
+      integrityStatus: parsed.integrityStatus,
+      exportId: parsed.exportId,
     });
 
     return this.submissionRepo.save(entity);
@@ -263,6 +268,22 @@ export class ReportSubmissionsService {
 
     return {
       submission: this.toListItem(s),
+      integrity: {
+        status: s.integrityStatus ?? 'unsigned',
+        contentHash: s.contentHash,
+        exportId: s.exportId,
+        message:
+          s.integrityStatus === 'tampered'
+            ? `Excel qo‘lda o‘zgartirilgan. Yuklagan: ${
+                s.uploadedBy
+                  ? `${s.uploadedBy.lastName} ${s.uploadedBy.firstName}`.trim() ||
+                    s.uploadedBy.email
+                  : 'noma’lum'
+              }`
+            : s.integrityStatus === 'ok'
+              ? 'Excel yaxlitligi tasdiqlandi (o‘zgartirilmagan)'
+              : 'Eski fayl — imzo yo‘q (contentHash META da topilmadi)',
+      },
       system: {
         orgId: system.orgId,
         orgName: system.orgName,
@@ -290,6 +311,9 @@ export class ReportSubmissionsService {
       fileName: s.fileName,
       employeeCount: s.employeeCount,
       createdAt: s.createdAt?.toISOString?.() ?? String(s.createdAt),
+      integrityStatus: (s.integrityStatus ?? 'unsigned') as ReportIntegrityStatus,
+      contentHash: s.contentHash ?? null,
+      exportId: s.exportId ?? null,
       uploadedBy: s.uploadedBy
         ? {
             id: s.uploadedBy.id,
@@ -301,9 +325,12 @@ export class ReportSubmissionsService {
     };
   }
 
-  private async parseMatrixExcel(
-    buffer: Buffer,
-  ): Promise<ReportSubmissionPayload> {
+  private async parseMatrixExcel(buffer: Buffer): Promise<{
+    payload: ReportSubmissionPayload;
+    contentHash: string | null;
+    exportId: string | null;
+    integrityStatus: ReportIntegrityStatus;
+  }> {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buffer as any);
 
@@ -313,6 +340,8 @@ export class ReportSubmissionsService {
     let month = '';
     let daysInMonth = 0;
     let dailyGoalCorrect = 10;
+    let metaContentHash = '';
+    let exportId: string | null = null;
 
     if (metaSheet) {
       metaSheet.eachRow((row) => {
@@ -325,6 +354,8 @@ export class ReportSubmissionsService {
         if (key === 'month') month = val;
         if (key === 'daysinmonth') daysInMonth = Number(val) || 0;
         if (key === 'dailygoalcorrect') dailyGoalCorrect = Number(val) || 10;
+        if (key === 'contenthash') metaContentHash = val;
+        if (key === 'exportid') exportId = val || null;
       });
     }
 
@@ -441,13 +472,27 @@ export class ReportSubmissionsService {
       });
     }
 
-    return {
+    const payload: ReportSubmissionPayload = {
       orgId,
       orgName,
       month,
       daysInMonth,
       dailyGoalCorrect,
       employees,
+      exportId,
+    };
+
+    const { status, computed } = verifyReportContentHash(metaContentHash, {
+      orgId,
+      month,
+      employees,
+    });
+
+    return {
+      payload,
+      contentHash: metaContentHash || computed,
+      exportId,
+      integrityStatus: status,
     };
   }
 }

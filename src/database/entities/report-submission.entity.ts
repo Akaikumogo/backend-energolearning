@@ -19,6 +19,8 @@ export type ReportSubmissionEmployeeRow = {
   dayLabels: string[];
 };
 
+export type ReportIntegrityStatus = 'ok' | 'tampered' | 'unsigned';
+
 export type ReportSubmissionPayload = {
   orgId: string;
   orgName: string;
@@ -26,6 +28,7 @@ export type ReportSubmissionPayload = {
   daysInMonth: number;
   dailyGoalCorrect: number;
   employees: ReportSubmissionEmployeeRow[];
+  exportId?: string | null;
 };
 
 @Entity({ name: 'report_submissions' })
@@ -63,6 +66,23 @@ export class ReportSubmission {
 
   @Column({ type: 'int', name: 'employee_count', default: 0 })
   employeeCount: number;
+
+  /** META dagi HMAC (export paytida yoziladi). */
+  @Column({ type: 'varchar', length: 128, name: 'content_hash', nullable: true })
+  contentHash: string | null;
+
+  /** ok | tampered | unsigned */
+  @Column({
+    type: 'varchar',
+    length: 32,
+    name: 'integrity_status',
+    default: 'unsigned',
+  })
+  integrityStatus: ReportIntegrityStatus;
+
+  /** Excel META exportId — bir xil faylni kuzatish uchun. */
+  @Column({ type: 'uuid', name: 'export_id', nullable: true })
+  exportId: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

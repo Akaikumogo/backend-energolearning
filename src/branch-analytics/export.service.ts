@@ -7,12 +7,35 @@ import { UserOrganization } from '../database/entities/user-organization.entity'
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { Role } from '../common/enums/role.enum';
+import {
+  computeReportContentHash,
+  newReportExportId,
+} from '../report-submissions/report-integrity.util';
 
 const STATUS_FILL: Record<string, string> = {
   green: 'FFD1FAE5',
   yellow: 'FFFEF3C7',
   red: 'FFFEE2E2',
 };
+
+/** Har bir filial sheet tab rangi (takrorlanadi). */
+const BRANCH_TAB_COLORS = [
+  'FF2563EB',
+  'FF059669',
+  'FFD97706',
+  'FFDC2626',
+  'FF7C3AED',
+  'FF0891B2',
+  'FFDB2777',
+  'FF65A30D',
+  'FFEA580C',
+  'FF4F46E5',
+  'FF0D9488',
+  'FFBE185D',
+  'FFCA8A04',
+  'FF4338CA',
+  'FF15803D',
+];
 
 @Injectable()
 export class ExportService {
@@ -222,11 +245,6 @@ export class ExportService {
     );
   }
 
-  /**
-   * Filial oylik reja matrisi Excel:
-   * F.I.O | 1 | 2 | … | 31 | Bajarilgan kunlar | Oylik %
-   * Katak: 10/10 (yashil), 7/10 (sariq), 0/10 (kulrang)
-   */
   async buildMonthlyPlanMatrixExcel(data: {
     orgId?: string;
     orgName: string;
@@ -252,8 +270,20 @@ export class ExportService {
     }>;
   }): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
+    const exportId = newReportExportId();
+    const contentHash = computeReportContentHash({
+      orgId: data.orgId ?? '',
+      month: data.month,
+      employees: data.employees.map((e) => ({
+        email: e.email,
+        daysCompleted: e.daysCompleted,
+        monthlyPercent: e.monthlyPercent,
+        extraCorrectTotal: e.extraCorrectTotal,
+        dayLabels: e.dayResults.map((d) => d.label),
+      })),
+    });
 
-    // META — solishtirish/upload uchun (orgId, oy)
+    // META — solishtirish / yaxlitlik tekshiruvi
     const meta = wb.addWorksheet('META');
     meta.addRow(['key', 'value']);
     meta.addRow(['orgId', data.orgId ?? '']);
@@ -261,13 +291,16 @@ export class ExportService {
     meta.addRow(['month', data.month]);
     meta.addRow(['daysInMonth', data.daysInMonth]);
     meta.addRow(['dailyGoalCorrect', data.dailyGoalCorrect]);
+    meta.addRow(['exportId', exportId]);
+    meta.addRow(['contentHash', contentHash]);
     meta.addRow(['exportedAt', new Date().toISOString()]);
     meta.getColumn(1).width = 18;
-    meta.getColumn(2).width = 40;
+    meta.getColumn(2).width = 64;
 
     const ws = wb.addWorksheet('Oylik reja', {
       views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }],
     });
+    ws.properties.tabColor = { argb: 'FF2563EB' };
 
     ws.addRow([`Filial: ${data.orgName}`]);
     ws.addRow([
@@ -355,6 +388,7 @@ export class ExportService {
     completedEmployees: number;
     branchCount: number;
     branches: Array<{
+      orgId?: string;
       orgName: string;
       totalEmployees: number;
       plan: number;
@@ -365,6 +399,7 @@ export class ExportService {
       status: string;
     }>;
     employees: Array<{
+      orgId?: string;
       orgName: string;
       fullName: string;
       answeredCount: number;
@@ -376,8 +411,10 @@ export class ExportService {
     }>;
   }): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
+    const usedNames = new Set<string>();
 
     const summary = wb.addWorksheet('Xulosa');
+    summary.properties.tabColor = { argb: 'FF1E293B' };
     summary.addRow(['Kunlik hisobot', data.planDate]);
     summary.addRow([]);
     summary.addRow(['Jami xodimlar', data.totalEmployees]);
@@ -416,29 +453,8 @@ export class ExportService {
       c.width = 18;
     });
 
-    const branchesWs = wb.addWorksheet('Filiallar');
-    branchesWs.addRow(branchHeaders);
-    this.styleHeaderRow(branchesWs.getRow(1));
-    for (const b of data.branches) {
-      const row = branchesWs.addRow([
-        b.orgName,
-        b.totalEmployees,
-        b.plan,
-        b.completed,
-        b.extraCorrect ?? 0,
-        b.percent,
-        b.completedEmployees,
-        b.status,
-      ]);
-      this.applyStatusFill(row, 8, b.status);
-    }
-    branchesWs.columns.forEach((c) => {
-      c.width = 18;
-    });
-
-    const empWs = wb.addWorksheet('Xodimlar');
     const empHeaders = [
-      'Filial',
+      '№',
       'F.I.O',
       'Urinilgan',
       'Plan (to`g`ri)',
@@ -447,23 +463,49 @@ export class ExportService {
       'Bajarildi',
       'Holat',
     ];
-    empWs.addRow(empHeaders);
-    this.styleHeaderRow(empWs.getRow(1));
-    for (const e of data.employees) {
-      const row = empWs.addRow([
-        e.orgName,
-        e.fullName,
-        e.answeredCount,
-        e.planCorrect,
-        e.extraCorrect,
-        e.percent,
-        e.completed ? 'Ha' : 'Yo`q',
-        e.status,
+
+    data.branches.forEach((branch, idx) => {
+      const sheetName = this.safeSheetName(branch.orgName, usedNames);
+      const ws = wb.addWorksheet(sheetName);
+      ws.properties.tabColor = {
+        argb: BRANCH_TAB_COLORS[idx % BRANCH_TAB_COLORS.length],
+      };
+
+      ws.addRow([`Filial: ${branch.orgName}`]);
+      ws.addRow([`Sana: ${data.planDate}`]);
+      ws.addRow([
+        `Xodimlar: ${branch.totalEmployees}`,
+        `Plan: ${branch.plan}`,
+        `Bajarildi: ${branch.completed}`,
+        `%: ${branch.percent}`,
+        `Plandan tashqari: ${branch.extraCorrect ?? 0}`,
       ]);
-      this.applyStatusFill(row, 8, e.status);
-    }
-    empWs.columns.forEach((c) => {
-      c.width = 20;
+      ws.addRow([]);
+      ws.addRow(empHeaders);
+      this.styleHeaderRow(ws.getRow(ws.rowCount));
+
+      const branchEmps = data.employees.filter((e) =>
+        branch.orgId
+          ? e.orgId === branch.orgId
+          : e.orgName === branch.orgName,
+      );
+      branchEmps.forEach((e, i) => {
+        const row = ws.addRow([
+          i + 1,
+          e.fullName,
+          e.answeredCount,
+          e.planCorrect,
+          e.extraCorrect,
+          e.percent,
+          e.completed ? 'Ha' : 'Yo`q',
+          e.status,
+        ]);
+        this.applyStatusFill(row, 8, e.status);
+      });
+      ws.columns.forEach((c) => {
+        c.width = 16;
+      });
+      ws.getColumn(2).width = 28;
     });
 
     const buf = await wb.xlsx.writeBuffer();
@@ -475,6 +517,7 @@ export class ExportService {
     daysInMonth: number;
     dailyGoalCorrect: number;
     branches: Array<{
+      orgId?: string;
       orgName: string;
       totalEmployees: number;
       averageMonthlyPercent: number;
@@ -483,6 +526,7 @@ export class ExportService {
     }>;
     trend: Array<{ date: string; percent: number; completed: number; plan: number }>;
     employees: Array<{
+      orgId?: string;
       orgName: string;
       fullName: string;
       email: string;
@@ -494,8 +538,10 @@ export class ExportService {
     }>;
   }): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
+    const usedNames = new Set<string>();
 
     const summary = wb.addWorksheet('Oylik xulosa');
+    summary.properties.tabColor = { argb: 'FF1E293B' };
     summary.addRow(['Oylik hisobot', data.month]);
     summary.addRow(['Kunlar soni', data.daysInMonth]);
     summary.addRow(['Kunlik maqsad', data.dailyGoalCorrect]);
@@ -530,6 +576,7 @@ export class ExportService {
     });
 
     const trendWs = wb.addWorksheet('Kunlik trend');
+    trendWs.properties.tabColor = { argb: 'FF64748B' };
     trendWs.addRow(['Sana', 'Plan', 'Bajarildi', 'Progress %']);
     this.styleHeaderRow(trendWs.getRow(1));
     for (const p of data.trend) {
@@ -542,9 +589,8 @@ export class ExportService {
       c.width = 16;
     });
 
-    const empWs = wb.addWorksheet('Xodimlar');
-    empWs.addRow([
-      'Filial',
+    const empHeaders = [
+      '№',
       'F.I.O',
       'Email',
       'Bajarilgan kunlar',
@@ -552,33 +598,74 @@ export class ExportService {
       'Plandan tashqari',
       'To`g`ri',
       'Xato',
-    ]);
-    this.styleHeaderRow(empWs.getRow(1));
-    for (const e of data.employees) {
-      const status =
-        e.monthlyPercent >= 90
-          ? 'green'
-          : e.monthlyPercent >= 70
-            ? 'yellow'
-            : 'red';
-      const row = empWs.addRow([
-        e.orgName,
-        e.fullName,
-        e.email,
-        e.daysCompleted,
-        e.monthlyPercent,
-        e.extraCorrectTotal,
-        e.correctTotal,
-        e.wrongTotal,
+    ];
+
+    data.branches.forEach((branch, idx) => {
+      const sheetName = this.safeSheetName(branch.orgName, usedNames);
+      const ws = wb.addWorksheet(sheetName);
+      ws.properties.tabColor = {
+        argb: BRANCH_TAB_COLORS[idx % BRANCH_TAB_COLORS.length],
+      };
+
+      ws.addRow([`Filial: ${branch.orgName}`]);
+      ws.addRow([`Oy: ${data.month}`]);
+      ws.addRow([
+        `Reyting: ${branch.rank}`,
+        `Xodimlar: ${branch.totalEmployees}`,
+        `O‘rtacha %: ${branch.averageMonthlyPercent}`,
+        `Plandan tashqari: ${branch.extraCorrectTotal}`,
       ]);
-      this.applyStatusFill(row, 5, status);
-    }
-    empWs.columns.forEach((c) => {
-      c.width = 18;
+      ws.addRow([]);
+      ws.addRow(empHeaders);
+      this.styleHeaderRow(ws.getRow(ws.rowCount));
+
+      const branchEmps = data.employees.filter((e) =>
+        branch.orgId
+          ? e.orgId === branch.orgId
+          : e.orgName === branch.orgName,
+      );
+      branchEmps.forEach((e, i) => {
+        const status =
+          e.monthlyPercent >= 90
+            ? 'green'
+            : e.monthlyPercent >= 70
+              ? 'yellow'
+              : 'red';
+        const row = ws.addRow([
+          i + 1,
+          e.fullName,
+          e.email,
+          e.daysCompleted,
+          e.monthlyPercent,
+          e.extraCorrectTotal,
+          e.correctTotal,
+          e.wrongTotal,
+        ]);
+        this.applyStatusFill(row, 5, status);
+      });
+      ws.columns.forEach((c) => {
+        c.width = 16;
+      });
+      ws.getColumn(2).width = 28;
+      ws.getColumn(3).width = 26;
     });
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf);
+  }
+
+  private safeSheetName(name: string, used: Set<string>): string {
+    const cleaned =
+      name.replace(/[:\\/?*[\]]/g, '_').replace(/\s+/g, ' ').trim() || 'Filial';
+    let base = cleaned.slice(0, 28);
+    let candidate = base;
+    let n = 1;
+    while (used.has(candidate.toLowerCase())) {
+      const suffix = `_${n++}`;
+      candidate = `${base.slice(0, 31 - suffix.length)}${suffix}`;
+    }
+    used.add(candidate.toLowerCase());
+    return candidate.slice(0, 31);
   }
 
   private styleHeaderRow(row: ExcelJS.Row) {
