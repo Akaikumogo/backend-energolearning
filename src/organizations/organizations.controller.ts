@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Post,
@@ -38,6 +39,8 @@ export class OrganizationsController {
 
   @Get()
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
+  @Header('Pragma', 'no-cache')
   @ApiOperation({ summary: 'Barcha tashkilotlar ro`yxati (search bilan)' })
   @ApiQuery({ name: 'search', required: false })
   findAll(
