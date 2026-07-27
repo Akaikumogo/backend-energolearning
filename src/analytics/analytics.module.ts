@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { User } from '../database/entities/user.entity';
@@ -20,7 +19,6 @@ import { AnalyticsService } from './analytics.service';
       User,
       Organization,
       UserOrganization,
-      RefreshToken,
       Level,
       Question,
       UserLevelCompletion,

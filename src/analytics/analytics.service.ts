@@ -15,7 +15,6 @@ import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { Role } from '../common/enums/role.enum';
-import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { Level } from '../database/entities/level.entity';
 import { Question } from '../database/entities/question.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
@@ -30,8 +29,6 @@ export class AnalyticsService {
     private readonly orgRepo: Repository<Organization>,
     @InjectRepository(UserOrganization)
     private readonly userOrgRepo: Repository<UserOrganization>,
-    @InjectRepository(RefreshToken)
-    private readonly refreshRepo: Repository<RefreshToken>,
     @InjectRepository(Level)
     private readonly levelRepo: Repository<Level>,
     @InjectRepository(Question)
@@ -53,19 +50,19 @@ export class AnalyticsService {
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const usersCountQb = isAll
-      ? this.usersRepo.createQueryBuilder('u').select('COUNT(*)::int', 'c')
+      ? this.usersRepo.createQueryBuilder('u').select('COUNT(*)', 'c')
       : this.userOrgRepo
           .createQueryBuilder('uo')
           .innerJoin('uo.user', 'u')
-          .where('uo.organization = :orgId', { orgId })
-          .select('COUNT(DISTINCT u.id)::int', 'c');
+          .where('uo.organizationId = :orgId', { orgId })
+          .select('COUNT(DISTINCT u.id)', 'c');
 
     const orgCountQb = isAll
-      ? this.orgRepo.createQueryBuilder('o').select('COUNT(*)::int', 'c')
+      ? this.orgRepo.createQueryBuilder('o').select('COUNT(*)', 'c')
       : this.orgRepo
           .createQueryBuilder('o')
           .where('o.id = :orgId', { orgId })
-          .select('COUNT(*)::int', 'c');
+          .select('COUNT(*)', 'c');
 
     const modCountQb = (() => {
       const qb = this.usersRepo
@@ -73,29 +70,27 @@ export class AnalyticsService {
         .where('u.role = :role', { role: Role.MODERATOR });
       if (!isAll) {
         qb.innerJoin('u.organizations', 'uo').andWhere(
-          'uo.organization = :orgId',
+          'uo.organizationId = :orgId',
           { orgId },
         );
       }
-      return qb.select('COUNT(DISTINCT u.id)::int', 'c');
+      return qb.select('COUNT(DISTINCT u.id)', 'c');
     })();
 
     const levelCountQb = this.levelRepo
       .createQueryBuilder('l')
-      .select('COUNT(*)::int', 'c');
+      .select('COUNT(*)', 'c');
     const questionCountQb = this.questionRepo
       .createQueryBuilder('q')
-      .select('COUNT(*)::int', 'c');
+      .select('COUNT(*)', 'c');
 
-    const active7dQb = this.refreshRepo
-      .createQueryBuilder('rt')
-      .innerJoin('rt.user', 'u')
-      .where('rt.createdAt >= :since', { since })
-      .select('COUNT(DISTINCT u.id)::int', 'c');
+    // Faol user: session login (refresh tokendan mustahkamroq)
+    const active7dQb = this.sessionRepo
+      .createQueryBuilder('s')
+      .where('s.loginAt >= :since', { since })
+      .select('COUNT(DISTINCT s.userId)', 'c');
     if (!isAll) {
-      active7dQb
-        .innerJoin('u.organizations', 'uo')
-        .andWhere('uo.organization = :orgId', { orgId });
+      active7dQb.andWhere('s.organizationId = :orgId', { orgId });
     }
 
     const [
@@ -106,12 +101,12 @@ export class AnalyticsService {
       questionRow,
       activeRow,
     ] = await Promise.all([
-      usersCountQb.getRawOne<{ c: number }>(),
-      orgCountQb.getRawOne<{ c: number }>(),
-      modCountQb.getRawOne<{ c: number }>(),
-      levelCountQb.getRawOne<{ c: number }>(),
-      questionCountQb.getRawOne<{ c: number }>(),
-      active7dQb.getRawOne<{ c: number }>(),
+      usersCountQb.getRawOne<{ c: string | number }>(),
+      orgCountQb.getRawOne<{ c: string | number }>(),
+      modCountQb.getRawOne<{ c: string | number }>(),
+      levelCountQb.getRawOne<{ c: string | number }>(),
+      questionCountQb.getRawOne<{ c: string | number }>(),
+      active7dQb.getRawOne<{ c: string | number }>(),
     ]);
 
     return {
@@ -137,19 +132,19 @@ export class AnalyticsService {
       .innerJoin('ulc.level', 'l')
       .select('l.id', 'levelId')
       .addSelect('l.title', 'levelTitle')
-      .addSelect('l.order_index', 'orderIndex')
-      .addSelect('COUNT(ulc.id)::int', 'totalStarted')
+      .addSelect('l.orderIndex', 'orderIndex')
+      .addSelect('COUNT(ulc.id)', 'totalStarted')
       .addSelect(
-        `COUNT(*) FILTER (WHERE ulc.completion_percent = 100)::int`,
+        `COUNT(*) FILTER (WHERE ulc.completionPercent = 100)`,
         'totalCompleted',
       )
       .groupBy('l.id')
       .addGroupBy('l.title')
-      .addGroupBy('l.order_index')
-      .orderBy('l.order_index', 'ASC');
+      .addGroupBy('l.orderIndex')
+      .orderBy('l.orderIndex', 'ASC');
 
     if (!isAll) {
-      qb.where('ulc.organization_id = :orgId', { orgId });
+      qb.where('ulc.organizationId = :orgId', { orgId });
     }
 
     const aggregated = await qb.getRawMany<{
@@ -191,9 +186,9 @@ export class AnalyticsService {
       .addSelect('q.prompt', 'prompt')
       .addSelect('l.title', 'levelTitle')
       .addSelect('t.title', 'theoryTitle')
-      .addSelect('COUNT(*)::int', 'totalAttempts')
+      .addSelect('COUNT(*)', 'totalAttempts')
       .addSelect(
-        'COUNT(*) FILTER (WHERE uqa.is_correct = false)::int',
+        'COUNT(*) FILTER (WHERE uqa.isCorrect = false)',
         'wrongAttempts',
       )
       .groupBy('q.id')
@@ -201,12 +196,12 @@ export class AnalyticsService {
       .addGroupBy('l.title')
       .addGroupBy('t.title')
       // Faqat kamida 1 marta xato bo'lgan savollar
-      .having('COUNT(*) FILTER (WHERE uqa.is_correct = false) > 0')
-      .orderBy('"wrongAttempts"', 'DESC')
+      .having('COUNT(*) FILTER (WHERE uqa.isCorrect = false) > 0')
+      .orderBy('COUNT(*) FILTER (WHERE uqa.isCorrect = false)', 'DESC')
       .limit(20);
 
     if (!isAll) {
-      qb.where('uqa.organization_id = :orgId', { orgId });
+      qb.where('uqa.organizationId = :orgId', { orgId });
     }
 
     const raw = await qb.getRawMany<{
@@ -421,11 +416,11 @@ export class AnalyticsService {
     const activeQb = this.sessionRepo
       .createQueryBuilder('s')
       .select('s.organizationId', 'orgId')
-      .addSelect('COUNT(*)::int', 'value')
+      .addSelect('COUNT(*)', 'value')
       .where('s.loginAt >= :since', { since: since7d })
       .andWhere('s.organizationId IS NOT NULL')
       .groupBy('s.organizationId')
-      .orderBy('"value"', 'DESC')
+      .orderBy('COUNT(*)', 'DESC')
       .limit(1);
     if (allowedOrgIds?.length) {
       activeQb.andWhere('s.organizationId IN (:...ids)', { ids: allowedOrgIds });
@@ -435,19 +430,73 @@ export class AnalyticsService {
     const errorQb = this.uqaRepo
       .createQueryBuilder('uqa')
       .select('uqa.organizationId', 'orgId')
-      .addSelect('COUNT(*)::int', 'value')
+      .addSelect('COUNT(*)', 'value')
       .where('uqa.answeredAt >= :since', { since: since30d })
       .andWhere('uqa.isCorrect = false')
       .andWhere('uqa.organizationId IS NOT NULL')
       .groupBy('uqa.organizationId')
-      .orderBy('"value"', 'DESC')
+      .orderBy('COUNT(*)', 'DESC')
       .limit(5);
     if (allowedOrgIds?.length) {
       errorQb.andWhere('uqa.organizationId IN (:...ids)', { ids: allowedOrgIds });
     }
     const errorRows = await errorQb.getRawMany<{ orgId: string; value: number }>();
 
-    const toRank = (row: { orgId: string; value: number }): HomeBranchRankDto | null => {
+    // Oldingi 30 kun xatolari (trend uchun)
+    const prevErrorSince = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+    const prevErrorQb = this.uqaRepo
+      .createQueryBuilder('uqa')
+      .select('COUNT(*)', 'c')
+      .where('uqa.answeredAt >= :from', { from: prevErrorSince })
+      .andWhere('uqa.answeredAt < :to', { to: since30d })
+      .andWhere('uqa.isCorrect = false');
+    if (allowedOrgIds?.length) {
+      prevErrorQb.andWhere('uqa.organizationId IN (:...ids)', {
+        ids: allowedOrgIds,
+      });
+    }
+    const prevErrorRow = await prevErrorQb.getRawOne<{ c: string | number }>();
+
+    const prevErrorByOrgQb = this.uqaRepo
+      .createQueryBuilder('uqa')
+      .select('uqa.organizationId', 'orgId')
+      .addSelect('COUNT(*)', 'value')
+      .where('uqa.answeredAt >= :from', { from: prevErrorSince })
+      .andWhere('uqa.answeredAt < :to', { to: since30d })
+      .andWhere('uqa.isCorrect = false')
+      .andWhere('uqa.organizationId IS NOT NULL')
+      .groupBy('uqa.organizationId');
+    if (allowedOrgIds?.length) {
+      prevErrorByOrgQb.andWhere('uqa.organizationId IN (:...ids)', {
+        ids: allowedOrgIds,
+      });
+    }
+    const prevErrorByOrgRows = await prevErrorByOrgQb.getRawMany<{
+      orgId: string;
+      value: number;
+    }>();
+    const prevErrorByOrg = new Map(
+      prevErrorByOrgRows.map((r) => [r.orgId, Number(r.value) || 0]),
+    );
+
+    const totalErrors30dQb = this.uqaRepo
+      .createQueryBuilder('uqa')
+      .select('COUNT(*)', 'c')
+      .where('uqa.answeredAt >= :since', { since: since30d })
+      .andWhere('uqa.isCorrect = false');
+    if (allowedOrgIds?.length) {
+      totalErrors30dQb.andWhere('uqa.organizationId IN (:...ids)', {
+        ids: allowedOrgIds,
+      });
+    }
+    const totalErrorsRow = await totalErrors30dQb.getRawOne<{
+      c: string | number;
+    }>();
+
+    const toRank = (row: {
+      orgId: string;
+      value: number;
+    }): HomeBranchRankDto | null => {
       const org = orgMap.get(row.orgId);
       if (!org) return null;
       return {
@@ -455,8 +504,40 @@ export class AnalyticsService {
         orgName: org.name,
         isDefault: !!org.isDefault,
         value: Number(row.value) || 0,
+        previousValue: prevErrorByOrg.has(row.orgId)
+          ? prevErrorByOrg.get(row.orgId)!
+          : 0,
       };
     };
+
+    const thisWeekLabel = weekLabels[weekLabels.length - 1];
+    const prevWeekLabel = weekLabels[weekLabels.length - 2];
+    let loginsThisWeek = 0;
+    let loginsPrevWeek = 0;
+    for (const row of branchHeatmap) {
+      const thisW = row.weeks.find((w) => w.weekStart === thisWeekLabel);
+      const prevW = row.weeks.find((w) => w.weekStart === prevWeekLabel);
+      loginsThisWeek += thisW?.count ?? 0;
+      loginsPrevWeek += prevW?.count ?? 0;
+    }
+
+    const errors30d = Number(totalErrorsRow?.c) || 0;
+    const errorsPrev30d = Number(prevErrorRow?.c) || 0;
+    const pct = (cur: number, prev: number): number | null => {
+      if (prev <= 0) return cur > 0 ? 100 : null;
+      return Math.round(((cur - prev) / prev) * 1000) / 10;
+    };
+
+    const onlineHintQb = this.sessionRepo
+      .createQueryBuilder('s')
+      .select('COUNT(DISTINCT s.userId)', 'c')
+      .where('s.isOnline = true');
+    if (allowedOrgIds?.length) {
+      onlineHintQb.andWhere('s.organizationId IN (:...ids)', {
+        ids: allowedOrgIds,
+      });
+    }
+    const onlineRow = await onlineHintQb.getRawOne<{ c: string | number }>();
 
     const scopeLabel =
       allowedOrgIds === null
@@ -472,6 +553,15 @@ export class AnalyticsService {
       topErrorBranches: errorRows
         .map(toRank)
         .filter((v): v is HomeBranchRankDto => v !== null),
+      insight: {
+        loginsThisWeek,
+        loginsPrevWeek,
+        loginDeltaPercent: pct(loginsThisWeek, loginsPrevWeek),
+        errors30d,
+        errorsPrev30d,
+        errorDeltaPercent: pct(errors30d, errorsPrev30d),
+        onlineHint: Number(onlineRow?.c) || 0,
+      },
     };
   }
 
