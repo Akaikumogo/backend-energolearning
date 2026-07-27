@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -26,6 +27,9 @@ import {
   tashkentMonthBounds,
   tashkentToday,
 } from '../common/utils/tashkent-time.util';
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type DayStatus = 'active' | 'offline' | 'never';
 
@@ -55,6 +59,14 @@ export class BranchAnalyticsService {
     if (!orgId?.trim()) {
       throw new NotFoundException('orgId majburiy');
     }
+    if (orgId === 'all') {
+      throw new BadRequestException(
+        'Bu endpoint uchun aniq filial UUID kerak (orgId=all emas)',
+      );
+    }
+    if (!UUID_RE.test(orgId)) {
+      throw new BadRequestException('orgId UUID formatida bo‘lishi kerak');
+    }
     if (user.role === Role.MODERATOR) {
       const scoped = await this.orgService.resolveModeratorScope(
         user.organizationIds,
@@ -66,6 +78,23 @@ export class BranchAnalyticsService {
     const org = await this.orgRepo.findOne({ where: { id: orgId } });
     if (!org) throw new NotFoundException('Tashkilot topilmadi');
     return orgId;
+  }
+
+  /**
+   * Ixtiyoriy org filter. `all` / bo‘sh → undefined (barcha ruxsat etilgan filiallar).
+   */
+  async resolveOptionalOrgScope(
+    orgId: string | undefined,
+    user: { role: Role; organizationIds: string[] },
+  ): Promise<string | undefined> {
+    if (!orgId?.trim() || orgId === 'all') {
+      if (orgId === 'all' && user.role === Role.MODERATOR) {
+        // Moderator "all" deb so‘rasa ham faqat o‘z scope'i (allowedOrgIds) ishlatiladi
+        return undefined;
+      }
+      return undefined;
+    }
+    return this.resolveOrgScope(orgId, user);
   }
 
   private parseRange(from?: string, to?: string): {

@@ -256,7 +256,10 @@ export class BranchAnalyticsController {
   ) {
     let safeOrgId: string | undefined;
     if (orgId) {
-      safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
+      safeOrgId = await this.analyticsService.resolveOptionalOrgScope(
+        orgId,
+        req.user,
+      );
     }
     return this.analyticsService.getHourlyProgress(date, safeOrgId);
   }
@@ -273,10 +276,10 @@ export class BranchAnalyticsController {
     @Query('orgId') orgId: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
-    let safeOrgId: string | undefined;
-    if (orgId) {
-      safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
-    }
+    const safeOrgId = await this.analyticsService.resolveOptionalOrgScope(
+      orgId,
+      req.user,
+    );
     const allowedOrgIds = await this.moderatorOrgIds(req);
     return this.analyticsService.getDailyTrend(from, to, safeOrgId, allowedOrgIds);
   }
@@ -294,10 +297,10 @@ export class BranchAnalyticsController {
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
     const allowedOrgIds = await this.moderatorOrgIds(req);
-    let safeOrgId: string | undefined;
-    if (orgId) {
-      safeOrgId = await this.analyticsService.resolveOrgScope(orgId, req.user);
-    }
+    const safeOrgId = await this.analyticsService.resolveOptionalOrgScope(
+      orgId,
+      req.user,
+    );
     return this.analyticsService.getBranchWeekdayHeatmap(from, to, allowedOrgIds, safeOrgId);
   }
 
