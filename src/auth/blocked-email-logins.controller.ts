@@ -1,4 +1,15 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -6,13 +17,14 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { User } from '../database/entities/user.entity';
 import { UserSession } from '../database/entities/user-session.entity';
+import { UsersService } from '../users/users.service';
 
 @ApiTags('Blocked email logins (Admin)')
 @ApiBearerAuth('bearer')
@@ -24,7 +36,19 @@ export class BlockedEmailLoginsController {
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(UserSession)
     private readonly sessionRepo: Repository<UserSession>,
+    private readonly usersService: UsersService,
   ) {}
+
+  private assertDeletableEmailLogin(user: User) {
+    if (user.role === Role.SUPERADMIN) {
+      throw new BadRequestException('SUPERADMIN o‘chirib bo‘lmaydi');
+    }
+    if (!user.email?.includes('@')) {
+      throw new BadRequestException(
+        'Faqat email-login (@) akkauntlarni o‘chirish mumkin',
+      );
+    }
+  }
 
   @Get()
   @ApiOperation({
@@ -162,5 +186,51 @@ export class BlockedEmailLoginsController {
       withIp: rows.filter((r) => Boolean(r.lastIpAddress)).length,
       users: rows,
     };
+  }
+
+  @Delete(':userId')
+  @ApiOperation({ summary: 'Email-login (@) akkauntni o‘chirish' })
+  async removeOne(@Param('userId', ParseUUIDPipe) userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
+    this.assertDeletableEmailLogin(user);
+    await this.usersService.removeUser(userId);
+    return { deleted: 1, userId };
+  }
+
+  @Post('bulk-delete')
+  @ApiOperation({ summary: 'Tanlangan email-login akkauntlarni o‘chirish' })
+  async removeMany(@Body() body: { userIds?: string[] }) {
+    const ids = Array.isArray(body?.userIds)
+      ? [...new Set(body.userIds.filter(Boolean))]
+      : [];
+    if (ids.length === 0) {
+      throw new BadRequestException('userIds bo‘sh');
+    }
+
+    const users = await this.userRepo.find({ where: { id: In(ids) } });
+    const found = new Map(users.map((u) => [u.id, u]));
+    const deleted: string[] = [];
+    const skipped: Array<{ userId: string; reason: string }> = [];
+
+    for (const id of ids) {
+      const user = found.get(id);
+      if (!user) {
+        skipped.push({ userId: id, reason: 'topilmadi' });
+        continue;
+      }
+      try {
+        this.assertDeletableEmailLogin(user);
+        await this.usersService.removeUser(id);
+        deleted.push(id);
+      } catch (e) {
+        skipped.push({
+          userId: id,
+          reason: e instanceof Error ? e.message : 'xato',
+        });
+      }
+    }
+
+    return { deleted: deleted.length, deletedIds: deleted, skipped };
   }
 }
