@@ -66,7 +66,7 @@ import { DedupeQuestionAttemptsPerDay1747100000000 } from './migrations/0025-ded
 import { BlockEmailLikeLogins1747200000000 } from './migrations/0026-block-email-like-logins';
 import { AddReportSubmissions1747300000000 } from './migrations/0027-add-report-submissions';
 import { AddOrganizationArchivedAt1747400000000 } from './migrations/0028-add-organization-archived-at';
-import { AddReportSubmissionIntegrity0029 } from './migrations/0029-add-report-submission-integrity';
+import { AddReportSubmissionIntegrity1747500000000 } from './migrations/0029-add-report-submission-integrity';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
@@ -152,7 +152,7 @@ export const AppDataSource = new DataSource({
     BlockEmailLikeLogins1747200000000,
     AddReportSubmissions1747300000000,
     AddOrganizationArchivedAt1747400000000,
-    AddReportSubmissionIntegrity0029,
+    AddReportSubmissionIntegrity1747500000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
