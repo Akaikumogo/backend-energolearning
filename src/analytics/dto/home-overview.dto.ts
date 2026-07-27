@@ -16,6 +16,18 @@ export class HomeBranchRankDto {
   orgName!: string;
   isDefault!: boolean;
   value!: number;
+  /** Oldingi davr (taqqoslash uchun), ixtiyoriy */
+  previousValue?: number | null;
+}
+
+export class HomeInsightDto {
+  loginsThisWeek!: number;
+  loginsPrevWeek!: number;
+  loginDeltaPercent!: number | null;
+  errors30d!: number;
+  errorsPrev30d!: number;
+  errorDeltaPercent!: number | null;
+  onlineHint!: number;
 }
 
 export class HomeOverviewDto {
@@ -23,4 +35,5 @@ export class HomeOverviewDto {
   branchHeatmap!: HomeBranchHeatmapRowDto[];
   mostActiveBranch!: HomeBranchRankDto | null;
   topErrorBranches!: HomeBranchRankDto[];
+  insight!: HomeInsightDto;
 }
