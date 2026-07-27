@@ -1,7 +1,9 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddReportSubmissionIntegrity0029 implements MigrationInterface {
-  name = 'AddReportSubmissionIntegrity0029';
+export class AddReportSubmissionIntegrity1747500000000
+  implements MigrationInterface
+{
+  name = 'AddReportSubmissionIntegrity1747500000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
