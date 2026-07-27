@@ -1006,10 +1006,18 @@ export class NesEmployeesService {
     const orgs = await this.orgRepo
       .createQueryBuilder('o')
       .select('o.name', 'name')
-      .where(
-        '(o.energo_branch_id IS NOT NULL OR o.energo_external_id IS NOT NULL)',
+      .where('o.archived_at IS NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM nes_employees e
+          INNER JOIN users eu ON eu.id = e.user_id
+          WHERE e.organization_id = o.id
+            AND eu.energo_id IS NOT NULL
+            AND eu.role = :role
+        )`,
+        { role: Role.USER },
       )
-      .andWhere('o.archived_at IS NULL')
       .orderBy('o.name', 'ASC')
       .getRawMany<{ name: string }>();
 
@@ -1174,6 +1182,32 @@ export class NesEmployeesService {
       .getMany();
 
     for (const org of legacyOrgs) {
+      if (await this.canRemoveOrganization(org.id)) {
+        await this.orgRepo.delete(org.id);
+      } else {
+        await this.orgRepo.update(org.id, { archivedAt: now });
+      }
+      archived += 1;
+    }
+
+    // 5) Aktiv Energo ID xodimi yo‘q filiallar → arxiv (tarix saqlanadi)
+    const inactive = await this.orgRepo
+      .createQueryBuilder('o')
+      .where('o.archived_at IS NULL')
+      .andWhere('o.is_default = false')
+      .andWhere(
+        `NOT EXISTS (
+          SELECT 1
+          FROM nes_employees e
+          INNER JOIN users eu ON eu.id = e.user_id
+          WHERE e.organization_id = o.id
+            AND eu.energo_id IS NOT NULL
+            AND eu.role = 'USER'
+        )`,
+      )
+      .getMany();
+
+    for (const org of inactive) {
       if (await this.canRemoveOrganization(org.id)) {
         await this.orgRepo.delete(org.id);
       } else {

@@ -130,8 +130,19 @@ export class OrganizationsService {
       .createQueryBuilder('o')
       .leftJoinAndSelect('o.users', 'uo')
       .leftJoinAndSelect('uo.user', 'u')
-      .where('(o.energoBranchId IS NOT NULL OR o.energoExternalId IS NOT NULL)')
-      .andWhere('o.archivedAt IS NULL')
+      // Faqat aktiv Energo ID xodimi bor filiallar (arxivlangan xodimlar hisobga kirmaydi)
+      .where('o.archivedAt IS NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM nes_employees e
+          INNER JOIN users eu ON eu.id = e.user_id
+          WHERE e.organization_id = o.id
+            AND eu.energo_id IS NOT NULL
+            AND eu.role = :energoUserRole
+        )`,
+        { energoUserRole: Role.USER },
+      )
       .orderBy('o.isDefault', 'DESC')
       .addOrderBy('o.name', 'ASC');
 
