@@ -97,6 +97,25 @@ export class BranchAnalyticsService {
     return this.resolveOrgScope(orgId, user);
   }
 
+  /** Tashkilotlar sahifasi bilan bir xil: arxiv emas + aktiv Energo ID xodimi bor */
+  private applyActiveEnergoOrgFilter<T extends { andWhere: (...args: any[]) => T }>(
+    qb: T,
+  ): T {
+    return qb
+      .andWhere('o.archivedAt IS NULL')
+      .andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM nes_employees e
+          INNER JOIN users eu ON eu.id = e.user_id
+          WHERE e.organization_id = o.id
+            AND eu.energo_id IS NOT NULL
+            AND eu.role = :energoUserRole
+        )`,
+        { energoUserRole: Role.USER },
+      );
+  }
+
   private parseRange(from?: string, to?: string): {
     from: Date;
     to: Date;
@@ -1040,6 +1059,7 @@ export class BranchAnalyticsService {
     if (allowedOrgIds?.length) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
+    this.applyActiveEnergoOrgFilter(orgQb);
     const orgs = await orgQb.getMany();
     if (orgs.length === 0) {
       return { month: m, daysInMonth, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches: [] };
@@ -1200,6 +1220,7 @@ export class BranchAnalyticsService {
     const planDate = this.parsePlanDate(date);
     const orgQb = this.orgRepo.createQueryBuilder('o').select(['o.id', 'o.name']);
     if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    this.applyActiveEnergoOrgFilter(orgQb);
     const orgs = await orgQb.getMany();
     const orgIds = orgs.map((o) => o.id);
 
@@ -1250,6 +1271,7 @@ export class BranchAnalyticsService {
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault']);
     if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    this.applyActiveEnergoOrgFilter(orgQb);
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
 
@@ -1521,6 +1543,7 @@ export class BranchAnalyticsService {
     } else {
       const orgQb = this.orgRepo.createQueryBuilder('o').select(['o.id']);
       if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+      this.applyActiveEnergoOrgFilter(orgQb);
       orgIds = (await orgQb.getMany()).map((o) => o.id);
     }
 
@@ -1557,6 +1580,7 @@ export class BranchAnalyticsService {
     } else if (allowedOrgIds?.length) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
+    if (!orgId) this.applyActiveEnergoOrgFilter(orgQb);
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
     if (!orgIds.length) {
