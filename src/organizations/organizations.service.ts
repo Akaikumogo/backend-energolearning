@@ -130,6 +130,7 @@ export class OrganizationsService {
       .createQueryBuilder('o')
       .leftJoinAndSelect('o.users', 'uo')
       .leftJoinAndSelect('uo.user', 'u')
+      .where('(o.energoBranchId IS NOT NULL OR o.energoExternalId IS NOT NULL)')
       .orderBy('o.isDefault', 'DESC')
       .addOrderBy('o.name', 'ASC');
 
@@ -167,29 +168,25 @@ export class OrganizationsService {
   }
 
   async create(dto: CreateOrganizationDto): Promise<Organization> {
-    const exists = await this.orgRepo.findOne({ where: { name: dto.name } });
-    if (exists) throw new BadRequestException('Bu nomli tashkilot mavjud');
-    const parentId = dto.parentOrganizationId ?? null;
-    if (parentId) {
-      const parent = await this.orgRepo.findOne({ where: { id: parentId } });
-      if (!parent) throw new BadRequestException('Parent tashkilot topilmadi');
-    }
-
-    if (dto.isDefault === true) {
-      // Ensure only one default org
-      await this.orgRepo.update({ isDefault: true }, { isDefault: false });
-    }
-
-    const org = this.orgRepo.create({
-      name: dto.name,
-      parentOrganizationId: parentId,
-      isDefault: dto.isDefault === true,
-    });
-    return this.orgRepo.save(org);
+    throw new BadRequestException(
+      'Tashkilotlar faqat Energo ID sinxronizatsiyasi orqali keladi. ENERGO ID sahifasida sync qiling.',
+    );
   }
 
   async update(id: string, dto: UpdateOrganizationDto): Promise<Organization> {
     const org = await this.findById(id);
+    if (org.energoBranchId || org.energoExternalId) {
+      if (dto.name && dto.name !== org.name) {
+        throw new BadRequestException(
+          'Energo ID filial nomi bu yerda o‘zgartirilmaydi — Energo ID da yangilang va sync qiling',
+        );
+      }
+      if (dto.isDefault !== undefined) {
+        throw new BadRequestException(
+          'Energo ID filial holati bu yerda o‘zgartirilmaydi',
+        );
+      }
+    }
     if (dto.name) org.name = dto.name;
     if (dto.parentOrganizationId !== undefined) {
       const parentId = dto.parentOrganizationId ?? null;
