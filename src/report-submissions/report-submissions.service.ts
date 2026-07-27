@@ -420,7 +420,8 @@ export class ReportSubmissionsService {
           if (/bajarilgan/i.test(v)) daysCompletedCol = col;
           if (/oylik/i.test(v) && /%|plan/i.test(v)) monthlyPctCol = col;
           if (/plandan/i.test(v)) extraCol = col;
-          if (/^\d{1,2}$/.test(v)) {
+          // Kun: "1" / "01" yoki "01.07" / "1.7"
+          if (/^\d{1,2}$/.test(v) || /^\d{1,2}\.\d{1,2}$/.test(v)) {
             if (dayStartCol < 0) dayStartCol = col;
             dayCols.push(col);
           }

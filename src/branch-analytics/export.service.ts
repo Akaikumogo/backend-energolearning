@@ -311,7 +311,9 @@ export class ExportService {
     ]);
     ws.addRow([]);
 
-    const dayHeaders = data.days.map((d) => String(Number(d.slice(8, 10))));
+    const dayHeaders = data.days.map(
+      (d) => `${d.slice(8, 10)}.${d.slice(5, 7)}`,
+    );
     const headers = [
       '№',
       'F.I.O',
@@ -366,7 +368,7 @@ export class ExportService {
     ws.getColumn(2).width = 28;
     ws.getColumn(3).width = 26;
     for (let c = 4; c < 4 + data.days.length; c++) {
-      ws.getColumn(c).width = 7;
+      ws.getColumn(c).width = 9;
     }
     ws.getColumn(4 + data.days.length).width = 18;
     ws.getColumn(5 + data.days.length).width = 14;
