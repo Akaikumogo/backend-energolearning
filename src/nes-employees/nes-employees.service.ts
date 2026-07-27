@@ -1009,6 +1009,7 @@ export class NesEmployeesService {
       .where(
         '(o.energo_branch_id IS NOT NULL OR o.energo_external_id IS NOT NULL)',
       )
+      .andWhere('o.archived_at IS NULL')
       .orderBy('o.name', 'ASC')
       .getRawMany<{ name: string }>();
 
@@ -1070,9 +1071,13 @@ export class NesEmployeesService {
   private async syncOrganizationsFromEnergoId() {
     const branches = await this.energoIdAuthClient.listBranches();
     const activeBranchIds: string[] = [];
+    const activeExternalIds: string[] = [];
     for (const branch of branches) {
       const branchId = String(branch.id);
       activeBranchIds.push(branchId);
+      if (branch.externalId) {
+        activeExternalIds.push(String(branch.externalId).trim());
+      }
       await this.upsertOrganizationMirror({
         energoBranchId: branchId,
         name: String(branch.name ?? '').trim() || 'Unknown',
@@ -1080,60 +1085,104 @@ export class NesEmployeesService {
         code: branch.code ? String(branch.code).trim() : null,
       });
     }
-    const removed = await this.finalizeStaleOrganizations(activeBranchIds);
+    const archived = await this.finalizeStaleOrganizations(
+      activeBranchIds,
+      activeExternalIds,
+    );
     this.logger.log(
-      `Energo ID filiallar: ${branches.length} ta, tozalandi: ${removed}`,
+      `Energo ID filiallar: ${branches.length} ta, arxivlandi: ${archived}`,
     );
   }
 
-  /** Energo ID da yo‘q / qo‘lda yaratilgan bo‘sh tashkilotlarni olib tashlash */
+  /**
+   * Energo ID da yo‘q tashkilotlar: soft-archive (xodim/tarix saqlanadi).
+   * Bo‘sh qo‘lda yaratilganlar o‘chiriladi.
+   */
   private async finalizeStaleOrganizations(
     activeBranchIds: string[],
+    activeExternalIds: string[],
   ): Promise<number> {
-    let removed = 0;
+    let archived = 0;
+    const now = new Date();
     const uniqueBranchIds = [...new Set(activeBranchIds.filter(Boolean))];
+    const uniqueExternalIds = [...new Set(activeExternalIds.filter(Boolean))];
 
+    // 1) Qo‘lda / mirror siz — bo‘sh bo‘lsa o‘chir, aks holda arxiv
     const manualCandidates = await this.orgRepo
       .createQueryBuilder('o')
       .where('o.energo_branch_id IS NULL')
       .andWhere('o.energo_external_id IS NULL')
+      .andWhere('o.archived_at IS NULL')
       .getMany();
 
     for (const org of manualCandidates) {
       if (await this.canRemoveOrganization(org.id)) {
         await this.orgRepo.delete(org.id);
-        removed += 1;
+        archived += 1;
+      } else {
+        await this.orgRepo.update(org.id, { archivedAt: now });
+        archived += 1;
       }
     }
 
+    // 2) Energo branch_id bor, lekin hozirgi branches da yo‘q → arxiv
     if (uniqueBranchIds.length > 0) {
-      const staleEnergo = await this.orgRepo
+      const staleByBranch = await this.orgRepo
         .createQueryBuilder('o')
         .where('o.energo_branch_id IS NOT NULL')
         .andWhere('o.energo_branch_id NOT IN (:...ids)', { ids: uniqueBranchIds })
+        .andWhere('o.archived_at IS NULL')
         .getMany();
 
-      for (const org of staleEnergo) {
+      for (const org of staleByBranch) {
         if (await this.canRemoveOrganization(org.id)) {
           await this.orgRepo.delete(org.id);
-          removed += 1;
+        } else {
+          await this.orgRepo.update(org.id, { archivedAt: now });
         }
+        archived += 1;
       }
     }
 
+    // 3) Faqat externalId bilan bog‘langan, lekin hozirgi branches da yo‘q
+    if (uniqueExternalIds.length > 0) {
+      const staleByExternal = await this.orgRepo
+        .createQueryBuilder('o')
+        .where('o.energo_branch_id IS NULL')
+        .andWhere('o.energo_external_id IS NOT NULL')
+        .andWhere('o.energo_external_id NOT IN (:...ext)', {
+          ext: uniqueExternalIds,
+        })
+        .andWhere('o.archived_at IS NULL')
+        .getMany();
+
+      for (const org of staleByExternal) {
+        if (await this.canRemoveOrganization(org.id)) {
+          await this.orgRepo.delete(org.id);
+        } else {
+          await this.orgRepo.update(org.id, { archivedAt: now });
+        }
+        archived += 1;
+      }
+    }
+
+    // 4) legacy-* nomlar
     const legacyOrgs = await this.orgRepo
       .createQueryBuilder('o')
       .where('o.name LIKE :prefix', { prefix: 'legacy-%' })
+      .andWhere('o.archived_at IS NULL')
       .getMany();
 
     for (const org of legacyOrgs) {
       if (await this.canRemoveOrganization(org.id)) {
         await this.orgRepo.delete(org.id);
-        removed += 1;
+      } else {
+        await this.orgRepo.update(org.id, { archivedAt: now });
       }
+      archived += 1;
     }
 
-    return removed;
+    return archived;
   }
 
   private async canRemoveOrganization(orgId: string): Promise<boolean> {
@@ -1262,6 +1311,7 @@ export class NesEmployeesService {
           energoBranchId: input.energoBranchId ?? null,
           energoExternalId: input.externalId ?? null,
           branchCode: input.code ?? null,
+          archivedAt: null,
         }),
       );
     }
@@ -1273,6 +1323,7 @@ export class NesEmployeesService {
       energoBranchId: input.energoBranchId ?? org.energoBranchId,
       energoExternalId: input.externalId ?? org.energoExternalId,
       branchCode: input.code ?? org.branchCode,
+      archivedAt: null,
     });
 
     return this.orgRepo.findOne({

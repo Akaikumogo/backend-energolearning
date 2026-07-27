@@ -131,6 +131,7 @@ export class OrganizationsService {
       .leftJoinAndSelect('o.users', 'uo')
       .leftJoinAndSelect('uo.user', 'u')
       .where('(o.energoBranchId IS NOT NULL OR o.energoExternalId IS NOT NULL)')
+      .andWhere('o.archivedAt IS NULL')
       .orderBy('o.isDefault', 'DESC')
       .addOrderBy('o.name', 'ASC');
 

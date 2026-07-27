@@ -39,6 +39,10 @@ export class Organization {
   @Column({ type: 'boolean', name: 'is_default', default: false })
   isDefault: boolean;
 
+  /** Energo ID da yo‘q / eski filial — ro‘yxatdan yashiriladi, tarix saqlanadi */
+  @Column({ type: 'timestamptz', name: 'archived_at', nullable: true })
+  archivedAt: Date | null;
+
   @OneToMany(() => UserOrganization, (uo) => uo.organization)
   users: UserOrganization[];
 
