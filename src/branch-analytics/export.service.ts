@@ -255,11 +255,14 @@ export class ExportService {
     averageMonthlyPercent: number;
     totalEmployees: number;
     employees: Array<{
+      orgName?: string;
       fullName: string;
       email: string;
       daysCompleted: number;
       monthlyPercent: number;
       extraCorrectTotal: number;
+      attemptsTotal?: number;
+      wrongTotal?: number;
       dayResults: Array<{
         date: string;
         day: number;
@@ -268,9 +271,14 @@ export class ExportService {
         label: string;
       }>;
     }>;
+    dayFilter?: string;
+    showFilial?: boolean;
   }): Promise<Buffer> {
     const wb = new ExcelJS.Workbook();
     const exportId = newReportExportId();
+    const days = data.dayFilter
+      ? data.days.filter((d) => d === data.dayFilter)
+      : data.days;
     const contentHash = computeReportContentHash({
       orgId: data.orgId ?? '',
       month: data.month,
@@ -279,16 +287,19 @@ export class ExportService {
         daysCompleted: e.daysCompleted,
         monthlyPercent: e.monthlyPercent,
         extraCorrectTotal: e.extraCorrectTotal,
-        dayLabels: e.dayResults.map((d) => d.label),
+        dayLabels: e.dayResults
+          .filter((d) => !data.dayFilter || d.date === data.dayFilter)
+          .map((d) => d.label),
       })),
     });
 
-    // META — solishtirish / yaxlitlik tekshiruvi
     const meta = wb.addWorksheet('META');
     meta.addRow(['key', 'value']);
     meta.addRow(['orgId', data.orgId ?? '']);
     meta.addRow(['orgName', data.orgName]);
     meta.addRow(['month', data.month]);
+    meta.addRow(['mode', data.dayFilter ? 'daily' : 'monthly']);
+    if (data.dayFilter) meta.addRow(['date', data.dayFilter]);
     meta.addRow(['daysInMonth', data.daysInMonth]);
     meta.addRow(['dailyGoalCorrect', data.dailyGoalCorrect]);
     meta.addRow(['exportId', exportId]);
@@ -297,57 +308,73 @@ export class ExportService {
     meta.getColumn(1).width = 18;
     meta.getColumn(2).width = 64;
 
-    const ws = wb.addWorksheet('Oylik reja', {
-      views: [{ state: 'frozen', xSplit: 3, ySplit: 3 }],
+    const sheetTitle = data.dayFilter ? 'Kunlik reja' : 'Oylik reja';
+    const ws = wb.addWorksheet(sheetTitle, {
+      views: [{ state: 'frozen', xSplit: data.showFilial ? 4 : 3, ySplit: 3 }],
     });
     ws.properties.tabColor = { argb: 'FF2563EB' };
 
     ws.addRow([`Filial: ${data.orgName}`]);
     ws.addRow([
-      `Oy: ${data.month}`,
+      data.dayFilter ? `Sana: ${data.dayFilter}` : `Oy: ${data.month}`,
       `Kunlik maqsad: ${data.dailyGoalCorrect}`,
       `Xodimlar: ${data.totalEmployees}`,
-      `O‘rtacha oylik %: ${data.averageMonthlyPercent}`,
+      `O'rtacha oylik %: ${data.averageMonthlyPercent}`,
     ]);
     ws.addRow([]);
 
-    const dayHeaders = data.days.map(
-      (d) => `${d.slice(8, 10)}.${d.slice(5, 7)}`,
+    const dayHeaders = days.map((d) =>
+      data.dayFilter ? d : `${d.slice(8, 10)}.${d.slice(5, 7)}`,
     );
     const headers = [
       '№',
+      ...(data.showFilial ? ['Filial'] : []),
       'F.I.O',
       'Email',
       ...dayHeaders,
       `Bajarilgan kunlar / ${data.daysInMonth}`,
       'Oylik plan %',
+      'Urinishlar',
+      'Xatolar',
       'Plandan tashqari',
     ];
     const headerRow = ws.addRow(headers);
     this.styleHeaderRow(headerRow);
 
+    const dayIndexMap = new Map(data.days.map((d, i) => [d, i]));
+
     for (let i = 0; i < data.employees.length; i++) {
       const e = data.employees[i];
-      const cells = e.dayResults.map((d) => d.label);
+      const cells = days.map((d) => {
+        const idx = dayIndexMap.get(d);
+        return idx == null ? '—' : (e.dayResults[idx]?.label ?? '—');
+      });
       const row = ws.addRow([
         i + 1,
+        ...(data.showFilial ? [e.orgName ?? ''] : []),
         e.fullName,
         e.email,
         ...cells,
         e.daysCompleted,
         e.monthlyPercent,
+        e.attemptsTotal ?? 0,
+        e.wrongTotal ?? 0,
         e.extraCorrectTotal,
       ]);
 
-      e.dayResults.forEach((d, idx) => {
-        const cell = row.getCell(4 + idx);
-        if (d.completed) {
+      const dayStartCol = data.showFilial ? 5 : 4;
+      days.forEach((d, di) => {
+        const idx = dayIndexMap.get(d);
+        const cellData = idx == null ? null : e.dayResults[idx];
+        const cell = row.getCell(dayStartCol + di);
+        if (!cellData) return;
+        if (cellData.completed) {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
             fgColor: { argb: 'FFD1FAE5' },
           };
-        } else if (d.planCorrect > 0) {
+        } else if (cellData.planCorrect > 0) {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
@@ -365,14 +392,119 @@ export class ExportService {
     }
 
     ws.getColumn(1).width = 6;
-    ws.getColumn(2).width = 28;
-    ws.getColumn(3).width = 26;
-    for (let c = 4; c < 4 + data.days.length; c++) {
-      ws.getColumn(c).width = 9;
+    let col = 2;
+    if (data.showFilial) {
+      ws.getColumn(col++).width = 28;
     }
-    ws.getColumn(4 + data.days.length).width = 18;
-    ws.getColumn(5 + data.days.length).width = 14;
-    ws.getColumn(6 + data.days.length).width = 14;
+    ws.getColumn(col++).width = 28;
+    ws.getColumn(col++).width = 26;
+    for (let c = 0; c < days.length; c++) {
+      ws.getColumn(col + c).width = data.dayFilter ? 12 : 9;
+    }
+    col += days.length;
+    ws.getColumn(col++).width = 18;
+    ws.getColumn(col++).width = 14;
+    ws.getColumn(col++).width = 12;
+    ws.getColumn(col++).width = 12;
+    ws.getColumn(col++).width = 14;
+
+    const buf = await wb.xlsx.writeBuffer();
+    return Buffer.from(buf);
+  }
+
+  async buildYearlyPlanMatrixExcel(data: {
+    orgId?: string;
+    orgName: string;
+    year: string;
+    months: string[];
+    dailyGoalCorrect: number;
+    averageYearlyPercent: number;
+    totalEmployees: number;
+    showFilial?: boolean;
+    employees: Array<{
+      orgName?: string;
+      fullName: string;
+      email: string;
+      daysCompleted: number;
+      daysInYear: number;
+      yearlyPercent: number;
+      extraCorrectTotal: number;
+      attemptsTotal: number;
+      wrongTotal: number;
+      monthResults: Array<{
+        month: string;
+        daysCompleted: number;
+        daysInMonth: number;
+        percent: number;
+        label: string;
+        percentLabel: string;
+      }>;
+    }>;
+  }): Promise<Buffer> {
+    const wb = new ExcelJS.Workbook();
+    const monthShort = [
+      'Yan', 'Fev', 'Mar', 'Apr', 'May', 'Iyn',
+      'Iyl', 'Avg', 'Sen', 'Okt', 'Noy', 'Dek',
+    ];
+    const ws = wb.addWorksheet('Yillik reja', {
+      views: [{ state: 'frozen', xSplit: data.showFilial ? 4 : 3, ySplit: 3 }],
+    });
+    ws.properties.tabColor = { argb: 'FF059669' };
+    ws.addRow([`Filial: ${data.orgName}`]);
+    ws.addRow([
+      `Yil: ${data.year}`,
+      `Xodimlar: ${data.totalEmployees}`,
+      `O'rtacha yillik %: ${data.averageYearlyPercent}`,
+    ]);
+    ws.addRow([]);
+
+    const headers = [
+      '№',
+      ...(data.showFilial ? ['Filial'] : []),
+      'F.I.O',
+      'Email',
+      ...data.months.map((m) => {
+        const short = monthShort[Number(m.slice(5, 7)) - 1] ?? m;
+        return `${short} %`;
+      }),
+      ...data.months.map((m) => {
+        const short = monthShort[Number(m.slice(5, 7)) - 1] ?? m;
+        return `${short} (X/Y)`;
+      }),
+      'Yillik (X/Y)',
+      'Yillik %',
+      'Urinishlar',
+      'Xatolar',
+      'Plandan tashqari',
+    ];
+    const headerRow = ws.addRow(headers);
+    this.styleHeaderRow(headerRow);
+
+    for (let i = 0; i < data.employees.length; i++) {
+      const e = data.employees[i];
+      ws.addRow([
+        i + 1,
+        ...(data.showFilial ? [e.orgName ?? ''] : []),
+        e.fullName,
+        e.email,
+        ...e.monthResults.map((m) => m.percent),
+        ...e.monthResults.map((m) => m.label),
+        `${e.daysCompleted}/${e.daysInYear}`,
+        e.yearlyPercent,
+        e.attemptsTotal,
+        e.wrongTotal,
+        e.extraCorrectTotal,
+      ]);
+    }
+
+    ws.getColumn(1).width = 6;
+    let col = 2;
+    if (data.showFilial) ws.getColumn(col++).width = 28;
+    ws.getColumn(col++).width = 28;
+    ws.getColumn(col++).width = 26;
+    for (let c = 0; c < data.months.length * 2 + 5; c++) {
+      ws.getColumn(col + c).width = 12;
+    }
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf);

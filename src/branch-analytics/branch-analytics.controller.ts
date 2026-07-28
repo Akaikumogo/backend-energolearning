@@ -482,33 +482,110 @@ export class BranchAnalyticsController {
   @Get('export/monthly-plan-matrix')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
-    summary: 'Filial oylik reja jadvali Excel (kunlar × xodimlar)',
+    summary:
+      'Reja jadvali Excel (kunlik/oylik). period=daily|monthly, date=YYYY-MM-DD (kunlik)',
   })
-  @ApiQuery({ name: 'orgId', required: true })
+  @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'period', required: false, description: 'daily|monthly' })
+  @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD (kunlik)' })
+  @ApiQuery({ name: 'userId', required: false })
+  @ApiQuery({ name: 'showFilial', required: false })
   async exportMonthlyPlanMatrix(
-    @Query('orgId') orgId: string,
+    @Query('orgId') orgId: string | undefined,
     @Query('month') month: string | undefined,
+    @Query('period') period: string | undefined,
+    @Query('date') date: string | undefined,
+    @Query('userId') userId: string | undefined,
+    @Query('showFilial') showFilialRaw: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Res() res: Response,
   ) {
-    const safeOrgId = await this.analyticsService.resolveOrgScope(
-      orgId,
-      req.user,
-    );
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    if (orgId?.trim() && orgId !== 'all') {
+      await this.analyticsService.resolveOrgScope(orgId, req.user);
+    }
+    const monthKey = date?.slice(0, 7) || month;
     const data = await this.analyticsService.getMonthlyPlanMatrix(
-      safeOrgId,
-      month,
-      null,
+      orgId,
+      monthKey,
+      allowedOrgIds,
     );
-    const buffer = await this.exportService.buildMonthlyPlanMatrixExcel(data);
+    let employees = data.employees;
+    if (userId?.trim()) {
+      employees = employees.filter((e) => e.userId === userId.trim());
+    }
+    const showFilial =
+      showFilialRaw === '1' ||
+      showFilialRaw === 'true' ||
+      (!userId && !orgId);
+    const dayFilter =
+      period === 'daily' && date?.trim() ? date.trim() : undefined;
+    const buffer = await this.exportService.buildMonthlyPlanMatrixExcel({
+      ...data,
+      employees,
+      totalEmployees: employees.length,
+      dayFilter,
+      showFilial,
+    });
 
-    const safeName = data.orgName.replace(/[^\p{L}\p{N}_-]+/gu, '_');
-    const filename = `${data.month}_${safeName}_oylik_reja.xlsx`;
+    const safeName = (data.orgName || 'barcha').replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    const filename = dayFilter
+      ? `${dayFilter}_${safeName}_kunlik_reja.xlsx`
+      : `${data.month}_${safeName}_oylik_reja.xlsx`;
     res.set({
       'Content-Type':
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'Content-Disposition': `attachment; filename="plan-matrix.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+    });
+    res.send(buffer);
+  }
+
+  @Get('export/yearly-plan-matrix')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Yillik reja jadvali Excel (oylik % va X/Y)' })
+  @ApiQuery({ name: 'orgId', required: false })
+  @ApiQuery({ name: 'year', required: false, description: 'YYYY' })
+  @ApiQuery({ name: 'userId', required: false })
+  @ApiQuery({ name: 'showFilial', required: false })
+  async exportYearlyPlanMatrix(
+    @Query('orgId') orgId: string | undefined,
+    @Query('year') year: string | undefined,
+    @Query('userId') userId: string | undefined,
+    @Query('showFilial') showFilialRaw: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+    @Res() res: Response,
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    if (orgId?.trim() && orgId !== 'all') {
+      await this.analyticsService.resolveOrgScope(orgId, req.user);
+    }
+    const data = await this.analyticsService.getYearlyPlanMatrix(
+      orgId,
+      year,
+      allowedOrgIds,
+    );
+    let employees = data.employees;
+    if (userId?.trim()) {
+      employees = employees.filter((e) => e.userId === userId.trim());
+    }
+    const showFilial =
+      showFilialRaw === '1' ||
+      showFilialRaw === 'true' ||
+      (!userId && !orgId);
+    const buffer = await this.exportService.buildYearlyPlanMatrixExcel({
+      ...data,
+      employees,
+      totalEmployees: employees.length,
+      showFilial,
+    });
+
+    const safeName = (data.orgName || 'barcha').replace(/[^\p{L}\p{N}_-]+/gu, '_');
+    const filename = `${data.year}_${safeName}_yillik_reja.xlsx`;
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="yearly-plan.xlsx"; filename*=UTF-8''${encodeURIComponent(filename)}`,
     });
     res.send(buffer);
   }
