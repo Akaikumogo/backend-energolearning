@@ -217,13 +217,22 @@ export class UploadController {
   async uploadUserAvatar(
     @UploadedFile() file: Express.Multer.File,
     @Param('userId') userId: string,
+    @Body() body: { hasFace?: string | boolean; faceConfidence?: string | number },
   ) {
     if (!file) throw new BadRequestException('Fayl yuklanmadi');
 
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
-    await this.usersRepo.update(userId, { avatarUrl });
+    const hasFace =
+      body?.hasFace === true ||
+      body?.hasFace === 'true' ||
+      body?.hasFace === '1';
 
-    return { success: true, avatarUrl, userId };
+    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    await this.usersRepo.update(userId, {
+      avatarUrl,
+      ...(hasFace ? { avatarHasFace: true } : {}),
+    });
+
+    return { success: true, avatarUrl, userId, hasFace: !!hasFace };
   }
 
   // ─── Audio upload (admin/moderator) ─────────────────────────────────────
