@@ -85,6 +85,9 @@ import { AdminImportExportModule } from './admin-import-export/admin-import-expo
 import { XpAnomaliesModule } from './xp-anomalies/xp-anomalies.module';
 import { ReportSubmissionsModule } from './report-submissions/report-submissions.module';
 import { ReportSubmission } from './database/entities/report-submission.entity';
+import { OrganizationDivisionSetting } from './database/entities/organization-division-setting.entity';
+import { ReportingActivationHistory } from './database/entities/reporting-activation-history.entity';
+import { ReportingActivationModule } from './reporting-activation/reporting-activation.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -137,6 +140,8 @@ import { ReportSubmission } from './database/entities/report-submission.entity';
         OAuthIntegrationSetting,
         Department,
         ReportSubmission,
+        OrganizationDivisionSetting,
+        ReportingActivationHistory,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
@@ -148,6 +153,7 @@ import { ReportSubmission } from './database/entities/report-submission.entity';
     OrganizationsModule,
     ProgressModule,
     StudentsModule,
+    ReportingActivationModule,
     SeedModule,
     HeartsModule,
     ModeratorPermissionsModule,

@@ -15,6 +15,7 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { UserSession } from '../database/entities/user-session.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { ReportingActivationService } from '../reporting-activation/reporting-activation.service';
 import {
   DAILY_GOAL_CORRECT,
   MIN_DAILY_PLAN_QUESTIONS,
@@ -54,6 +55,7 @@ export type DayStatus = 'active' | 'offline' | 'never';
 export class BranchAnalyticsService {
   constructor(
     private readonly orgService: OrganizationsService,
+    private readonly reportingActivation: ReportingActivationService,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(UserOrganization)
     private readonly userOrgRepo: Repository<UserOrganization>,
@@ -229,7 +231,10 @@ export class BranchAnalyticsService {
     return rows.map((row) => row.id);
   }
 
-  async getEmployeeIds(orgId: string): Promise<
+  async getEmployeeIds(
+    orgId: string,
+    asOfDate?: string,
+  ): Promise<
     Array<{
       userId: string;
       firstName: string;
@@ -237,7 +242,7 @@ export class BranchAnalyticsService {
       email: string;
     }>
   > {
-    return this.userRepo
+    const qb = this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
@@ -250,8 +255,11 @@ export class BranchAnalyticsService {
         'u.email AS "email"',
       ])
       .orderBy('u.last_name', 'ASC')
-      .addOrderBy('u.first_name', 'ASC')
-      .getRawMany();
+      .addOrderBy('u.first_name', 'ASC');
+    this.reportingActivation.applyEmployeeReportActiveFilter(qb, {
+      asOfDate,
+    });
+    return qb.getRawMany();
   }
 
   async getSummary(
@@ -260,7 +268,7 @@ export class BranchAnalyticsService {
     to?: string,
   ) {
     const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
-    const employees = await this.getEmployeeIds(orgId);
+    const employees = await this.getEmployeeIds(orgId, toStr);
     const userIds = employees.map((e) => e.userId);
 
     if (userIds.length === 0) {
@@ -373,7 +381,7 @@ export class BranchAnalyticsService {
   async getActivityMatrix(orgId: string, from?: string, to?: string) {
     const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
     const days = this.listDays(fromStr, toStr);
-    const employees = await this.getEmployeeIds(orgId);
+    const employees = await this.getEmployeeIds(orgId, toStr);
     const userIds = employees.map((e) => e.userId);
 
     if (userIds.length === 0) {
@@ -467,7 +475,7 @@ export class BranchAnalyticsService {
     const planDate =
       date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : tashkentToday();
 
-    const employees = await this.getEmployeeIds(orgId);
+    const employees = await this.getEmployeeIds(orgId, planDate);
     const userIds = employees.map((e) => e.userId);
     const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
@@ -822,7 +830,8 @@ export class BranchAnalyticsService {
     if (!org) throw new NotFoundException('Tashkilot topilmadi');
 
     const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
-    const employees = await this.getEmployeeIds(orgId);
+    const asOfDate = `${m}-${String(daysInMonth).padStart(2, '0')}`;
+    const employees = await this.getEmployeeIds(orgId, asOfDate);
     const userIds = employees.map((e) => e.userId);
 
     const base = {
@@ -973,6 +982,7 @@ export class BranchAnalyticsService {
       opts.date.startsWith(m)
         ? opts.date
         : undefined;
+    const asOfDate = dayFilter ?? monthEnd;
 
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
@@ -1063,6 +1073,10 @@ export class BranchAnalyticsService {
         'u.last_name AS "lastName"',
         'u.email AS "email"',
       ]);
+
+    this.reportingActivation.applyEmployeeReportActiveFilter(empQb, {
+      asOfDate,
+    });
 
     if (opts?.userId?.trim()) {
       empQb.andWhere('u.id = :userId', { userId: opts.userId.trim() });
@@ -1240,6 +1254,7 @@ export class BranchAnalyticsService {
     );
     const yearFrom = new Date(`${y}-01-01T00:00:00.000+05:00`);
     const yearTo = new Date(`${Number(y) + 1}-01-01T00:00:00.000+05:00`);
+    const asOfDate = `${y}-12-31`;
     const daysInMonthByKey = new Map(
       months.map((m) => [m, tashkentMonthBounds(m).daysInMonth]),
     );
@@ -1282,7 +1297,7 @@ export class BranchAnalyticsService {
     const orgIds = orgs.map((o) => o.id);
     const orgNameById = new Map(orgs.map((o) => [o.id, o.name]));
 
-    const employees = await this.userRepo
+    const empYearQb = this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
@@ -1297,14 +1312,19 @@ export class BranchAnalyticsService {
       ])
       .orderBy('org.name', 'ASC')
       .addOrderBy('u.last_name', 'ASC')
-      .addOrderBy('u.first_name', 'ASC')
-      .getRawMany<{
-        userId: string;
-        orgId: string;
-        firstName: string;
-        lastName: string;
-        email: string;
-      }>();
+      .addOrderBy('u.first_name', 'ASC');
+
+    this.reportingActivation.applyEmployeeReportActiveFilter(empYearQb, {
+      asOfDate,
+    });
+
+    const employees = await empYearQb.getRawMany<{
+      userId: string;
+      orgId: string;
+      firstName: string;
+      lastName: string;
+      email: string;
+    }>();
 
     const userIds = [...new Set(employees.map((e) => e.userId))];
     if (userIds.length === 0) {
@@ -1480,8 +1500,8 @@ export class BranchAnalyticsService {
     }
     const orgIds = orgs.map((o) => o.id);
 
-    // Har filialdagi USER-xodimlar soni.
-    const empRows = await this.userRepo
+    // Har filialdagi USER-xodimlar soni (report-active, joriy).
+    const empQb = this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
@@ -1489,13 +1509,17 @@ export class BranchAnalyticsService {
       .andWhere('u.role = :role', { role: Role.USER })
       .select('org.id', 'orgId')
       .addSelect('COUNT(DISTINCT u.id)::int', 'employees')
-      .groupBy('org.id')
-      .getRawMany<{ orgId: string; employees: number }>();
+      .groupBy('org.id');
+    this.reportingActivation.applyEmployeeReportActiveFilter(empQb, {
+      asOfDate: `${m}-${String(daysInMonth).padStart(2, '0')}`,
+    });
+    const empRows = await empQb.getRawMany<{ orgId: string; employees: number }>();
     const empMap = new Map(empRows.map((r) => [r.orgId, Number(r.employees) || 0]));
 
     // Har filial bo'yicha jami bajarilgan kunlar (user+kun juftliklari,
-    // correct >= goal bo'lganlari).
+    // correct >= goal bo'lganlari). Faqat report-active xodimlar.
     const planCutoff = PLAN_RULE_CUTOFF;
+    const asOf = `${m}-${String(daysInMonth).padStart(2, '0')}`;
     const completedRows = (await this.attemptRepo.query(
       `
       SELECT org_id AS "orgId", COUNT(*)::int AS "completedDays"
@@ -1506,17 +1530,40 @@ export class BranchAnalyticsService {
                COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct) AS correct
         FROM user_question_attempts a
         INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
+        INNER JOIN organizations org ON org.id = a.organization_id
         WHERE a.organization_id = ANY($1::uuid[])
           AND a.answered_at >= $2
           AND a.answered_at < $3
           AND ${planAttemptSqlParam(5)}
+          AND COALESCE((
+            SELECT h.is_active FROM reporting_activation_history h
+            WHERE h.scope_type = 'organization' AND h.organization_id = org.id
+              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $6::date
+            ORDER BY h.changed_at DESC LIMIT 1
+          ), true) = true
+          AND COALESCE((
+            SELECT h.is_active FROM reporting_activation_history h
+            WHERE h.scope_type = 'employee' AND h.user_id = u.id
+              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $6::date
+            ORDER BY h.changed_at DESC LIMIT 1
+          ), true) = true
+          AND COALESCE((
+            SELECT h.is_active FROM reporting_activation_history h
+            WHERE h.scope_type = 'division' AND h.organization_id = org.id
+              AND h.division_name = COALESCE((
+                SELECT TRIM(ne.division) FROM nes_employees ne
+                WHERE ne.user_id = u.id AND ne.organization_id = org.id LIMIT 1
+              ), '')
+              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $6::date
+            ORDER BY h.changed_at DESC LIMIT 1
+          ), true) = true
         GROUP BY a.organization_id, a.user_id,
                  (a.answered_at AT TIME ZONE 'Asia/Tashkent')::date
       ) t
       WHERE t.correct >= $4
       GROUP BY org_id
       `,
-      [orgIds, from, to, DAILY_GOAL_CORRECT, planCutoff],
+      [orgIds, from, to, DAILY_GOAL_CORRECT, planCutoff, asOf],
     )) as Array<{ orgId: string; completedDays: number }>;
     const completedMap = new Map(
       completedRows.map((r) => [r.orgId, Number(r.completedDays) || 0]),
@@ -1573,6 +1620,7 @@ export class BranchAnalyticsService {
     const qb = this.attemptRepo
       .createQueryBuilder('a')
       .innerJoin(User, 'u', 'u.id = a.user_id')
+      .innerJoin(Organization, 'org', 'org.id = a.organization_id')
       .select('a.user_id', 'userId')
       .addSelect(
         'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
@@ -1586,6 +1634,10 @@ export class BranchAnalyticsService {
       })
       .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .groupBy('a.user_id');
+
+    this.reportingActivation.applyEmployeeReportActiveFilter(qb, {
+      asOfDate: planDate,
+    });
 
     if (userIds?.length) {
       qb.andWhere('a.user_id IN (:...userIds)', { userIds });
@@ -1614,9 +1666,12 @@ export class BranchAnalyticsService {
     );
   }
 
-  private async countEmployeesByOrg(orgIds: string[]): Promise<Map<string, number>> {
+  private async countEmployeesByOrg(
+    orgIds: string[],
+    asOfDate?: string,
+  ): Promise<Map<string, number>> {
     if (!orgIds.length) return new Map();
-    const rows = await this.userRepo
+    const qb = this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
@@ -1624,8 +1679,9 @@ export class BranchAnalyticsService {
       .andWhere('u.role = :role', { role: Role.USER })
       .select('org.id', 'orgId')
       .addSelect('COUNT(DISTINCT u.id)::int', 'cnt')
-      .groupBy('org.id')
-      .getRawMany<{ orgId: string; cnt: number }>();
+      .groupBy('org.id');
+    this.reportingActivation.applyEmployeeReportActiveFilter(qb, { asOfDate });
+    const rows = await qb.getRawMany<{ orgId: string; cnt: number }>();
     return new Map(rows.map((r) => [r.orgId, Number(r.cnt) || 0]));
   }
 
@@ -1658,7 +1714,7 @@ export class BranchAnalyticsService {
     const orgs = await orgQb.getMany();
     const orgIds = orgs.map((o) => o.id);
 
-    const empMap = await this.countEmployeesByOrg(orgIds);
+    const empMap = await this.countEmployeesByOrg(orgIds, planDate);
     const totalEmployees = [...empMap.values()].reduce((s, n) => s + n, 0);
     const totalPlan = totalEmployees * DAILY_GOAL_CORRECT;
 
@@ -1714,19 +1770,25 @@ export class BranchAnalyticsService {
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
 
-    const empMap = await this.countEmployeesByOrg(orgIds);
+    const empMap = await this.countEmployeesByOrg(orgIds, planDate);
     const correctMap = await this.getUserCorrectMap(orgIds, planDate);
     const dayStatsMap = await this.getUserDayStatsMap(orgIds, planDate);
 
-    const employeesByOrg = await this.userRepo
+    const employeesByOrgQb = this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
       .andWhere('u.role = :role', { role: Role.USER })
       .select('org.id', 'orgId')
-      .addSelect('u.id', 'userId')
-      .getRawMany<{ orgId: string; userId: string }>();
+      .addSelect('u.id', 'userId');
+    this.reportingActivation.applyEmployeeReportActiveFilter(employeesByOrgQb, {
+      asOfDate: planDate,
+    });
+    const employeesByOrg = await employeesByOrgQb.getRawMany<{
+      orgId: string;
+      userId: string;
+    }>();
 
     const orgUserMap = new Map<string, string[]>();
     for (const row of employeesByOrg) {
@@ -1771,7 +1833,7 @@ export class BranchAnalyticsService {
   /** Filial ichidagi bo'limlar (NES division) bo'yicha kunlik reja. */
   async getDivisionSummary(orgId: string, date?: string) {
     const planDate = this.parsePlanDate(date);
-    const employees = await this.getEmployeeIds(orgId);
+    const employees = await this.getEmployeeIds(orgId, planDate);
     const userIds = employees.map((e) => e.userId);
 
     const nesRows = userIds.length
@@ -1851,7 +1913,7 @@ export class BranchAnalyticsService {
   /** Xodimlar reytingi (filial yoki bo'lim bo'yicha). */
   async getEmployeeRanking(orgId: string, date?: string, division?: string) {
     const planDate = this.parsePlanDate(date);
-    let employees = await this.getEmployeeIds(orgId);
+    let employees = await this.getEmployeeIds(orgId, planDate);
 
     if (division) {
       const decoded = decodeURIComponent(division);
@@ -2010,12 +2072,12 @@ export class BranchAnalyticsService {
       orgIds = (await orgQb.getMany()).map((o) => o.id);
     }
 
-    const empMap = await this.countEmployeesByOrg(orgIds);
-    const totalEmployees = [...empMap.values()].reduce((s, n) => s + n, 0);
-    const dailyPlan = totalEmployees * DAILY_GOAL_CORRECT;
-
+    // Har kun uchun numerator asOf=day; denominator o‘sha kun.
     const points: Array<{ date: string; percent: number; completed: number; plan: number }> = [];
     for (const day of days) {
+      const dayEmpMap = await this.countEmployeesByOrg(orgIds, day);
+      const dayEmployees = [...dayEmpMap.values()].reduce((s, n) => s + n, 0);
+      const dailyPlan = dayEmployees * DAILY_GOAL_CORRECT;
       const correctMap = await this.getUserCorrectMap(orgIds, day);
       let completed = 0;
       for (const [, c] of correctMap) completed += c;
@@ -2058,17 +2120,23 @@ export class BranchAnalyticsService {
       return { weekdays: ['Dush', 'Sesh', 'Chor', 'Pay', 'Juma'], branches: [], rangeFrom: '', rangeTo: '' };
     }
 
-    const empCountMap = await this.countEmployeesByOrg(orgIds);
+    const empCountMap = await this.countEmployeesByOrg(orgIds, toStr);
 
-    const orgUsersRows = await this.userRepo
+    const orgUsersQb = this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
       .andWhere('u.role = :role', { role: Role.USER })
       .select('org.id', 'orgId')
-      .addSelect('u.id', 'userId')
-      .getRawMany<{ orgId: string; userId: string }>();
+      .addSelect('u.id', 'userId');
+    this.reportingActivation.applyEmployeeReportActiveFilter(orgUsersQb, {
+      asOfDate: toStr,
+    });
+    const orgUsersRows = await orgUsersQb.getRawMany<{
+      orgId: string;
+      userId: string;
+    }>();
 
     const usersByOrg = new Map<string, string[]>();
     for (const r of orgUsersRows) {

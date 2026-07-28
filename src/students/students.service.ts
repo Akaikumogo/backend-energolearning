@@ -588,7 +588,7 @@ export class StudentsService {
   private mapOrgs(
     user: User,
     orgIds: string[] | undefined | null,
-  ): { id: string; name: string }[] {
+  ): { id: string; name: string; reportActive: boolean }[] {
     const list = user.organizations ?? [];
     const filtered =
       orgIds && orgIds.length
@@ -597,6 +597,7 @@ export class StudentsService {
     return filtered.map((uo) => ({
       id: uo.organization?.id,
       name: uo.organization?.name,
+      reportActive: uo.organization?.reportActive !== false,
     }));
   }
 
@@ -646,6 +647,7 @@ export class StudentsService {
           null,
         division: nes?.division?.trim() || null,
         post: nes?.post?.trim() || null,
+        reportActive: user.reportActive !== false,
         completedLevels: 0,
         totalXp: correctCount * 10,
         currentLevelId: null as string | null,
@@ -761,6 +763,7 @@ export class StudentsService {
         null,
       division: nes?.division?.trim() || null,
       post: nes?.post?.trim() || null,
+      reportActive: user.reportActive !== false,
       completedLevels,
       totalXp,
       currentLevelId,
