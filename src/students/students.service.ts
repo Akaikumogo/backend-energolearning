@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Brackets, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import { Role } from '../common/enums/role.enum';
+import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import {
   listTashkentDays,
   parseTashkentRange,
@@ -118,7 +118,9 @@ export class StudentsService {
       .createQueryBuilder('u')
       .leftJoinAndSelect('u.organizations', 'uo')
       .leftJoinAndSelect('uo.organization', 'org')
-      .where('u.role = :role', { role: Role.USER })
+      .where('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .andWhere('u.energo_id IS NOT NULL')
       .orderBy('u.createdAt', 'DESC');
 
@@ -214,7 +216,7 @@ export class StudentsService {
     requestingUser: { id: string; role: Role; organizationIds: string[] },
   ) {
     const user = await this.userRepo.findOne({
-      where: { id, role: Role.USER },
+      where: { id, role: In([...REPORTING_ROLES]) },
       relations: ['organizations', 'organizations.organization'],
     });
     if (!user || !user.energoId) {
@@ -341,7 +343,7 @@ export class StudentsService {
     requestingUser: { id: string; role: Role; organizationIds: string[] },
   ) {
     const user = await this.userRepo.findOne({
-      where: { id: studentId, role: Role.USER },
+      where: { id: studentId, role: In([...REPORTING_ROLES]) },
       relations: ['organizations', 'organizations.organization'],
     });
     if (!user || !user.energoId) {
@@ -411,7 +413,7 @@ export class StudentsService {
     filters?: { page?: number; limit?: number; onlyCorrect?: boolean },
   ) {
     const user = await this.userRepo.findOne({
-      where: { id: studentId, role: Role.USER },
+      where: { id: studentId, role: In([...REPORTING_ROLES]) },
       relations: ['organizations', 'organizations.organization'],
     });
     if (!user || !user.energoId) {
@@ -524,7 +526,7 @@ export class StudentsService {
     requestingUser: { id: string; role: Role; organizationIds: string[] },
   ) {
     const user = await this.userRepo.findOne({
-      where: { id: studentId, role: Role.USER },
+      where: { id: studentId, role: In([...REPORTING_ROLES]) },
       relations: ['organizations', 'organizations.organization'],
     });
     if (!user || !user.energoId) {
@@ -641,6 +643,7 @@ export class StudentsService {
         lastName: user.lastName,
         email: user.email,
         avatarUrl: user.avatarUrl,
+        role: user.role,
         personnelNumber:
           nes?.personnelNumber ??
           extractPersonnelNumberFromLogin(user.email) ??
@@ -757,6 +760,7 @@ export class StudentsService {
       lastName: user.lastName,
       email: user.email,
       avatarUrl: user.avatarUrl,
+      role: user.role,
       personnelNumber:
         nes?.personnelNumber ??
         extractPersonnelNumberFromLogin(user.email) ??

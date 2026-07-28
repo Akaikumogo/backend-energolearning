@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Role } from '../common/enums/role.enum';
+import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import { Organization } from '../database/entities/organization.entity';
 import { Question } from '../database/entities/question.entity';
 import { User } from '../database/entities/user.entity';
@@ -130,9 +130,9 @@ export class BranchAnalyticsService {
           INNER JOIN users eu ON eu.id = e.user_id
           WHERE e.organization_id = o.id
             AND eu.energo_id IS NOT NULL
-            AND eu.role = :energoUserRole
+            AND eu.role IN (:...energoUserRoles)
         )`,
-        { energoUserRole: Role.USER },
+        { energoUserRoles: [...REPORTING_ROLES] },
       );
   }
 
@@ -247,7 +247,9 @@ export class BranchAnalyticsService {
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id = :orgId', { orgId })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select([
         'u.id AS "userId"',
         'u.first_name AS "firstName"',
@@ -1065,7 +1067,9 @@ export class BranchAnalyticsService {
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select([
         'u.id AS "userId"',
         'org.id AS "orgId"',
@@ -1302,7 +1306,9 @@ export class BranchAnalyticsService {
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select([
         'u.id AS "userId"',
         'org.id AS "orgId"',
@@ -1506,7 +1512,9 @@ export class BranchAnalyticsService {
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select('org.id', 'orgId')
       .addSelect('COUNT(DISTINCT u.id)::int', 'employees')
       .groupBy('org.id');
@@ -1529,7 +1537,7 @@ export class BranchAnalyticsService {
                (a.answered_at AT TIME ZONE 'Asia/Tashkent')::date AS day,
                COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct) AS correct
         FROM user_question_attempts a
-        INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
+        INNER JOIN users u ON u.id = a.user_id AND u.role IN ('USER', 'MODERATOR')
         INNER JOIN organizations org ON org.id = a.organization_id
         WHERE a.organization_id = ANY($1::uuid[])
           AND a.answered_at >= $2
@@ -1627,7 +1635,9 @@ export class BranchAnalyticsService {
         'rawCorrect',
       )
       .where('a.organization_id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
         from: dayStart,
         to: dayEnd,
@@ -1676,7 +1686,9 @@ export class BranchAnalyticsService {
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select('org.id', 'orgId')
       .addSelect('COUNT(DISTINCT u.id)::int', 'cnt')
       .groupBy('org.id');
@@ -1779,7 +1791,9 @@ export class BranchAnalyticsService {
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select('org.id', 'orgId')
       .addSelect('u.id', 'userId');
     this.reportingActivation.applyEmployeeReportActiveFilter(employeesByOrgQb, {
@@ -2009,7 +2023,7 @@ export class BranchAnalyticsService {
           a.question_id,
           a.is_correct
         FROM user_question_attempts a
-        INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
+        INNER JOIN users u ON u.id = a.user_id AND u.role IN ('USER', 'MODERATOR')
         WHERE a.answered_at >= $1 AND a.answered_at < $2
           AND ${planAttemptSqlParam(4)}
         ${orgFilter}
@@ -2127,7 +2141,9 @@ export class BranchAnalyticsService {
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
       .where('org.id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select('org.id', 'orgId')
       .addSelect('u.id', 'userId');
     this.reportingActivation.applyEmployeeReportActiveFilter(orgUsersQb, {
@@ -2154,7 +2170,7 @@ export class BranchAnalyticsService {
         a.user_id AS "userId",
         LEAST(COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct), $4)::int AS correct
       FROM user_question_attempts a
-      INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
+      INNER JOIN users u ON u.id = a.user_id AND u.role IN ('USER', 'MODERATOR')
       WHERE a.organization_id = ANY($1::uuid[])
         AND a.answered_at >= $2 AND a.answered_at < $3
         AND ${planAttemptSqlParam(5)}

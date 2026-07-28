@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { Role } from '../common/enums/role.enum';
+import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { User } from '../database/entities/user.entity';
@@ -168,9 +168,9 @@ export class OrganizationsService {
           INNER JOIN users eu ON eu.id = e.user_id
           WHERE e.organization_id = o.id
             AND eu.energo_id IS NOT NULL
-            AND eu.role = :energoUserRole
+            AND eu.role IN (:...energoUserRoles)
         )`,
-        { energoUserRole: Role.USER },
+        { energoUserRoles: [...REPORTING_ROLES] },
       )
       .orderBy('o.isDefault', 'DESC')
       .addOrderBy('o.name', 'ASC');

@@ -6,7 +6,7 @@ import { User } from '../database/entities/user.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { Organization } from '../database/entities/organization.entity';
-import { Role } from '../common/enums/role.enum';
+import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import {
   computeReportContentHash,
   newReportExportId,
@@ -64,7 +64,9 @@ export class ExportService {
         { orgId },
       )
       .where('org.id = :orgId', { orgId })
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .select([
         'u.first_name AS "firstName"',
         'u.last_name AS "lastName"',
@@ -111,7 +113,9 @@ export class ExportService {
     const qb = this.nesRepo
       .createQueryBuilder('ne')
       .innerJoin(User, 'u', 'u.id = ne.user_id')
-      .where('u.role = :role', { role: Role.USER })
+      .where('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .orderBy('ne.organization_name', 'ASC')
       .addOrderBy('ne.last_name', 'ASC')
       .addOrderBy('ne.first_name', 'ASC');
