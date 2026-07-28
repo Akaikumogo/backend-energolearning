@@ -69,11 +69,14 @@ import { DropEmployeeCertAndChecks1747600000000 } from './migrations/0030-drop-e
 import { BackfillCountsForXp1747700000000 } from './migrations/0031-backfill-counts-for-xp';
 import { FixCountsForXpDailyPlanOnly1747800000000 } from './migrations/0032-fix-counts-for-xp-daily-plan-only';
 import { BackfillXpWithPlanCutoff1747900000000 } from './migrations/0033-backfill-xp-with-plan-cutoff';
+import { AddReportingActivation1748000000000 } from './migrations/0034-add-reporting-activation';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
 import { Department } from './entities/department.entity';
 import { ReportSubmission } from './entities/report-submission.entity';
+import { OrganizationDivisionSetting } from './entities/organization-division-setting.entity';
+import { ReportingActivationHistory } from './entities/reporting-activation-history.entity';
 import { getPostgresConnectionOptions } from './postgres-env';
 
 export const AppDataSource = new DataSource({
@@ -120,6 +123,8 @@ export const AppDataSource = new DataSource({
     OAuthIntegrationSetting,
     Department,
     ReportSubmission,
+    OrganizationDivisionSetting,
+    ReportingActivationHistory,
   ],
   migrations: [
     Init1743074000000,
@@ -157,6 +162,7 @@ export const AppDataSource = new DataSource({
     BackfillCountsForXp1747700000000,
     FixCountsForXpDailyPlanOnly1747800000000,
     BackfillXpWithPlanCutoff1747900000000,
+    AddReportingActivation1748000000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

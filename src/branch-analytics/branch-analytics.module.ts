@@ -8,6 +8,7 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { UserSession } from '../database/entities/user-session.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { ReportingActivationModule } from '../reporting-activation/reporting-activation.module';
 import { BranchAnalyticsController } from './branch-analytics.controller';
 import { MobileDailyPlanController } from './mobile-daily-plan.controller';
 import { BranchAnalyticsService } from './branch-analytics.service';
@@ -16,6 +17,7 @@ import { ExportService } from './export.service';
 @Module({
   imports: [
     OrganizationsModule,
+    ReportingActivationModule,
     TypeOrmModule.forFeature([
       Question,
       Organization,

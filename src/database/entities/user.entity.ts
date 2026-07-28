@@ -57,6 +57,17 @@ export class User {
   })
   loginBlocked: boolean;
 
+  /**
+   * KPI / hisobot soft-exclusion. OFF = tarix saqlanadi, joriy hisobotga kirmaydi.
+   * Effective active = user AND org AND division report_active.
+   */
+  @Column({
+    type: 'boolean',
+    name: 'report_active',
+    default: true,
+  })
+  reportActive: boolean = true;
+
   /** Avatar yuklash payti yuz aniqlangan-aniqlanmaganligi (mobilning client-side
    *  face-detection natijasi). Kelajakda yuzni qayta tanish uchun yoki audit
    *  uchun ishlatiladi. */

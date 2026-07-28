@@ -43,6 +43,13 @@ export class Organization {
   @Column({ type: 'timestamptz', name: 'archived_at', nullable: true })
   archivedAt: Date | null;
 
+  /**
+   * KPI / hisobot soft-exclusion. OFF = ma'lumot saqlanadi, joriy hisobotga kirmaydi.
+   * DELETE emas.
+   */
+  @Column({ type: 'boolean', name: 'report_active', default: true })
+  reportActive: boolean = true;
+
   @OneToMany(() => UserOrganization, (uo) => uo.organization)
   users: UserOrganization[];
 
