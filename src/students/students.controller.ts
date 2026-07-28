@@ -58,6 +58,11 @@ export class StudentsController {
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiQuery({
+    name: 'light',
+    required: false,
+    description: '1 = hierarchy uchun engil to‘liq ro‘yxat',
+  })
   @ApiOkResponse({ description: 'Paginated xodimlar ro`yxati' })
   findAll(
     @Req()
@@ -69,6 +74,7 @@ export class StudentsController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('light') light?: string,
   ) {
     return this.studentsService.findAll(req.user, {
       orgId,
@@ -76,6 +82,7 @@ export class StudentsController {
       search,
       page: page ? +page : undefined,
       limit: limit ? +limit : undefined,
+      light: light === '1' || light === 'true',
     });
   }
 

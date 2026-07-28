@@ -107,6 +107,8 @@ export class StudentsService {
       search?: string;
       page?: number;
       limit?: number;
+      /** Hierarchy UI: barcha qatorlar + engil payload */
+      light?: boolean;
     },
   ) {
     const page = filters.page ?? 1;
@@ -162,6 +164,8 @@ export class StudentsService {
                       LOWER(nes.login) LIKE :${key}
                       OR LOWER(nes.personnel_number) LIKE :${key}
                       OR LOWER(nes.full_name) LIKE :${key}
+                      OR LOWER(COALESCE(nes.division, '')) LIKE :${key}
+                      OR LOWER(COALESCE(nes.post, '')) LIKE :${key}
                     )
                   )
                 )`,
@@ -173,15 +177,29 @@ export class StudentsService {
       });
     }
 
+    const light = Boolean(filters.light);
     const total = await qb.getCount();
-    const users = await qb
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getMany();
+    const users = light
+      ? await qb.getMany()
+      : await qb
+          .skip((page - 1) * limit)
+          .take(limit)
+          .getMany();
 
-    const data = await Promise.all(
-      users.map((u) => this.toStudentSummary(u, requestingUser)),
-    );
+    if (light) {
+      const data = await this.toStudentSummariesLight(users, requestingUser);
+      const filtered = filters.levelId
+        ? data.filter((s) => s.currentLevelId === filters.levelId)
+        : data;
+      return {
+        data: filtered,
+        total: filtered.length,
+        page: 1,
+        limit: filtered.length,
+      };
+    }
+
+    const data = await this.toStudentSummariesBatched(users, requestingUser);
 
     if (filters.levelId) {
       const filtered = data.filter((s) => s.currentLevelId === filters.levelId);
@@ -558,16 +576,120 @@ export class StudentsService {
     return dayKeys.map((date) => ({ date, count: countByDate.get(date) ?? 0 }));
   }
 
+  private async resolveModeratorOrgIds(
+    requestingUser: { id: string; role: Role; organizationIds: string[] },
+  ): Promise<string[] | undefined> {
+    if (requestingUser.role !== Role.MODERATOR) return undefined;
+    return this.organizationsService.resolveModeratorScope(
+      requestingUser.organizationIds,
+    );
+  }
+
+  private mapOrgs(
+    user: User,
+    orgIds: string[] | undefined | null,
+  ): { id: string; name: string }[] {
+    const list = user.organizations ?? [];
+    const filtered =
+      orgIds && orgIds.length
+        ? list.filter((uo) => orgIds.includes(uo.organization?.id ?? ''))
+        : list;
+    return filtered.map((uo) => ({
+      id: uo.organization?.id,
+      name: uo.organization?.name,
+    }));
+  }
+
+  /** Hierarchy / yirik ro‘yxat: batch NES + XP, daraja ixtiyoriy. */
+  private async toStudentSummariesLight(
+    users: User[],
+    requestingUser: { id: string; role: Role; organizationIds: string[] },
+  ) {
+    if (users.length === 0) return [];
+    const orgIds = await this.resolveModeratorOrgIds(requestingUser);
+    const userIds = users.map((u) => u.id);
+
+    const nesRows = await this.nesEmployeeRepo.find({
+      where: { userId: In(userIds) },
+      select: ['userId', 'personnelNumber', 'division', 'post'],
+    });
+    const nesByUser = new Map(nesRows.map((n) => [n.userId, n]));
+
+    const xpQb = this.attemptRepo
+      .createQueryBuilder('a')
+      .select('a.user_id', 'userId')
+      .addSelect('COUNT(*)::int', 'cnt')
+      .where('a.user_id IN (:...userIds)', { userIds })
+      .andWhere('a.is_correct = true')
+      .andWhere('a.counts_for_xp = true')
+      .groupBy('a.user_id');
+    if (orgIds && orgIds.length) {
+      xpQb.andWhere('a.organization_id IN (:...orgIds)', { orgIds });
+    }
+    const xpRows = await xpQb.getRawMany<{ userId: string; cnt: number }>();
+    const xpByUser = new Map(
+      xpRows.map((r) => [r.userId, Number(r.cnt) || 0]),
+    );
+
+    return users.map((user) => {
+      const nes = nesByUser.get(user.id);
+      const correctCount = xpByUser.get(user.id) ?? 0;
+      return {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        avatarUrl: user.avatarUrl,
+        personnelNumber:
+          nes?.personnelNumber ??
+          extractPersonnelNumberFromLogin(user.email) ??
+          null,
+        division: nes?.division?.trim() || null,
+        post: nes?.post?.trim() || null,
+        completedLevels: 0,
+        totalXp: correctCount * 10,
+        currentLevelId: null as string | null,
+        currentLevelTitle: null as string | null,
+        badge: BADGES[0],
+        organizations: this.mapOrgs(user, orgIds),
+      };
+    });
+  }
+
+  private async toStudentSummariesBatched(
+    users: User[],
+    requestingUser: { id: string; role: Role; organizationIds: string[] },
+  ) {
+    if (users.length === 0) return [];
+    const orgIds = await this.resolveModeratorOrgIds(requestingUser);
+    const userIds = users.map((u) => u.id);
+
+    const nesRows = await this.nesEmployeeRepo.find({
+      where: { userId: In(userIds) },
+      select: ['userId', 'personnelNumber', 'division', 'post'],
+    });
+    const nesByUser = new Map(nesRows.map((n) => [n.userId, n]));
+
+    return Promise.all(
+      users.map((user) =>
+        this.toStudentSummary(user, requestingUser, nesByUser.get(user.id), orgIds),
+      ),
+    );
+  }
+
   private async toStudentSummary(
     user: User,
     requestingUser: { id: string; role: Role; organizationIds: string[] },
+    nesEmployee?: Pick<
+      NesEmployee,
+      'personnelNumber' | 'division' | 'post'
+    > | null,
+    preloadedOrgIds?: string[] | null,
   ) {
     const orgIds =
-      requestingUser.role === Role.MODERATOR
-        ? await this.organizationsService.resolveModeratorScope(
-            requestingUser.organizationIds,
-          )
-        : undefined;
+      preloadedOrgIds !== undefined
+        ? preloadedOrgIds
+        : await this.resolveModeratorOrgIds(requestingUser);
 
     const completions = await this.completionRepo.find({
       where:
@@ -609,10 +731,15 @@ export class StudentsService {
       (c) => c.completionPercent >= 100,
     ).length;
     const badgeIndex = Math.min(completedLevels, BADGES.length - 1);
-    const nesEmployee = await this.nesEmployeeRepo.findOne({
-      where: { userId: user.id },
-      select: ['personnelNumber'],
-    });
+
+    let nes = nesEmployee;
+    if (nes === undefined) {
+      nes = await this.nesEmployeeRepo.findOne({
+        where: { userId: user.id },
+        select: ['personnelNumber', 'division', 'post'],
+      });
+    }
+
     for (const level of levels) {
       const c = completionMap.get(level.id);
       if (!c || c.completionPercent < 100) {
@@ -629,26 +756,17 @@ export class StudentsService {
       email: user.email,
       avatarUrl: user.avatarUrl,
       personnelNumber:
-        nesEmployee?.personnelNumber ??
+        nes?.personnelNumber ??
         extractPersonnelNumberFromLogin(user.email) ??
         null,
+      division: nes?.division?.trim() || null,
+      post: nes?.post?.trim() || null,
       completedLevels,
       totalXp,
       currentLevelId,
       currentLevelTitle,
       badge: BADGES[badgeIndex],
-      organizations:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
-          ? (user.organizations ?? [])
-              .filter((uo) => orgIds.includes(uo.organization?.id ?? ''))
-              .map((uo) => ({
-                id: uo.organization?.id,
-                name: uo.organization?.name,
-              }))
-          : (user.organizations ?? []).map((uo) => ({
-              id: uo.organization?.id,
-              name: uo.organization?.name,
-            })),
+      organizations: this.mapOrgs(user, orgIds),
     };
   }
 }
