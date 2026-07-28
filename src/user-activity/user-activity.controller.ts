@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -110,7 +111,15 @@ export class UserActivityController {
   @UseGuards(RolesGuard)
   @Roles(Role.MODERATOR, Role.SUPERADMIN)
   @ApiOperation({ summary: 'User activity timeline' })
-  async timeline(@Param('userId', ParseUUIDPipe) userId: string) {
+  async timeline(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Req() req: AuthedRequest,
+  ) {
+    await this.organizationsService.assertUserInModeratorScope(
+      req.user.role,
+      req.user.organizationIds,
+      userId,
+    );
     return this.service.getUserTimeline(userId, 100);
   }
 
@@ -120,8 +129,14 @@ export class UserActivityController {
   @ApiOperation({ summary: 'User sessions (login/logout history)' })
   async sessions(
     @Param('userId', ParseUUIDPipe) userId: string,
-    @Query('range') range?: ActivityRange,
+    @Query('range') range: ActivityRange | undefined,
+    @Req() req: AuthedRequest,
   ) {
+    await this.organizationsService.assertUserInModeratorScope(
+      req.user.role,
+      req.user.organizationIds,
+      userId,
+    );
     return this.service.getUserSessions(userId, range);
   }
 
@@ -136,6 +151,13 @@ export class UserActivityController {
     @Req() req: AuthedRequest,
   ) {
     const orgId = await this.scopeOrgId(req, q.organizationId);
+    if (q.userId) {
+      await this.organizationsService.assertUserInModeratorScope(
+        req.user.role,
+        req.user.organizationIds,
+        q.userId,
+      );
+    }
     return this.service.getQuestionStats({
       userId: q.userId,
       organizationId: orgId,
@@ -149,7 +171,13 @@ export class UserActivityController {
   async userQuestionAttempts(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Param('questionId', ParseUUIDPipe) questionId: string,
+    @Req() req: AuthedRequest,
   ) {
+    await this.organizationsService.assertUserInModeratorScope(
+      req.user.role,
+      req.user.organizationIds,
+      userId,
+    );
     return this.service.getUserQuestionAttempts(userId, questionId);
   }
 
@@ -169,10 +197,13 @@ export class UserActivityController {
     if (scope === undefined) {
       return reqOrg && reqOrg !== 'all' ? reqOrg : null;
     }
-    if (scope.length === 0) return null;
+    // Bo‘sh scope — hech qanday org (barcha emas)
+    if (scope.length === 0) {
+      throw new ForbiddenException('Filial ruxsati yo‘q');
+    }
     if (reqOrg && reqOrg !== 'all' && scope.includes(reqOrg)) {
       return reqOrg;
     }
-    return scope.length === 1 ? scope[0] : scope[0];
+    return scope[0];
   }
 }

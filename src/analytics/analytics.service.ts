@@ -336,12 +336,30 @@ export class AnalyticsService {
 
   /** Bosh sahifa: filial bo'yicha GitHub-uslubidagi activity + reytinglar. */
   async getHomeOverview(allowedOrgIds: string[] | null): Promise<HomeOverviewDto> {
+    if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
+      return {
+        scopeLabel: '',
+        branchHeatmap: [],
+        mostActiveBranch: null,
+        topErrorBranches: [],
+        insight: {
+          loginsThisWeek: 0,
+          loginsPrevWeek: 0,
+          loginDeltaPercent: null,
+          errors30d: 0,
+          errorsPrev30d: 0,
+          errorDeltaPercent: null,
+          onlineHint: 0,
+        },
+      };
+    }
+
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault'])
       .orderBy('o.isDefault', 'DESC')
       .addOrderBy('o.name', 'ASC');
-    if (allowedOrgIds?.length) {
+    if (allowedOrgIds !== null) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
     const orgs = await orgQb.getMany();

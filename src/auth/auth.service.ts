@@ -18,9 +18,6 @@ import { OrganizationsService } from '../organizations/organizations.service';
 import { Role } from '../common/enums/role.enum';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { User } from '../database/entities/user.entity';
-import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
-import { EmployeeCheck } from '../database/entities/employee-check.entity';
-import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginSuccessResponseDto } from './dto/login-response.dto';
@@ -50,10 +47,6 @@ export class AuthService {
     private readonly oauthIntegrationSettings: OAuthIntegrationSettingsService,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
-    @InjectRepository(EmployeeCertificate)
-    private readonly employeeCertRepo: Repository<EmployeeCertificate>,
-    @InjectRepository(EmployeeCheck)
-    private readonly employeeCheckRepo: Repository<EmployeeCheck>,
   ) {}
 
   /** Mobile — faqat OAuth orqali; legacy login/password o‘chirilgan. */
@@ -296,22 +289,6 @@ export class AuthService {
     }
 
     return this.toProfile(user);
-  }
-
-  async getMyEmployeeCertificate(userId: string) {
-    return this.employeeCertRepo.findOne({
-      where: { userId },
-      relations: ['organization'],
-    });
-  }
-
-  async listMyChecks(userId: string, type?: EmployeeCheckType) {
-    const where: any = { userId };
-    if (type) where.type = type;
-    return this.employeeCheckRepo.find({
-      where,
-      order: { checkDate: 'DESC', createdAt: 'DESC' },
-    });
   }
 
   async joinOrganization(

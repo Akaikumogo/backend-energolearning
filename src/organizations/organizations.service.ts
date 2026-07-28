@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -103,7 +104,10 @@ export class OrganizationsService {
     if (scope === undefined) {
       return req && req !== 'all' ? req : 'all';
     }
-    if (scope.length === 0) return 'all';
+    // Bo‘sh scope = hech narsa (barcha emas!)
+    if (scope.length === 0) {
+      throw new ForbiddenException('Filial ruxsati yo‘q');
+    }
     if (req && req !== 'all' && scope.includes(req)) return req;
     return scope[0];
   }
@@ -118,6 +122,31 @@ export class OrganizationsService {
     if (allowed === null) return;
     if (!allowed.includes(orgId)) {
       throw new NotFoundException('Tashkilot topilmadi');
+    }
+  }
+
+  /**
+   * Moderator boshqa filial xodimi userId sini so‘rasa — 404.
+   * SUPERADMIN / asosiy filial — OK.
+   */
+  async assertUserInModeratorScope(
+    role: Role,
+    organizationIds: string[] | undefined,
+    userId: string,
+  ): Promise<void> {
+    if (role === Role.SUPERADMIN) return;
+    const allowed = await this.getAllowedOrgIds(role, organizationIds);
+    if (allowed === null) return;
+    if (allowed.length === 0) {
+      throw new NotFoundException('Xodim topilmadi');
+    }
+    const link = await this.userOrgRepo
+      .createQueryBuilder('uo')
+      .where('uo.user_id = :userId', { userId })
+      .andWhere('uo.organization_id IN (:...orgIds)', { orgIds: allowed })
+      .getOne();
+    if (!link) {
+      throw new NotFoundException('Xodim topilmadi');
     }
   }
 

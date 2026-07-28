@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import {
   EnergoIdAuthClient,
@@ -366,12 +366,29 @@ export class NesEmployeesService {
     search?: string;
     page?: number;
     limit?: number;
+    allowedOrgIds?: string[] | null;
   }) {
     const page = filters?.page ?? 1;
     const limit = filters?.limit ?? 20;
+    if (filters?.allowedOrgIds && filters.allowedOrgIds.length === 0) {
+      return { data: [], total: 0, page, limit };
+    }
+
     const qb = this.terminatedRepo
       .createQueryBuilder('t')
       .orderBy('t.terminatedAt', 'DESC');
+
+    if (filters?.allowedOrgIds?.length) {
+      const orgs = await this.orgRepo.find({
+        where: { id: In(filters.allowedOrgIds) },
+        select: ['name'],
+      });
+      const names = orgs.map((o) => o.name.trim().toLowerCase()).filter(Boolean);
+      if (!names.length) {
+        return { data: [], total: 0, page, limit };
+      }
+      qb.andWhere('LOWER(t.organization_name) IN (:...names)', { names });
+    }
 
     if (filters?.search?.trim()) {
       qb.andWhere(
@@ -898,16 +915,22 @@ export class NesEmployeesService {
     division?: string;
     page?: number;
     limit?: number;
+    allowedOrgIds?: string[] | null;
   }) {
     const page = filters?.page ?? 1;
     const limit = filters?.limit ?? 20;
+
+    if (filters?.allowedOrgIds && filters.allowedOrgIds.length === 0) {
+      return { data: [], total: 0, page, limit };
+    }
 
     // Birinchi sahifa ochilganda dublikat / orphan mirrorlarni tozalash
     if (
       page === 1 &&
       !filters?.search?.trim() &&
       !filters?.organizationName?.trim() &&
-      !filters?.division?.trim()
+      !filters?.division?.trim() &&
+      !filters?.allowedOrgIds
     ) {
       await this.cleanupStaleNesMirrors();
     }
@@ -919,6 +942,12 @@ export class NesEmployeesService {
       .andWhere('u.energo_id IS NOT NULL')
       .andWhere('u.role = :role', { role: Role.USER })
       .orderBy('e.updatedAt', 'DESC');
+
+    if (filters?.allowedOrgIds?.length) {
+      qb.andWhere('e.organization_id IN (:...allowedOrgIds)', {
+        allowedOrgIds: filters.allowedOrgIds,
+      });
+    }
 
     if (filters?.search) {
       qb.andWhere(
@@ -1000,10 +1029,14 @@ export class NesEmployeesService {
     return { duplicatesRemoved, orphansRemoved };
   }
 
-  async getFilterOptions() {
+  async getFilterOptions(allowedOrgIds?: string[] | null) {
+    if (allowedOrgIds && allowedOrgIds.length === 0) {
+      return { organizations: [], divisions: [] };
+    }
+
     await this.cleanupStaleNesMirrors();
 
-    const orgs = await this.orgRepo
+    const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select('o.name', 'name')
       .where('o.archived_at IS NULL')
@@ -1018,18 +1051,30 @@ export class NesEmployeesService {
         )`,
         { role: Role.USER },
       )
-      .orderBy('o.name', 'ASC')
-      .getRawMany<{ name: string }>();
+      .orderBy('o.name', 'ASC');
 
-    const divs = await this.employeeRepo
+    if (allowedOrgIds?.length) {
+      orgQb.andWhere('o.id IN (:...allowedOrgIds)', { allowedOrgIds });
+    }
+
+    const orgs = await orgQb.getRawMany<{ name: string }>();
+
+    const divQb = this.employeeRepo
       .createQueryBuilder('e')
       .innerJoin('e.user', 'u')
       .select('DISTINCT e.division', 'division')
       .where('e.division IS NOT NULL AND e.division != :empty', { empty: '' })
       .andWhere('u.energo_id IS NOT NULL')
       .andWhere('u.role = :role', { role: Role.USER })
-      .orderBy('e.division', 'ASC')
-      .getRawMany<{ division: string }>();
+      .orderBy('e.division', 'ASC');
+
+    if (allowedOrgIds?.length) {
+      divQb.andWhere('e.organization_id IN (:...allowedOrgIds)', {
+        allowedOrgIds,
+      });
+    }
+
+    const divs = await divQb.getRawMany<{ division: string }>();
 
     return {
       organizations: orgs.map((r) => r.name).filter(Boolean),
@@ -1037,8 +1082,28 @@ export class NesEmployeesService {
     };
   }
 
-  async getArchiveSummary() {
-    const terminatedEmployees = await this.terminatedRepo.count();
+  async getArchiveSummary(allowedOrgIds?: string[] | null) {
+    if (allowedOrgIds && allowedOrgIds.length === 0) {
+      return { employees: 0, questions: 0, modules: 0, theories: 0 };
+    }
+
+    let terminatedEmployees = 0;
+    if (allowedOrgIds?.length) {
+      const orgs = await this.orgRepo.find({
+        where: { id: In(allowedOrgIds) },
+        select: ['name'],
+      });
+      const names = orgs.map((o) => o.name.trim().toLowerCase()).filter(Boolean);
+      if (names.length) {
+        terminatedEmployees = await this.terminatedRepo
+          .createQueryBuilder('t')
+          .where('LOWER(t.organization_name) IN (:...names)', { names })
+          .getCount();
+      }
+    } else {
+      terminatedEmployees = await this.terminatedRepo.count();
+    }
+
     return {
       employees: terminatedEmployees,
       questions: 0,

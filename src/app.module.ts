@@ -56,8 +56,6 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { Notification } from './database/entities/notification.entity';
 import { DbAdminModule } from './db-admin/db-admin.module';
 import 'dotenv/config';
-import { EmployeeCertificate } from './database/entities/employee-certificate.entity';
-import { EmployeeCheck } from './database/entities/employee-check.entity';
 import { getPostgresConnectionOptions } from './database/postgres-env';
 import { AiChatModule } from './ai-chat/ai-chat.module';
 import { AiChatSession } from './database/entities/ai-chat-session.entity';
@@ -123,8 +121,6 @@ import { ReportSubmission } from './database/entities/report-submission.entity';
         ExamSession,
         ExamAttemptAnswer,
         Notification,
-        EmployeeCertificate,
-        EmployeeCheck,
         AiChatSession,
         AiChatMessage,
         AudioBook,

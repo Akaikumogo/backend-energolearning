@@ -6,6 +6,7 @@ import { UserOrganization } from '../database/entities/user-organization.entity'
 import { User } from '../database/entities/user.entity';
 import { AuthModule } from '../auth/auth.module';
 import { UsersModule } from '../users/users.module';
+import { OrganizationsModule } from '../organizations/organizations.module';
 import { EmployeeSyncSetting } from '../database/entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from '../database/entities/terminated-employee.entity';
 import { Department } from '../database/entities/department.entity';
@@ -19,6 +20,7 @@ import { NesSyncGateway } from './nes-sync.gateway';
   imports: [
     AuthModule,
     UsersModule,
+    OrganizationsModule,
     BranchAnalyticsModule,
     TypeOrmModule.forFeature([
       NesEmployee,

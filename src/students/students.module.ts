@@ -8,8 +8,6 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { UsersModule } from '../users/users.module';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
-import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
-import { EmployeeCheck } from '../database/entities/employee-check.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 
 @Module({
@@ -19,8 +17,6 @@ import { NesEmployee } from '../database/entities/nes-employee.entity';
       UserLevelCompletion,
       UserQuestionAttempt,
       Level,
-      EmployeeCertificate,
-      EmployeeCheck,
       NesEmployee,
     ]),
     OrganizationsModule,

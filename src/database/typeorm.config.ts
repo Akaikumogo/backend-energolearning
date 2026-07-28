@@ -28,8 +28,6 @@ import { ExamAttempt } from './entities/exam-attempt.entity';
 import { ExamSession } from './entities/exam-session.entity';
 import { ExamAttemptAnswer } from './entities/exam-attempt-answer.entity';
 import { Notification } from './entities/notification.entity';
-import { EmployeeCertificate } from './entities/employee-certificate.entity';
-import { EmployeeCheck } from './entities/employee-check.entity';
 import { AudioBook } from './entities/audio-book.entity';
 import { AudioChapter } from './entities/audio-chapter.entity';
 import { AudioParagraph } from './entities/audio-paragraph.entity';
@@ -67,6 +65,7 @@ import { BlockEmailLikeLogins1747200000000 } from './migrations/0026-block-email
 import { AddReportSubmissions1747300000000 } from './migrations/0027-add-report-submissions';
 import { AddOrganizationArchivedAt1747400000000 } from './migrations/0028-add-organization-archived-at';
 import { AddReportSubmissionIntegrity1747500000000 } from './migrations/0029-add-report-submission-integrity';
+import { DropEmployeeCertAndChecks1747600000000 } from './migrations/0030-drop-employee-cert-and-checks';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
@@ -107,8 +106,6 @@ export const AppDataSource = new DataSource({
     ExamSession,
     ExamAttemptAnswer,
     Notification,
-    EmployeeCertificate,
-    EmployeeCheck,
     AudioBook,
     AudioChapter,
     AudioParagraph,
@@ -153,6 +150,7 @@ export const AppDataSource = new DataSource({
     AddReportSubmissions1747300000000,
     AddOrganizationArchivedAt1747400000000,
     AddReportSubmissionIntegrity1747500000000,
+    DropEmployeeCertAndChecks1747600000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
