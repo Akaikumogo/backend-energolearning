@@ -31,7 +31,10 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Kunlik reja hisobi (TypeORM): bugundan oldin — barcha manbalar; bugundan — faqat DAILY_PLAN. */
+/** 2026-07-28 dan yangi qoida: faqat DAILY_PLAN. Undan oldin — barcha manbalar. */
+const PLAN_RULE_CUTOFF = '2026-07-28';
+
+/** Kunlik reja hisobi (TypeORM). */
 const PLAN_ATTEMPT_SQL = `(
   ((a.answered_at AT TIME ZONE 'Asia/Tashkent')::date < CAST(:planCutoff AS date))
   OR (a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')
@@ -496,7 +499,7 @@ export class BranchAnalyticsService {
           from: dayStart,
           to: dayEnd,
         })
-        .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
+        .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
         .groupBy('a.user_id')
         .getRawMany<{
           userId: string;
@@ -570,7 +573,7 @@ export class BranchAnalyticsService {
         from: dayStart,
         to: dayEnd,
       })
-      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .getRawOne<{ answered: number; correct: number }>();
 
     const answeredCount = Number(row?.answered) || 0;
@@ -856,7 +859,7 @@ export class BranchAnalyticsService {
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
-      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .groupBy('a.user_id')
       .addGroupBy(`TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`)
       .getRawMany<{ userId: string; day: string; correct: number }>();
@@ -1071,7 +1074,7 @@ export class BranchAnalyticsService {
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id IN (:...orgIds)', { orgIds })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
-      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .groupBy('a.user_id')
       .addGroupBy('a.organization_id')
       .addGroupBy(
@@ -1289,7 +1292,7 @@ export class BranchAnalyticsService {
         from: yearFrom,
         to: yearTo,
       })
-      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .groupBy('a.user_id')
       .addGroupBy('a.organization_id')
       .addGroupBy(
@@ -1448,7 +1451,7 @@ export class BranchAnalyticsService {
 
     // Har filial bo'yicha jami bajarilgan kunlar (user+kun juftliklari,
     // correct >= goal bo'lganlari).
-    const planCutoff = tashkentToday();
+    const planCutoff = PLAN_RULE_CUTOFF;
     const completedRows = (await this.attemptRepo.query(
       `
       SELECT org_id AS "orgId", COUNT(*)::int AS "completedDays"
@@ -1537,7 +1540,7 @@ export class BranchAnalyticsService {
         from: dayStart,
         to: dayEnd,
       })
-      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .groupBy('a.user_id');
 
     if (userIds?.length) {
@@ -1877,7 +1880,7 @@ export class BranchAnalyticsService {
       dayStart,
       dayEnd,
       DAILY_GOAL_CORRECT,
-      tashkentToday(),
+      PLAN_RULE_CUTOFF,
     ];
     let orgFilter = '';
     if (orgId) {
@@ -2045,7 +2048,7 @@ export class BranchAnalyticsService {
         AND ${planAttemptSqlParam(5)}
       GROUP BY 1, 2, 3
       `,
-      [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT, tashkentToday()],
+      [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT, PLAN_RULE_CUTOFF],
     )) as Array<{ orgId: string; day: string; userId: string; correct: number }>;
 
     // orgId -> day -> userId -> correct
