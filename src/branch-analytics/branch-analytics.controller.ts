@@ -150,9 +150,19 @@ export class BranchAnalyticsController {
   })
   @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
+  @ApiQuery({ name: 'userId', required: false })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false, description: '1–200; 0 = hammasi' })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD (kunlik UI)' })
   async monthlyPlanMatrix(
     @Query('orgId') orgId: string | undefined,
     @Query('month') month: string | undefined,
+    @Query('userId') userId: string | undefined,
+    @Query('page') page: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Query('search') search: string | undefined,
+    @Query('date') date: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
     const allowedOrgIds = await this.moderatorOrgIds(req);
@@ -163,6 +173,13 @@ export class BranchAnalyticsController {
       orgId,
       month,
       allowedOrgIds,
+      {
+        userId,
+        page: page ? Number(page) : undefined,
+        limit: limit != null && limit !== '' ? Number(limit) : undefined,
+        search,
+        date,
+      },
     );
   }
 
@@ -510,11 +527,14 @@ export class BranchAnalyticsController {
       orgId,
       monthKey,
       allowedOrgIds,
+      {
+        userId: userId?.trim() || undefined,
+        limit: 0,
+        date:
+          period === 'daily' && date?.trim() ? date.trim() : undefined,
+      },
     );
-    let employees = data.employees;
-    if (userId?.trim()) {
-      employees = employees.filter((e) => e.userId === userId.trim());
-    }
+    const employees = data.employees;
     const showFilial =
       showFilialRaw === '1' ||
       showFilialRaw === 'true' ||
