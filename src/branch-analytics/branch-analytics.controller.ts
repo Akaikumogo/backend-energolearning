@@ -166,6 +166,30 @@ export class BranchAnalyticsController {
     );
   }
 
+  @Get('yearly-plan-matrix')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'Yillik reja jadvali: xodim × oy (% va X/kunlar). orgId ixtiyoriy',
+  })
+  @ApiQuery({ name: 'orgId', required: false })
+  @ApiQuery({ name: 'year', required: false, description: 'YYYY' })
+  async yearlyPlanMatrix(
+    @Query('orgId') orgId: string | undefined,
+    @Query('year') year: string | undefined,
+    @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
+  ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
+    if (orgId?.trim() && orgId !== 'all') {
+      await this.analyticsService.resolveOrgScope(orgId, req.user);
+    }
+    return this.analyticsService.getYearlyPlanMatrix(
+      orgId,
+      year,
+      allowedOrgIds,
+    );
+  }
+
   @Get('branch-comparison')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Filiallar oylik reytingi (o`rtacha progress %)' })
@@ -260,6 +284,7 @@ export class BranchAnalyticsController {
     @Query('orgId') orgId: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
+    const allowedOrgIds = await this.moderatorOrgIds(req);
     let safeOrgId: string | undefined;
     if (orgId) {
       safeOrgId = await this.analyticsService.resolveOptionalOrgScope(
@@ -267,7 +292,11 @@ export class BranchAnalyticsController {
         req.user,
       );
     }
-    return this.analyticsService.getHourlyProgress(date, safeOrgId);
+    return this.analyticsService.getHourlyProgress(
+      date,
+      safeOrgId,
+      allowedOrgIds,
+    );
   }
 
   @Get('daily-trend')

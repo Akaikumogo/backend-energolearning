@@ -4,8 +4,6 @@ import { AuthModule } from '../auth/auth.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { AiChatMessage } from '../database/entities/ai-chat-message.entity';
 import { AiChatSession } from '../database/entities/ai-chat-session.entity';
-import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
-import { EmployeeCheck } from '../database/entities/employee-check.entity';
 import { ExamAssignment } from '../database/entities/exam-assignment.entity';
 import { Exam } from '../database/entities/exam.entity';
 import { Level } from '../database/entities/level.entity';
@@ -39,8 +37,6 @@ import { AiChatController } from './ai-chat.controller';
       UserLevelCompletion,
       ExamAssignment,
       Exam,
-      EmployeeCertificate,
-      EmployeeCheck,
       AiChatSession,
       AiChatMessage,
     ]),

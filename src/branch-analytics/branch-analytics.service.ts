@@ -71,7 +71,8 @@ export class BranchAnalyticsService {
       const scoped = await this.orgService.resolveModeratorScope(
         user.organizationIds,
       );
-      if (scoped && scoped.length > 0 && !scoped.includes(orgId)) {
+      // undefined = asosiy filial (barcha). [] yoki ro‘yxat = faqat shu ID lar.
+      if (scoped !== undefined && !scoped.includes(orgId)) {
         throw new ForbiddenException('Ruxsat yo`q');
       }
     }
@@ -981,11 +982,16 @@ export class BranchAnalyticsService {
           daysCompleted: number;
           monthlyPercent: number;
           extraCorrectTotal: number;
+          attemptsTotal: number;
+          wrongTotal: number;
           dayResults: Array<{
             date: string;
             day: number;
             rawCorrect: number;
             planCorrect: number;
+            extraCorrect: number;
+            attempts: number;
+            wrong: number;
             completed: boolean;
             label: string;
           }>;
@@ -1043,6 +1049,8 @@ export class BranchAnalyticsService {
         'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
         'correct',
       )
+      .addSelect('COUNT(*)::int', 'attempts')
+      .addSelect('COUNT(*) FILTER (WHERE NOT a.is_correct)::int', 'wrong')
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id IN (:...orgIds)', { orgIds })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
@@ -1056,32 +1064,50 @@ export class BranchAnalyticsService {
         orgId: string;
         day: string;
         correct: number;
+        attempts: number;
+        wrong: number;
       }>();
 
-    const byUserOrgDay = new Map<string, Map<string, number>>();
+    type DayStat = { correct: number; attempts: number; wrong: number };
+    const byUserOrgDay = new Map<string, Map<string, DayStat>>();
     for (const row of dayRows) {
       const key = `${row.orgId}:${row.userId}`;
       if (!byUserOrgDay.has(key)) byUserOrgDay.set(key, new Map());
-      byUserOrgDay.get(key)!.set(row.day, Number(row.correct) || 0);
+      byUserOrgDay.get(key)!.set(row.day, {
+        correct: Number(row.correct) || 0,
+        attempts: Number(row.attempts) || 0,
+        wrong: Number(row.wrong) || 0,
+      });
     }
 
     const employeeResults = employees.map((emp) => {
       const dayMap =
         byUserOrgDay.get(`${emp.orgId}:${emp.userId}`) ??
-        new Map<string, number>();
+        new Map<string, DayStat>();
       let daysCompleted = 0;
       let extraCorrectTotal = 0;
+      let attemptsTotal = 0;
+      let wrongTotal = 0;
       const dayCells = days.map((date) => {
-        const rawCorrect = dayMap.get(date) ?? 0;
+        const stat = dayMap.get(date);
+        const rawCorrect = stat?.correct ?? 0;
+        const attempts = stat?.attempts ?? 0;
+        const wrong = stat?.wrong ?? 0;
         const planCorrect = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
+        const extraCorrect = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
         const completed = rawCorrect >= DAILY_GOAL_CORRECT;
         if (completed) daysCompleted += 1;
-        extraCorrectTotal += Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
+        extraCorrectTotal += extraCorrect;
+        attemptsTotal += attempts;
+        wrongTotal += wrong;
         return {
           date,
           day: Number(date.slice(8, 10)),
           rawCorrect,
           planCorrect,
+          extraCorrect,
+          attempts,
+          wrong,
           completed,
           label: `${planCorrect}/${DAILY_GOAL_CORRECT}`,
         };
@@ -1099,6 +1125,8 @@ export class BranchAnalyticsService {
         daysCompleted,
         monthlyPercent,
         extraCorrectTotal,
+        attemptsTotal,
+        wrongTotal,
         dayResults: dayCells,
       };
     });
@@ -1131,16 +1159,252 @@ export class BranchAnalyticsService {
   }
 
   /**
+   * Yillik reja matrisi: har xodim × oy (% va bajarilgan kun / oy kunlari).
+   */
+  async getYearlyPlanMatrix(
+    orgId: string | undefined,
+    year?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
+    const scope = this.narrowOrgScope(allowedOrgIds, orgId);
+    const y = /^\d{4}$/.test(year?.trim() ?? '')
+      ? (year as string).trim()
+      : tashkentToday().slice(0, 4);
+    const months = Array.from({ length: 12 }, (_, i) =>
+      `${y}-${String(i + 1).padStart(2, '0')}`,
+    );
+    const yearFrom = new Date(`${y}-01-01T00:00:00.000+05:00`);
+    const yearTo = new Date(`${Number(y) + 1}-01-01T00:00:00.000+05:00`);
+    const daysInMonthByKey = new Map(
+      months.map((m) => [m, tashkentMonthBounds(m).daysInMonth]),
+    );
+
+    const orgQb = this.orgRepo
+      .createQueryBuilder('o')
+      .select(['o.id', 'o.name']);
+    if (scope?.length) {
+      orgQb.where('o.id IN (:...ids)', { ids: scope });
+    } else if (orgId?.trim() && orgId !== 'all') {
+      orgQb.where('o.id = :orgId', { orgId: orgId.trim() });
+    }
+    if (!orgId?.trim() || orgId === 'all') {
+      this.applyActiveEnergoOrgFilter(orgQb);
+    }
+    const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
+
+    const base = {
+      orgId: orgs.length === 1 ? orgs[0].id : '',
+      orgName:
+        orgs.length === 1
+          ? orgs[0].name
+          : orgs.length === 0
+            ? '—'
+            : 'Barcha filiallar',
+      year: y,
+      months,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+    };
+
+    if (orgs.length === 0) {
+      return {
+        ...base,
+        totalEmployees: 0,
+        averageYearlyPercent: 0,
+        employees: [],
+      };
+    }
+
+    const orgIds = orgs.map((o) => o.id);
+    const orgNameById = new Map(orgs.map((o) => [o.id, o.name]));
+
+    const employees = await this.userRepo
+      .createQueryBuilder('u')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role = :role', { role: Role.USER })
+      .select([
+        'u.id AS "userId"',
+        'org.id AS "orgId"',
+        'u.first_name AS "firstName"',
+        'u.last_name AS "lastName"',
+        'u.email AS "email"',
+      ])
+      .orderBy('org.name', 'ASC')
+      .addOrderBy('u.last_name', 'ASC')
+      .addOrderBy('u.first_name', 'ASC')
+      .getRawMany<{
+        userId: string;
+        orgId: string;
+        firstName: string;
+        lastName: string;
+        email: string;
+      }>();
+
+    const userIds = [...new Set(employees.map((e) => e.userId))];
+    if (userIds.length === 0) {
+      return {
+        ...base,
+        totalEmployees: 0,
+        averageYearlyPercent: 0,
+        employees: [],
+      };
+    }
+
+    const dayRows = await this.attemptRepo
+      .createQueryBuilder('a')
+      .select('a.user_id', 'userId')
+      .addSelect('a.organization_id', 'orgId')
+      .addSelect(
+        `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
+        'day',
+      )
+      .addSelect(
+        'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
+        'correct',
+      )
+      .addSelect('COUNT(*)::int', 'attempts')
+      .addSelect('COUNT(*) FILTER (WHERE NOT a.is_correct)::int', 'wrong')
+      .where('a.user_id IN (:...userIds)', { userIds })
+      .andWhere('a.organization_id IN (:...orgIds)', { orgIds })
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
+        from: yearFrom,
+        to: yearTo,
+      })
+      .groupBy('a.user_id')
+      .addGroupBy('a.organization_id')
+      .addGroupBy(
+        `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
+      )
+      .getRawMany<{
+        userId: string;
+        orgId: string;
+        day: string;
+        correct: number;
+        attempts: number;
+        wrong: number;
+      }>();
+
+    type DayAgg = { correct: number; attempts: number; wrong: number };
+    const byUserOrgDay = new Map<string, Map<string, DayAgg>>();
+    for (const row of dayRows) {
+      const key = `${row.orgId}:${row.userId}`;
+      if (!byUserOrgDay.has(key)) byUserOrgDay.set(key, new Map());
+      byUserOrgDay.get(key)!.set(row.day, {
+        correct: Number(row.correct) || 0,
+        attempts: Number(row.attempts) || 0,
+        wrong: Number(row.wrong) || 0,
+      });
+    }
+
+    const employeeResults = employees.map((emp) => {
+      const dayMap =
+        byUserOrgDay.get(`${emp.orgId}:${emp.userId}`) ??
+        new Map<string, DayAgg>();
+      let attemptsTotal = 0;
+      let wrongTotal = 0;
+      let extraCorrectTotal = 0;
+      let daysCompletedYear = 0;
+      let daysInYear = 0;
+
+      const monthResults = months.map((monthKey) => {
+        const daysInMonth = daysInMonthByKey.get(monthKey) ?? 30;
+        daysInYear += daysInMonth;
+        const monthStart = `${monthKey}-01`;
+        const monthEnd = addTashkentDays(monthStart, daysInMonth - 1);
+        const days = listTashkentDays(monthStart, monthEnd);
+        let daysCompleted = 0;
+        let monthAttempts = 0;
+        let monthWrong = 0;
+        let monthExtra = 0;
+        for (const date of days) {
+          const stat = dayMap.get(date);
+          if (!stat) continue;
+          const rawCorrect = stat.correct;
+          monthAttempts += stat.attempts;
+          monthWrong += stat.wrong;
+          monthExtra += Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
+          if (rawCorrect >= DAILY_GOAL_CORRECT) daysCompleted += 1;
+        }
+        attemptsTotal += monthAttempts;
+        wrongTotal += monthWrong;
+        extraCorrectTotal += monthExtra;
+        daysCompletedYear += daysCompleted;
+        const percent =
+          Math.round((daysCompleted / daysInMonth) * 1000) / 10;
+        return {
+          month: monthKey,
+          daysInMonth,
+          daysCompleted,
+          percent,
+          attempts: monthAttempts,
+          wrong: monthWrong,
+          extraCorrect: monthExtra,
+          label: `${daysCompleted}/${daysInMonth}`,
+          percentLabel: `${percent}%`,
+        };
+      });
+
+      const yearlyPercent =
+        daysInYear > 0
+          ? Math.round((daysCompletedYear / daysInYear) * 1000) / 10
+          : 0;
+
+      return {
+        userId: emp.userId,
+        orgId: emp.orgId,
+        orgName: orgNameById.get(emp.orgId) ?? '',
+        fullName: `${emp.lastName} ${emp.firstName}`.trim(),
+        email: emp.email,
+        daysCompleted: daysCompletedYear,
+        daysInYear,
+        yearlyPercent,
+        extraCorrectTotal,
+        attemptsTotal,
+        wrongTotal,
+        monthResults,
+      };
+    });
+
+    employeeResults.sort(
+      (a, b) =>
+        b.yearlyPercent - a.yearlyPercent ||
+        a.orgName.localeCompare(b.orgName) ||
+        a.fullName.localeCompare(b.fullName),
+    );
+
+    const averageYearlyPercent =
+      employeeResults.length > 0
+        ? Math.round(
+            (employeeResults.reduce((s, e) => s + e.yearlyPercent, 0) /
+              employeeResults.length) *
+              10,
+          ) / 10
+        : 0;
+
+    return {
+      ...base,
+      totalEmployees: employeeResults.length,
+      averageYearlyPercent,
+      employees: employeeResults,
+    };
+  }
+
+  /**
    * Filiallar oylik reytingi: har filial uchun o'rtacha oylik progress %.
    * allowedOrgIds = null — barcha filiallar (SUPERADMIN).
    */
   async getBranchComparison(month?: string, allowedOrgIds: string[] | null = null) {
     const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
 
+    if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
+      return { month: m, daysInMonth, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches: [] };
+    }
+
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault']);
-    if (allowedOrgIds?.length) {
+    if (allowedOrgIds !== null) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
     this.applyActiveEnergoOrgFilter(orgQb);
@@ -1302,8 +1566,25 @@ export class BranchAnalyticsService {
     allowedOrgIds: string[] | null = null,
   ) {
     const planDate = this.parsePlanDate(date);
+    if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
+      return {
+        planDate,
+        dailyGoalCorrect: DAILY_GOAL_CORRECT,
+        totalPlan: 0,
+        completedTotal: 0,
+        extraCorrectTotal: 0,
+        remaining: 0,
+        completionPercent: 0,
+        totalEmployees: 0,
+        activeEmployees: 0,
+        completedEmployees: 0,
+        branchCount: 0,
+      };
+    }
     const orgQb = this.orgRepo.createQueryBuilder('o').select(['o.id', 'o.name']);
-    if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    if (allowedOrgIds !== null) {
+      orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    }
     this.applyActiveEnergoOrgFilter(orgQb);
     const orgs = await orgQb.getMany();
     const orgIds = orgs.map((o) => o.id);
@@ -1351,10 +1632,15 @@ export class BranchAnalyticsService {
     allowedOrgIds: string[] | null = null,
   ) {
     const planDate = this.parsePlanDate(date);
+    if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
+      return { planDate, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches: [] };
+    }
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault']);
-    if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    if (allowedOrgIds !== null) {
+      orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+    }
     this.applyActiveEnergoOrgFilter(orgQb);
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
@@ -1553,15 +1839,29 @@ export class BranchAnalyticsService {
   }
 
   /** Kun davomida bajarilish (soat bo'yicha kumulyativ). */
-  async getHourlyProgress(date?: string, orgId?: string) {
+  async getHourlyProgress(
+    date?: string,
+    orgId?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
     const planDate = this.parsePlanDate(date);
     const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
+
+    if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
+      return { planDate, orgId: orgId ?? null, points: [], maxCompleted: 0 };
+    }
 
     const params: unknown[] = [dayStart, dayEnd, DAILY_GOAL_CORRECT];
     let orgFilter = '';
     if (orgId) {
+      if (allowedOrgIds && !allowedOrgIds.includes(orgId)) {
+        throw new ForbiddenException('Bu filialga ruxsat yo‘q');
+      }
       orgFilter = 'AND a.organization_id = $4';
       params.push(orgId);
+    } else if (allowedOrgIds?.length) {
+      orgFilter = `AND a.organization_id = ANY($${params.length + 1}::uuid[])`;
+      params.push(allowedOrgIds);
     }
 
     const rows = (await this.attemptRepo.query(
@@ -1624,9 +1924,13 @@ export class BranchAnalyticsService {
     let orgIds: string[];
     if (orgId) {
       orgIds = [orgId];
+    } else if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
+      return { dailyGoalCorrect: DAILY_GOAL_CORRECT, points: [] };
     } else {
       const orgQb = this.orgRepo.createQueryBuilder('o').select(['o.id']);
-      if (allowedOrgIds?.length) orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+      if (allowedOrgIds !== null) {
+        orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
+      }
       this.applyActiveEnergoOrgFilter(orgQb);
       orgIds = (await orgQb.getMany()).map((o) => o.id);
     }
@@ -1661,7 +1965,15 @@ export class BranchAnalyticsService {
       .select(['o.id', 'o.name', 'o.isDefault']);
     if (orgId) {
       orgQb.where('o.id = :orgId', { orgId });
-    } else if (allowedOrgIds?.length) {
+    } else if (allowedOrgIds !== null) {
+      if (allowedOrgIds.length === 0) {
+        return {
+          weekdays: ['Dush', 'Sesh', 'Chor', 'Pay', 'Juma'],
+          branches: [],
+          rangeFrom: fromStr,
+          rangeTo: toStr,
+        };
+      }
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
     if (!orgId) this.applyActiveEnergoOrgFilter(orgQb);
@@ -1834,6 +2146,10 @@ export class BranchAnalyticsService {
     allowedOrgIds: string[] | null,
     orgId?: string,
   ): string[] | null {
+    // [] = ruxsat yo‘q — hech qanday org (barcha emas!)
+    if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
+      throw new ForbiddenException('Bu filialga ruxsat yo‘q');
+    }
     const id = orgId?.trim();
     if (!id || id === 'all') return allowedOrgIds;
     if (allowedOrgIds && !allowedOrgIds.includes(id)) {

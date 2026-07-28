@@ -25,7 +25,6 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LoginThrottleGuard } from './guards/login-throttle.guard';
 import { JoinOrganizationDto } from './dto/join-organization.dto';
-import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
 
 function clientMetaFromRequest(req: Request) {
   const forwarded = req.headers['x-forwarded-for'];
@@ -225,26 +224,6 @@ export class AuthController {
   })
   me(@Req() req: Request & { user: { id: string } }): Promise<UserProfileDto> {
     return this.authService.me(req.user.id);
-  }
-
-  @Get('me/employee-certificate')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('bearer')
-  @ApiOperation({ summary: 'Xodim guvohnomasi (USER self)' })
-  getMyEmployeeCertificate(@Req() req: Request & { user: { id: string } }) {
-    return this.authService.getMyEmployeeCertificate(req.user.id);
-  }
-
-  @Get('me/checks')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('bearer')
-  @ApiOperation({ summary: 'Tekshiruvlar ro`yxati (USER self)' })
-  @ApiQuery({ name: 'type', required: false, enum: EmployeeCheckType })
-  listMyChecks(
-    @Req() req: Request & { user: { id: string } },
-    @Query('type') type?: EmployeeCheckType,
-  ) {
-    return this.authService.listMyChecks(req.user.id, type);
   }
 
   @Patch('me')

@@ -7,7 +7,6 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
-  Put,
   Query,
   Req,
   UseGuards,
@@ -27,10 +26,6 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { StudentsService } from './students.service';
-import { UpsertEmployeeCertificateDto } from './dto/upsert-employee-certificate.dto';
-import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
-import { CreateEmployeeCheckDto } from './dto/create-employee-check.dto';
-import { UpdateEmployeeCheckDto } from './dto/update-employee-check.dto';
 import { CreateStudentDto } from './dto/create-student.dto';
 
 @ApiTags('Employees')
@@ -163,94 +158,5 @@ export class StudentsController {
     @Param('id') id: string,
   ) {
     return this.studentsService.getActivity(id, req.user);
-  }
-
-  @Get(':id/employee-certificate')
-  @ApiOperation({ summary: 'Xodim guvohnomasi (admin)' })
-  getEmployeeCertificate(
-    @Req()
-    req: Request & {
-      user: { id: string; role: Role; organizationIds: string[] };
-    },
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.studentsService.getEmployeeCertificate(id, req.user);
-  }
-
-  @Put(':id/employee-certificate')
-  @ApiOperation({ summary: 'Xodim guvohnomasini yaratish/yangilash (admin)' })
-  @ApiBody({ type: UpsertEmployeeCertificateDto })
-  upsertEmployeeCertificate(
-    @Req()
-    req: Request & {
-      user: { id: string; role: Role; organizationIds: string[] };
-    },
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: UpsertEmployeeCertificateDto,
-  ) {
-    return this.studentsService.upsertEmployeeCertificate(id, req.user, body);
-  }
-
-  @Get(':id/checks')
-  @ApiOperation({ summary: 'Xodim tekshiruvlari ro`yxati (admin)' })
-  @ApiQuery({ name: 'type', required: false, enum: EmployeeCheckType })
-  listChecks(
-    @Req()
-    req: Request & {
-      user: { id: string; role: Role; organizationIds: string[] };
-    },
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query('type') type?: EmployeeCheckType,
-  ) {
-    return this.studentsService.listEmployeeChecks(id, req.user, type);
-  }
-
-  @Post(':id/checks')
-  @ApiOperation({ summary: 'Tekshiruv qo`shish (admin)' })
-  @ApiBody({ type: CreateEmployeeCheckDto })
-  createCheck(
-    @Req()
-    req: Request & {
-      user: { id: string; role: Role; organizationIds: string[] };
-    },
-    @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: CreateEmployeeCheckDto,
-  ) {
-    return this.studentsService.createEmployeeCheck(id, req.user, body as any);
-  }
-
-  @Put(':id/checks/:checkId')
-  @ApiOperation({ summary: 'Tekshiruvni yangilash (admin)' })
-  @ApiBody({ type: UpdateEmployeeCheckDto })
-  updateCheck(
-    @Req()
-    req: Request & {
-      user: { id: string; role: Role; organizationIds: string[] };
-    },
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('checkId', ParseUUIDPipe) checkId: string,
-    @Body() body: UpdateEmployeeCheckDto,
-  ) {
-    return this.studentsService.updateEmployeeCheck(
-      id,
-      checkId,
-      req.user,
-      body as any,
-    );
-  }
-
-  @Delete(':id/checks/:checkId')
-  @ApiOperation({ summary: 'Tekshiruvni o`chirish (admin)' })
-  removeCheck(
-    @Req()
-    req: Request & {
-      user: { id: string; role: Role; organizationIds: string[] };
-    },
-    @Param('id', ParseUUIDPipe) id: string,
-    @Param('checkId', ParseUUIDPipe) checkId: string,
-  ) {
-    return this.studentsService
-      .deleteEmployeeCheck(id, checkId, req.user)
-      .then(() => ({ ok: true }));
   }
 }

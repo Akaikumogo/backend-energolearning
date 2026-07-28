@@ -15,8 +15,6 @@ import { EnergoIdAuthClient } from './energo-id-auth.client';
 import { OAuthPendingService } from './oauth-pending.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LoginThrottleGuard } from './guards/login-throttle.guard';
-import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
-import { EmployeeCheck } from '../database/entities/employee-check.entity';
 import { UserActivityModule } from '../user-activity/user-activity.module';
 import { OAuthIntegrationModule } from '../oauth-integration/oauth-integration.module';
 
@@ -32,8 +30,6 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
     PassportModule,
     TypeOrmModule.forFeature([
       RefreshToken,
-      EmployeeCertificate,
-      EmployeeCheck,
       User,
       UserSession,
     ]),

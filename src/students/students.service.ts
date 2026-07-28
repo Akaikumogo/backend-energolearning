@@ -19,10 +19,7 @@ import { User } from '../database/entities/user.entity';
 import { UserLevelCompletion } from '../database/entities/user-level-completion.entity';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { Level } from '../database/entities/level.entity';
-import { EmployeeCertificate } from '../database/entities/employee-certificate.entity';
-import { EmployeeCheck } from '../database/entities/employee-check.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
-import { EmployeeCheckType } from '../common/enums/employee-check-type.enum';
 import {
   splitSearchTokens,
   variantsForSearchToken,
@@ -48,10 +45,6 @@ export class StudentsService {
     @InjectRepository(UserQuestionAttempt)
     private readonly attemptRepo: Repository<UserQuestionAttempt>,
     @InjectRepository(Level) private readonly levelRepo: Repository<Level>,
-    @InjectRepository(EmployeeCertificate)
-    private readonly employeeCertRepo: Repository<EmployeeCertificate>,
-    @InjectRepository(EmployeeCheck)
-    private readonly employeeCheckRepo: Repository<EmployeeCheck>,
     @InjectRepository(NesEmployee)
     private readonly nesEmployeeRepo: Repository<NesEmployee>,
   ) {}
@@ -563,100 +556,6 @@ export class StudentsService {
 
     const countByDate = new Map(rows.map((r) => [r.date, Number(r.count) || 0]));
     return dayKeys.map((date) => ({ date, count: countByDate.get(date) ?? 0 }));
-  }
-
-  async getEmployeeCertificate(
-    studentId: string,
-    requestingUser: { id: string; role: Role; organizationIds: string[] },
-  ) {
-    await this.findOne(studentId, requestingUser);
-    return this.employeeCertRepo.findOne({
-      where: { userId: studentId },
-      relations: ['organization', 'createdByUser'],
-    });
-  }
-
-  async upsertEmployeeCertificate(
-    studentId: string,
-    requestingUser: { id: string; role: Role; organizationIds: string[] },
-    body: {
-      organizationId: string;
-      positionTitle: string;
-      certificateNumber: string;
-      presentedByFullName: string;
-    },
-  ) {
-    await this.findOne(studentId, requestingUser);
-
-    const existing = await this.employeeCertRepo.findOne({
-      where: { userId: studentId },
-    });
-
-    const row = this.employeeCertRepo.create({
-      ...(existing ?? {}),
-      userId: studentId,
-      organizationId: body.organizationId,
-      positionTitle: body.positionTitle,
-      certificateNumber: body.certificateNumber,
-      presentedByFullName: body.presentedByFullName,
-      createdByUserId: existing?.createdByUserId ?? requestingUser.id,
-    });
-    return this.employeeCertRepo.save(row);
-  }
-
-  async listEmployeeChecks(
-    studentId: string,
-    requestingUser: { id: string; role: Role; organizationIds: string[] },
-    type?: EmployeeCheckType,
-  ) {
-    await this.findOne(studentId, requestingUser);
-    const where: any = { userId: studentId };
-    if (type) where.type = type;
-    return this.employeeCheckRepo.find({
-      where,
-      order: { checkDate: 'DESC', createdAt: 'DESC' },
-    });
-  }
-
-  async createEmployeeCheck(
-    studentId: string,
-    requestingUser: { id: string; role: Role; organizationIds: string[] },
-    dto: Partial<EmployeeCheck>,
-  ) {
-    await this.findOne(studentId, requestingUser);
-    const row = this.employeeCheckRepo.create({
-      ...dto,
-      userId: studentId,
-      createdByUserId: requestingUser.id,
-    });
-    return this.employeeCheckRepo.save(row);
-  }
-
-  async updateEmployeeCheck(
-    studentId: string,
-    checkId: string,
-    requestingUser: { id: string; role: Role; organizationIds: string[] },
-    dto: Partial<EmployeeCheck>,
-  ) {
-    await this.findOne(studentId, requestingUser);
-    const existing = await this.employeeCheckRepo.findOne({
-      where: { id: checkId, userId: studentId },
-    });
-    if (!existing) throw new NotFoundException('Tekshiruv topilmadi');
-    return this.employeeCheckRepo.save({ ...existing, ...dto });
-  }
-
-  async deleteEmployeeCheck(
-    studentId: string,
-    checkId: string,
-    requestingUser: { id: string; role: Role; organizationIds: string[] },
-  ) {
-    await this.findOne(studentId, requestingUser);
-    const existing = await this.employeeCheckRepo.findOne({
-      where: { id: checkId, userId: studentId },
-    });
-    if (!existing) return;
-    await this.employeeCheckRepo.remove(existing);
   }
 
   private async toStudentSummary(
