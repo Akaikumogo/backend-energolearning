@@ -282,15 +282,18 @@ export class ExportService {
     const contentHash = computeReportContentHash({
       orgId: data.orgId ?? '',
       month: data.month,
-      employees: data.employees.map((e) => ({
-        email: e.email,
-        daysCompleted: e.daysCompleted,
-        monthlyPercent: e.monthlyPercent,
-        extraCorrectTotal: e.extraCorrectTotal,
-        dayLabels: e.dayResults
-          .filter((d) => !data.dayFilter || d.date === data.dayFilter)
-          .map((d) => d.label),
-      })),
+      employees: data.employees.map((e) => {
+        const byDate = new Map(e.dayResults.map((c) => [c.date, c]));
+        return {
+          email: e.email,
+          daysCompleted: e.daysCompleted,
+          monthlyPercent: e.monthlyPercent,
+          extraCorrectTotal: e.extraCorrectTotal,
+          dayLabels: days.map(
+            (d) => byDate.get(d)?.label ?? `0/${data.dailyGoalCorrect}`,
+          ),
+        };
+      }),
     });
 
     const meta = wb.addWorksheet('META');
@@ -341,14 +344,12 @@ export class ExportService {
     const headerRow = ws.addRow(headers);
     this.styleHeaderRow(headerRow);
 
-    const dayIndexMap = new Map(data.days.map((d, i) => [d, i]));
+    const goal = data.dailyGoalCorrect;
 
     for (let i = 0; i < data.employees.length; i++) {
       const e = data.employees[i];
-      const cells = days.map((d) => {
-        const idx = dayIndexMap.get(d);
-        return idx == null ? '—' : (e.dayResults[idx]?.label ?? '—');
-      });
+      const byDate = new Map(e.dayResults.map((c) => [c.date, c]));
+      const cells = days.map((d) => byDate.get(d)?.label ?? `0/${goal}`);
       const row = ws.addRow([
         i + 1,
         ...(data.showFilial ? [e.orgName ?? ''] : []),
@@ -364,17 +365,17 @@ export class ExportService {
 
       const dayStartCol = data.showFilial ? 5 : 4;
       days.forEach((d, di) => {
-        const idx = dayIndexMap.get(d);
-        const cellData = idx == null ? null : e.dayResults[idx];
+        const cellData = byDate.get(d);
         const cell = row.getCell(dayStartCol + di);
-        if (!cellData) return;
-        if (cellData.completed) {
+        const planCorrect = cellData?.planCorrect ?? 0;
+        const completed = cellData?.completed ?? false;
+        if (completed) {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
             fgColor: { argb: 'FFD1FAE5' },
           };
-        } else if (cellData.planCorrect > 0) {
+        } else if (planCorrect > 0) {
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',

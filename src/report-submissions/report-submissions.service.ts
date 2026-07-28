@@ -142,6 +142,8 @@ export class ReportSubmissionsService {
     const system = await this.analyticsService.getMonthlyPlanMatrix(
       s.organizationId,
       s.month,
+      null,
+      { limit: 0 },
     );
 
     const uploadedByEmail = new Map(
@@ -187,7 +189,13 @@ export class ReportSubmissionsService {
             daysCompleted: sysEmp.daysCompleted,
             monthlyPercent: sysEmp.monthlyPercent,
             extraCorrectTotal: sysEmp.extraCorrectTotal,
-            dayLabels: sysEmp.dayResults.map((d) => d.label),
+            dayLabels: (() => {
+              const byDate = new Map(
+                sysEmp.dayResults.map((d) => [d.date, d.label]),
+              );
+              const goal = system.dailyGoalCorrect;
+              return system.days.map((d) => byDate.get(d) ?? `0/${goal}`);
+            })(),
           }
         : null;
 

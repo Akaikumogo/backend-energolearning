@@ -946,19 +946,33 @@ export class BranchAnalyticsService {
   }
 
   /**
-   * Oylik reja matrisi: har xodim × oy kunlari (necha/10).
-   * orgId bo‘lmasa — ruxsat etilgan barcha filiallar (har qatorda orgName).
+   * Oylik reja matrisi: xodim × kun.
+   * dayResults sparse; page/limit server pagination; userId/search filtr.
    */
   async getMonthlyPlanMatrix(
     orgId: string | undefined,
     month?: string,
     allowedOrgIds: string[] | null = null,
+    opts?: {
+      userId?: string;
+      page?: number;
+      limit?: number;
+      search?: string;
+      /** Kunlik UI: dayResults ichida faqat shu sana */
+      date?: string;
+    },
   ) {
     const scope = this.narrowOrgScope(allowedOrgIds, orgId);
     const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
     const monthStart = `${m}-01`;
     const monthEnd = addTashkentDays(monthStart, daysInMonth - 1);
     const days = listTashkentDays(monthStart, monthEnd);
+    const dayFilter =
+      opts?.date &&
+      /^\d{4}-\d{2}-\d{2}$/.test(opts.date) &&
+      opts.date.startsWith(m)
+        ? opts.date
+        : undefined;
 
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
@@ -973,6 +987,13 @@ export class BranchAnalyticsService {
     }
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
 
+    const page = Math.max(1, opts?.page ?? 1);
+    const rawLimit = opts?.limit;
+    const unlimited = rawLimit === 0 || rawLimit === -1;
+    const limit = unlimited
+      ? 0
+      : Math.min(200, Math.max(1, rawLimit ?? 50));
+
     const base = {
       orgId: orgs.length === 1 ? orgs[0].id : '',
       orgName:
@@ -985,44 +1006,51 @@ export class BranchAnalyticsService {
       daysInMonth,
       dailyGoalCorrect: DAILY_GOAL_CORRECT,
       days,
+      page,
+      limit: unlimited ? 0 : limit,
+      sparse: true as const,
     };
 
-    if (orgs.length === 0) {
-      return {
-        ...base,
-        totalEmployees: 0,
-        averageMonthlyPercent: 0,
-        fullCompletedEmployees: 0,
-        employees: [] as Array<{
-          userId: string;
-          orgId: string;
-          orgName: string;
-          fullName: string;
-          email: string;
-          daysCompleted: number;
-          monthlyPercent: number;
-          extraCorrectTotal: number;
-          attemptsTotal: number;
-          wrongTotal: number;
-          dayResults: Array<{
-            date: string;
-            day: number;
-            rawCorrect: number;
-            planCorrect: number;
-            extraCorrect: number;
-            attempts: number;
-            wrong: number;
-            completed: boolean;
-            label: string;
-          }>;
-        }>,
-      };
-    }
+    type DayCell = {
+      date: string;
+      day: number;
+      rawCorrect: number;
+      planCorrect: number;
+      extraCorrect: number;
+      attempts: number;
+      wrong: number;
+      completed: boolean;
+      label: string;
+    };
+    type EmpRow = {
+      userId: string;
+      orgId: string;
+      orgName: string;
+      fullName: string;
+      email: string;
+      daysCompleted: number;
+      monthlyPercent: number;
+      extraCorrectTotal: number;
+      attemptsTotal: number;
+      wrongTotal: number;
+      dayResults: DayCell[];
+    };
+
+    const empty = {
+      ...base,
+      totalEmployees: 0,
+      total: 0,
+      averageMonthlyPercent: 0,
+      fullCompletedEmployees: 0,
+      employees: [] as EmpRow[],
+    };
+
+    if (orgs.length === 0) return empty;
 
     const orgIds = orgs.map((o) => o.id);
     const orgNameById = new Map(orgs.map((o) => [o.id, o.name]));
 
-    const employees = await this.userRepo
+    const empQb = this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
@@ -1034,7 +1062,13 @@ export class BranchAnalyticsService {
         'u.first_name AS "firstName"',
         'u.last_name AS "lastName"',
         'u.email AS "email"',
-      ])
+      ]);
+
+    if (opts?.userId?.trim()) {
+      empQb.andWhere('u.id = :userId', { userId: opts.userId.trim() });
+    }
+
+    const employees = await empQb
       .orderBy('org.name', 'ASC')
       .addOrderBy('u.last_name', 'ASC')
       .addOrderBy('u.first_name', 'ASC')
@@ -1046,23 +1080,15 @@ export class BranchAnalyticsService {
         email: string;
       }>();
 
-    const userIds = [...new Set(employees.map((e) => e.userId))];
-    if (userIds.length === 0) {
-      return {
-        ...base,
-        totalEmployees: 0,
-        averageMonthlyPercent: 0,
-        fullCompletedEmployees: 0,
-        employees: [],
-      };
-    }
+    if (employees.length === 0) return empty;
 
+    // Indexga mos: org + vaqt (katta user_id IN yo'q)
     const dayRows = await this.attemptRepo
       .createQueryBuilder('a')
       .select('a.user_id', 'userId')
       .addSelect('a.organization_id', 'orgId')
       .addSelect(
-        `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
+        `(a.answered_at AT TIME ZONE 'Asia/Tashkent')::date::text`,
         'day',
       )
       .addSelect(
@@ -1071,15 +1097,12 @@ export class BranchAnalyticsService {
       )
       .addSelect('COUNT(*)::int', 'attempts')
       .addSelect('COUNT(*) FILTER (WHERE NOT a.is_correct)::int', 'wrong')
-      .where('a.user_id IN (:...userIds)', { userIds })
-      .andWhere('a.organization_id IN (:...orgIds)', { orgIds })
+      .where('a.organization_id IN (:...orgIds)', { orgIds })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
       .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .groupBy('a.user_id')
       .addGroupBy('a.organization_id')
-      .addGroupBy(
-        `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
-      )
+      .addGroupBy(`(a.answered_at AT TIME ZONE 'Asia/Tashkent')::date`)
       .getRawMany<{
         userId: string;
         orgId: string;
@@ -1101,7 +1124,7 @@ export class BranchAnalyticsService {
       });
     }
 
-    const employeeResults = employees.map((emp) => {
+    let employeeResults: EmpRow[] = employees.map((emp) => {
       const dayMap =
         byUserOrgDay.get(`${emp.orgId}:${emp.userId}`) ??
         new Map<string, DayStat>();
@@ -1109,11 +1132,14 @@ export class BranchAnalyticsService {
       let extraCorrectTotal = 0;
       let attemptsTotal = 0;
       let wrongTotal = 0;
-      const dayCells = days.map((date) => {
+      const dayCells: DayCell[] = [];
+
+      for (const date of days) {
         const stat = dayMap.get(date);
-        const rawCorrect = stat?.correct ?? 0;
-        const attempts = stat?.attempts ?? 0;
-        const wrong = stat?.wrong ?? 0;
+        if (!stat) continue;
+        const rawCorrect = stat.correct;
+        const attempts = stat.attempts;
+        const wrong = stat.wrong;
         const planCorrect = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
         const extraCorrect = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
         const completed = rawCorrect >= DAILY_GOAL_CORRECT;
@@ -1121,7 +1147,8 @@ export class BranchAnalyticsService {
         extraCorrectTotal += extraCorrect;
         attemptsTotal += attempts;
         wrongTotal += wrong;
-        return {
+        if (dayFilter && date !== dayFilter) continue;
+        dayCells.push({
           date,
           day: Number(date.slice(8, 10)),
           rawCorrect,
@@ -1131,8 +1158,8 @@ export class BranchAnalyticsService {
           wrong,
           completed,
           label: `${planCorrect}/${DAILY_GOAL_CORRECT}`,
-        };
-      });
+        });
+      }
 
       const monthlyPercent =
         Math.round((daysCompleted / daysInMonth) * 1000) / 10;
@@ -1142,7 +1169,7 @@ export class BranchAnalyticsService {
         orgId: emp.orgId,
         orgName: orgNameById.get(emp.orgId) ?? '',
         fullName: `${emp.lastName} ${emp.firstName}`.trim(),
-        email: emp.email,
+        email: emp.email ?? '',
         daysCompleted,
         monthlyPercent,
         extraCorrectTotal,
@@ -1152,6 +1179,16 @@ export class BranchAnalyticsService {
       };
     });
 
+    const search = opts?.search?.trim().toLowerCase();
+    if (search) {
+      employeeResults = employeeResults.filter(
+        (e) =>
+          e.fullName.toLowerCase().includes(search) ||
+          e.orgName.toLowerCase().includes(search) ||
+          e.email.toLowerCase().includes(search),
+      );
+    }
+
     employeeResults.sort(
       (a, b) =>
         b.monthlyPercent - a.monthlyPercent ||
@@ -1159,23 +1196,30 @@ export class BranchAnalyticsService {
         a.fullName.localeCompare(b.fullName),
     );
 
+    const total = employeeResults.length;
     const averageMonthlyPercent =
-      employeeResults.length > 0
+      total > 0
         ? Math.round(
             (employeeResults.reduce((s, e) => s + e.monthlyPercent, 0) /
-              employeeResults.length) *
+              total) *
               10,
           ) / 10
         : 0;
+    const fullCompletedEmployees = employeeResults.filter(
+      (e) => e.daysCompleted >= daysInMonth,
+    ).length;
+
+    const pageRows = unlimited
+      ? employeeResults
+      : employeeResults.slice((page - 1) * limit, page * limit);
 
     return {
       ...base,
-      totalEmployees: employeeResults.length,
+      totalEmployees: total,
+      total,
       averageMonthlyPercent,
-      fullCompletedEmployees: employeeResults.filter(
-        (e) => e.daysCompleted >= daysInMonth,
-      ).length,
-      employees: employeeResults,
+      fullCompletedEmployees,
+      employees: pageRows,
     };
   }
 
