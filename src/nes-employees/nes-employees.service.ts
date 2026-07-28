@@ -7,7 +7,7 @@ import {
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { Role } from '../common/enums/role.enum';
+import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import {
   EnergoIdAuthClient,
   EnergoIdUser,
@@ -606,7 +606,9 @@ export class NesEmployeesService {
     const missingUsers = await this.userRepo
       .createQueryBuilder('u')
       .leftJoin('nes_employees', 'nes', 'nes.user_id = u.id')
-      .where('u.role = :role', { role: Role.USER })
+      .where('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .andWhere('u.energo_id IS NOT NULL')
       .andWhere('nes.id IS NULL')
       .getMany();
@@ -940,7 +942,9 @@ export class NesEmployeesService {
       .innerJoin('e.user', 'u')
       .leftJoinAndSelect('e.organization', 'organization')
       .andWhere('u.energo_id IS NOT NULL')
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .orderBy('e.updatedAt', 'DESC');
 
     if (filters?.allowedOrgIds?.length) {
@@ -1047,9 +1051,9 @@ export class NesEmployeesService {
           INNER JOIN users eu ON eu.id = e.user_id
           WHERE e.organization_id = o.id
             AND eu.energo_id IS NOT NULL
-            AND eu.role = :role
+            AND eu.role IN (:...reportingRoles)
         )`,
-        { role: Role.USER },
+        { reportingRoles: [...REPORTING_ROLES] },
       )
       .orderBy('o.name', 'ASC');
 
@@ -1065,7 +1069,9 @@ export class NesEmployeesService {
       .select('DISTINCT e.division', 'division')
       .where('e.division IS NOT NULL AND e.division != :empty', { empty: '' })
       .andWhere('u.energo_id IS NOT NULL')
-      .andWhere('u.role = :role', { role: Role.USER })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
       .orderBy('e.division', 'ASC');
 
     if (allowedOrgIds?.length) {
@@ -1267,7 +1273,7 @@ export class NesEmployeesService {
           INNER JOIN users eu ON eu.id = e.user_id
           WHERE e.organization_id = o.id
             AND eu.energo_id IS NOT NULL
-            AND eu.role = 'USER'
+            AND eu.role IN ('USER', 'MODERATOR')
         )`,
       )
       .getMany();
