@@ -31,6 +31,20 @@ import {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** Kunlik reja hisobi (TypeORM): bugundan oldin — barcha manbalar; bugundan — faqat DAILY_PLAN. */
+const PLAN_ATTEMPT_SQL = `(
+  ((a.answered_at AT TIME ZONE 'Asia/Tashkent')::date < CAST(:planCutoff AS date))
+  OR (a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')
+)`;
+
+/** Raw SQL uchun xuddi shu qoida ($N = YYYY-MM-DD cutoff). */
+function planAttemptSqlParam(n: number): string {
+  return `(
+    ((a.answered_at AT TIME ZONE 'Asia/Tashkent')::date < $${n}::date)
+    OR (a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')
+  )`;
+}
+
 export type DayStatus = 'active' | 'offline' | 'never';
 
 @Injectable()
@@ -454,10 +468,8 @@ export class BranchAnalyticsService {
     const userIds = employees.map((e) => e.userId);
     const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
-    // Yangi model: plan bajarilishi shu kunda DAILY_GOAL_CORRECT ta har xil
-    // savolga TO'G'RI javob berish bilan o'lchanadi — savollar plan
-    // ro'yxatidan bo'lishi shart emas (100 ta ishlab 10 tasini to'g'ri topsa
-    // ham plan bajarilgan hisoblanadi).
+    // Reja: bugundan oldingi kunlar — barcha to'g'ri (tarix saqlanadi);
+    // bugun va keyin — faqat DAILY_PLAN (LESSON planga kirmaydi).
     let userResults: Array<{
       userId: string;
       fullName: string;
@@ -484,6 +496,7 @@ export class BranchAnalyticsService {
           from: dayStart,
           to: dayEnd,
         })
+        .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
         .groupBy('a.user_id')
         .getRawMany<{
           userId: string;
@@ -557,6 +570,7 @@ export class BranchAnalyticsService {
         from: dayStart,
         to: dayEnd,
       })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
       .getRawOne<{ answered: number; correct: number }>();
 
     const answeredCount = Number(row?.answered) || 0;
@@ -611,8 +625,9 @@ export class BranchAnalyticsService {
    * Kunlik plan uchun keyingi savol:
    * - pool: userga ochiq modullar ichidagi faol savollar; modul lavozimga
    *   bog'lanmagan bo'lsa HAMMA xodimga, bog'langan bo'lsa shu lavozimlarga;
-   * - oxirgi 24 soat (rolling) ichida ishlangan savol takrorlanmaydi
-   *   (istalgan kontekstdagi urinish hisobga olinadi);
+   * - oxirgi 24 soat (rolling) ichida kunlik reja (DAILY_PLAN) sifatida
+   *   ishlangan savol takrorlanmaydi; dars (LESSON) urinishi to'smaydi —
+   *   shunda xodim kunlik rejadan XP olishi mumkin;
    * - random tanlanadi;
    * - maqsad (10 ta to'g'ri) bajarilgandan keyin ham qo'shimcha savollar
    *   beriladi; pool tugagan bo'lsa exhausted=true qaytadi.
@@ -636,6 +651,7 @@ export class BranchAnalyticsService {
           WHERE a.user_id = $1
             AND a.question_id = q.id
             AND a.answered_at > NOW() - INTERVAL '24 hours'
+            AND (a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')
         )
       ORDER BY RANDOM()
       LIMIT 1
@@ -840,6 +856,7 @@ export class BranchAnalyticsService {
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
       .groupBy('a.user_id')
       .addGroupBy(`TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`)
       .getRawMany<{ userId: string; day: string; correct: number }>();
@@ -1054,6 +1071,7 @@ export class BranchAnalyticsService {
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id IN (:...orgIds)', { orgIds })
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
       .groupBy('a.user_id')
       .addGroupBy('a.organization_id')
       .addGroupBy(
@@ -1271,6 +1289,7 @@ export class BranchAnalyticsService {
         from: yearFrom,
         to: yearTo,
       })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
       .groupBy('a.user_id')
       .addGroupBy('a.organization_id')
       .addGroupBy(
@@ -1429,6 +1448,7 @@ export class BranchAnalyticsService {
 
     // Har filial bo'yicha jami bajarilgan kunlar (user+kun juftliklari,
     // correct >= goal bo'lganlari).
+    const planCutoff = tashkentToday();
     const completedRows = (await this.attemptRepo.query(
       `
       SELECT org_id AS "orgId", COUNT(*)::int AS "completedDays"
@@ -1442,13 +1462,14 @@ export class BranchAnalyticsService {
         WHERE a.organization_id = ANY($1::uuid[])
           AND a.answered_at >= $2
           AND a.answered_at < $3
+          AND ${planAttemptSqlParam(5)}
         GROUP BY a.organization_id, a.user_id,
                  (a.answered_at AT TIME ZONE 'Asia/Tashkent')::date
       ) t
       WHERE t.correct >= $4
       GROUP BY org_id
       `,
-      [orgIds, from, to, DAILY_GOAL_CORRECT],
+      [orgIds, from, to, DAILY_GOAL_CORRECT, planCutoff],
     )) as Array<{ orgId: string; completedDays: number }>;
     const completedMap = new Map(
       completedRows.map((r) => [r.orgId, Number(r.completedDays) || 0]),
@@ -1516,6 +1537,7 @@ export class BranchAnalyticsService {
         from: dayStart,
         to: dayEnd,
       })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: tashkentToday() })
       .groupBy('a.user_id');
 
     if (userIds?.length) {
@@ -1851,16 +1873,21 @@ export class BranchAnalyticsService {
       return { planDate, orgId: orgId ?? null, points: [], maxCompleted: 0 };
     }
 
-    const params: unknown[] = [dayStart, dayEnd, DAILY_GOAL_CORRECT];
+    const params: unknown[] = [
+      dayStart,
+      dayEnd,
+      DAILY_GOAL_CORRECT,
+      tashkentToday(),
+    ];
     let orgFilter = '';
     if (orgId) {
       if (allowedOrgIds && !allowedOrgIds.includes(orgId)) {
         throw new ForbiddenException('Bu filialga ruxsat yo‘q');
       }
-      orgFilter = 'AND a.organization_id = $4';
+      orgFilter = 'AND a.organization_id = $5';
       params.push(orgId);
     } else if (allowedOrgIds?.length) {
-      orgFilter = `AND a.organization_id = ANY($${params.length + 1}::uuid[])`;
+      orgFilter = `AND a.organization_id = ANY($5::uuid[])`;
       params.push(allowedOrgIds);
     }
 
@@ -1875,6 +1902,7 @@ export class BranchAnalyticsService {
         FROM user_question_attempts a
         INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
         WHERE a.answered_at >= $1 AND a.answered_at < $2
+          AND ${planAttemptSqlParam(4)}
         ${orgFilter}
       ),
       hours AS (
@@ -2014,9 +2042,10 @@ export class BranchAnalyticsService {
       INNER JOIN users u ON u.id = a.user_id AND u.role = 'USER'
       WHERE a.organization_id = ANY($1::uuid[])
         AND a.answered_at >= $2 AND a.answered_at < $3
+        AND ${planAttemptSqlParam(5)}
       GROUP BY 1, 2, 3
       `,
-      [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT],
+      [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT, tashkentToday()],
     )) as Array<{ orgId: string; day: string; userId: string; correct: number }>;
 
     // orgId -> day -> userId -> correct
