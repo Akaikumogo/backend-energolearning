@@ -66,6 +66,7 @@ import { AddReportSubmissions1747300000000 } from './migrations/0027-add-report-
 import { AddOrganizationArchivedAt1747400000000 } from './migrations/0028-add-organization-archived-at';
 import { AddReportSubmissionIntegrity1747500000000 } from './migrations/0029-add-report-submission-integrity';
 import { DropEmployeeCertAndChecks1747600000000 } from './migrations/0030-drop-employee-cert-and-checks';
+import { BackfillCountsForXp1747700000000 } from './migrations/0031-backfill-counts-for-xp';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
@@ -151,6 +152,7 @@ export const AppDataSource = new DataSource({
     AddOrganizationArchivedAt1747400000000,
     AddReportSubmissionIntegrity1747500000000,
     DropEmployeeCertAndChecks1747600000000,
+    BackfillCountsForXp1747700000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

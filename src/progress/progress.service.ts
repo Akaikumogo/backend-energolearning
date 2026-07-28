@@ -221,20 +221,33 @@ export class ProgressService {
     }
 
     const attemptSource = dto.source ?? AttemptSource.LESSON;
-    const duplicate = await this.findDuplicateAttempt(
-      userId,
-      dto.questionId,
-      attemptSource,
-    );
-    if (duplicate) {
+    const existing = await this.findSameDayAttempt(userId, dto.questionId);
+    if (existing) {
+      // Darsdan keyin kunlik reja: unique qatorni DAILY_PLAN ga yangilab XP berish.
+      if (
+        attemptSource === AttemptSource.DAILY_PLAN &&
+        existing.attemptSource === AttemptSource.LESSON
+      ) {
+        return this.upgradeLessonAttemptToDailyPlan({
+          existing,
+          userId,
+          orgId,
+          questionId: dto.questionId,
+          levelId: question.levelId,
+          selectedOptionId: dto.selectedOptionId,
+          isCorrect,
+          correctOptionId: correctOption?.id ?? null,
+        });
+      }
+
       const hearts = await this.heartsService.getMyHearts(userId, orgId);
       return {
-        isCorrect: duplicate.isCorrect,
+        isCorrect: existing.isCorrect,
         correctOptionId: correctOption?.id ?? null,
         xpEarned: 0,
         countsForXp: false,
         xpDeniedReason: 'ALREADY_COUNTED' as const,
-        xpMessage: duplicate.isCorrect
+        xpMessage: existing.isCorrect
           ? 'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.'
           : null,
         hearts,
@@ -252,7 +265,7 @@ export class ProgressService {
       userId,
       dto.questionId,
       isCorrect,
-      dto.source,
+      attemptSource,
     );
 
     const attempt = this.attemptRepo.create({
@@ -349,19 +362,41 @@ export class ProgressService {
     }
 
     const attemptSource = dto.source ?? AttemptSource.LESSON;
-    const duplicate = await this.findDuplicateAttempt(
-      userId,
-      dto.questionId,
-      attemptSource,
-    );
-    if (duplicate) {
+    const selectedOptionId = dto.pairs[0]?.leftOptionId ?? options[0].id;
+    const existing = await this.findSameDayAttempt(userId, dto.questionId);
+    if (existing) {
+      if (
+        attemptSource === AttemptSource.DAILY_PLAN &&
+        existing.attemptSource === AttemptSource.LESSON
+      ) {
+        const upgraded = await this.upgradeLessonAttemptToDailyPlan({
+          existing,
+          userId,
+          orgId,
+          questionId: dto.questionId,
+          levelId: question.levelId,
+          selectedOptionId,
+          isCorrect,
+          correctOptionId: null,
+        });
+        return {
+          isCorrect: upgraded.isCorrect,
+          xpEarned: upgraded.xpEarned,
+          countsForXp: upgraded.countsForXp,
+          xpDeniedReason: upgraded.xpDeniedReason,
+          xpMessage: upgraded.xpMessage,
+          hearts: upgraded.hearts,
+          duplicate: upgraded.duplicate,
+        };
+      }
+
       const hearts = await this.heartsService.getMyHearts(userId, orgId);
       return {
-        isCorrect: duplicate.isCorrect,
+        isCorrect: existing.isCorrect,
         xpEarned: 0,
         countsForXp: false,
         xpDeniedReason: 'ALREADY_COUNTED' as const,
-        xpMessage: duplicate.isCorrect
+        xpMessage: existing.isCorrect
           ? 'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.'
           : null,
         hearts,
@@ -379,14 +414,14 @@ export class ProgressService {
       userId,
       dto.questionId,
       isCorrect,
-      dto.source,
+      attemptSource,
     );
 
     const attempt = this.attemptRepo.create({
       userId,
       organizationId: orgId,
       questionId: dto.questionId,
-      selectedOptionId: dto.pairs[0]?.leftOptionId ?? options[0].id,
+      selectedOptionId,
       isCorrect,
       heartLost: !isCorrect,
       countsForXp: xpMeta.countsForXp,
@@ -507,13 +542,11 @@ export class ProgressService {
   }
 
   /**
-   * Takroriy submit himoyasi (DB unique: user+savol+Toshkent kuni).
-   * Bir kunda bir savolga faqat 1 ta urinish.
+   * Shu Toshkent kunidagi birinchi urinish (DB unique: user+savol+kun).
    */
-  private async findDuplicateAttempt(
+  private async findSameDayAttempt(
     userId: string,
     questionId: string,
-    _source: AttemptSource,
   ): Promise<UserQuestionAttempt | null> {
     return this.attemptRepo
       .createQueryBuilder('a')
@@ -525,6 +558,62 @@ export class ProgressService {
       .orderBy('a.answered_at', 'DESC')
       .take(1)
       .getOne();
+  }
+
+  /**
+   * LESSON urinishini kunlik reja sifatida yangilaydi (unique index saqlanadi).
+   */
+  private async upgradeLessonAttemptToDailyPlan(opts: {
+    existing: UserQuestionAttempt;
+    userId: string;
+    orgId: string;
+    questionId: string;
+    levelId: string;
+    selectedOptionId: string;
+    isCorrect: boolean;
+    correctOptionId: string | null;
+  }) {
+    const {
+      existing,
+      userId,
+      orgId,
+      questionId,
+      levelId,
+      selectedOptionId,
+      isCorrect,
+      correctOptionId,
+    } = opts;
+
+    const heartsAfter = isCorrect
+      ? await this.heartsService.getMyHearts(userId, orgId)
+      : await this.heartsService.consumeHeart(userId, orgId, 1);
+
+    const xpMeta = await this.resolveXpEligibility(
+      userId,
+      questionId,
+      isCorrect,
+      AttemptSource.DAILY_PLAN,
+    );
+
+    existing.selectedOptionId = selectedOptionId;
+    existing.isCorrect = isCorrect;
+    existing.heartLost = !isCorrect;
+    existing.countsForXp = xpMeta.countsForXp;
+    existing.attemptSource = AttemptSource.DAILY_PLAN;
+    await this.attemptRepo.save(existing);
+
+    await this.recalcLevelCompletion(userId, levelId, orgId);
+
+    return {
+      isCorrect,
+      correctOptionId,
+      xpEarned: xpMeta.xpEarned,
+      countsForXp: xpMeta.countsForXp,
+      xpDeniedReason: xpMeta.xpDeniedReason,
+      xpMessage: xpMeta.xpMessage,
+      hearts: heartsAfter,
+      duplicate: false,
+    };
   }
 
   /**
