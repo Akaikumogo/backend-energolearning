@@ -62,6 +62,9 @@ export class ReportingActivationService {
       throw new BadRequestException('asOfDate YYYY-MM-DD formatida bo‘lishi kerak');
     }
 
+    // Hisobot/KPI: faqat Energo ID orqali kelgan xodimlar
+    qb.andWhere(`${u}.energoId IS NOT NULL`);
+
     if (!asOf) {
       return qb
         .andWhere(`${org}.reportActive = true`)
@@ -130,7 +133,8 @@ export class ReportingActivationService {
   /** Raw SQL AND fragment (aliases u / org = DB tables). Current flags only. */
   currentEmployeeActiveSql(userAlias = 'u', orgAlias = 'org'): string {
     return `(
-      ${orgAlias}.report_active = true
+      ${userAlias}.energo_id IS NOT NULL
+      AND ${orgAlias}.report_active = true
       AND ${userAlias}.report_active = true
       AND COALESCE((
         SELECT ods.is_active

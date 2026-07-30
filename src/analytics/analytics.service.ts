@@ -50,11 +50,23 @@ export class AnalyticsService {
     const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const usersCountQb = isAll
-      ? this.usersRepo.createQueryBuilder('u').select('COUNT(*)', 'c')
+      ? this.usersRepo
+          .createQueryBuilder('u')
+          .where('u.energoId IS NOT NULL')
+          .andWhere('u.reportActive = true')
+          .andWhere('u.role IN (:...roles)', {
+            roles: [Role.USER, Role.MODERATOR],
+          })
+          .select('COUNT(*)', 'c')
       : this.userOrgRepo
           .createQueryBuilder('uo')
           .innerJoin('uo.user', 'u')
           .where('uo.organizationId = :orgId', { orgId })
+          .andWhere('u.energoId IS NOT NULL')
+          .andWhere('u.reportActive = true')
+          .andWhere('u.role IN (:...roles)', {
+            roles: [Role.USER, Role.MODERATOR],
+          })
           .select('COUNT(DISTINCT u.id)', 'c');
 
     const orgCountQb = isAll
@@ -67,7 +79,9 @@ export class AnalyticsService {
     const modCountQb = (() => {
       const qb = this.usersRepo
         .createQueryBuilder('u')
-        .where('u.role = :role', { role: Role.MODERATOR });
+        .where('u.role = :role', { role: Role.MODERATOR })
+        .andWhere('u.energoId IS NOT NULL')
+        .andWhere('u.reportActive = true');
       if (!isAll) {
         qb.innerJoin('u.organizations', 'uo').andWhere(
           'uo.organizationId = :orgId',
@@ -84,10 +98,13 @@ export class AnalyticsService {
       .createQueryBuilder('q')
       .select('COUNT(*)', 'c');
 
-    // Faol user: session login (refresh tokendan mustahkamroq)
+    // Faol user: session login (faqat Energo ID xodimlar)
     const active7dQb = this.sessionRepo
       .createQueryBuilder('s')
+      .innerJoin(User, 'u', 'u.id = s.userId')
       .where('s.loginAt >= :since', { since })
+      .andWhere('u.energoId IS NOT NULL')
+      .andWhere('u.reportActive = true')
       .select('COUNT(DISTINCT s.userId)', 'c');
     if (!isAll) {
       active7dQb.andWhere('s.organizationId = :orgId', { orgId });
@@ -130,6 +147,9 @@ export class AnalyticsService {
     const qb = this.ulcRepo
       .createQueryBuilder('ulc')
       .innerJoin('ulc.level', 'l')
+      .innerJoin(User, 'u', 'u.id = ulc.userId')
+      .where('u.energoId IS NOT NULL')
+      .andWhere('u.reportActive = true')
       .select('l.id', 'levelId')
       .addSelect('l.title', 'levelTitle')
       .addSelect('l.orderIndex', 'orderIndex')
@@ -144,7 +164,7 @@ export class AnalyticsService {
       .orderBy('l.orderIndex', 'ASC');
 
     if (!isAll) {
-      qb.where('ulc.organizationId = :orgId', { orgId });
+      qb.andWhere('ulc.organizationId = :orgId', { orgId });
     }
 
     const aggregated = await qb.getRawMany<{
@@ -180,8 +200,11 @@ export class AnalyticsService {
     const qb = this.uqaRepo
       .createQueryBuilder('uqa')
       .innerJoin('uqa.question', 'q')
+      .innerJoin(User, 'u', 'u.id = uqa.userId')
       .leftJoin('q.level', 'l')
       .leftJoin('q.theory', 't')
+      .where('u.energoId IS NOT NULL')
+      .andWhere('u.reportActive = true')
       .select('q.id', 'questionId')
       .addSelect('q.prompt', 'prompt')
       .addSelect('l.title', 'levelTitle')
@@ -201,7 +224,7 @@ export class AnalyticsService {
       .limit(20);
 
     if (!isAll) {
-      qb.where('uqa.organizationId = :orgId', { orgId });
+      qb.andWhere('uqa.organizationId = :orgId', { orgId });
     }
 
     const raw = await qb.getRawMany<{
@@ -262,6 +285,8 @@ export class AnalyticsService {
       .where('uqa.answeredAt >= :from', { from })
       .andWhere('uqa.answeredAt < :to', { to })
       .andWhere('uqa.heartLost = true')
+      .andWhere('u.energoId IS NOT NULL')
+      .andWhere('u.reportActive = true')
       .groupBy('u.id')
       .addGroupBy('u.firstName')
       .addGroupBy('u.lastName')
@@ -276,6 +301,7 @@ export class AnalyticsService {
     const byQuestionQb = this.uqaRepo
       .createQueryBuilder('uqa')
       .innerJoin('uqa.question', 'q')
+      .innerJoin('uqa.user', 'u')
       .leftJoin('q.level', 'l')
       .leftJoin('q.theory', 't')
       .select('q.id', 'questionId')
@@ -286,6 +312,8 @@ export class AnalyticsService {
       .where('uqa.answeredAt >= :from', { from })
       .andWhere('uqa.answeredAt < :to', { to })
       .andWhere('uqa.heartLost = true')
+      .andWhere('u.energoId IS NOT NULL')
+      .andWhere('u.reportActive = true')
       .groupBy('q.id')
       .addGroupBy('q.prompt')
       .addGroupBy('l.title')
