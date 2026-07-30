@@ -2,11 +2,9 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Brackets, Repository } from 'typeorm';
-import * as bcrypt from 'bcrypt';
 import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import {
   listTashkentDays,
@@ -50,8 +48,8 @@ export class StudentsService {
   ) {}
 
   async createStudent(
-    requestingUser: { id: string; role: Role; organizationIds: string[] },
-    dto: {
+    _requestingUser: { id: string; role: Role; organizationIds: string[] },
+    _dto: {
       email: string;
       firstName: string;
       lastName: string;
@@ -59,36 +57,9 @@ export class StudentsService {
       organizationId?: string;
     },
   ) {
-    const existing = await this.usersService.findByEmail(dto.email);
-    if (existing) throw new BadRequestException('Bu email allaqachon mavjud');
-
-    if (requestingUser.role === Role.MODERATOR) {
-      if (!dto.organizationId) {
-        throw new ForbiddenException('Moderator uchun organizationId majburiy');
-      }
-      const scopedOrgIds =
-        (await this.organizationsService.resolveModeratorScope(
-          requestingUser.organizationIds,
-        )) ?? null;
-
-      if (scopedOrgIds && scopedOrgIds.length === 0) {
-        throw new ForbiddenException('Ruxsat yo`q');
-      }
-      if (scopedOrgIds && !scopedOrgIds.includes(dto.organizationId)) {
-        throw new ForbiddenException('Ruxsat yo`q');
-      }
-    }
-
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = await this.usersService.createUser({
-      email: dto.email,
-      passwordHash,
-      firstName: dto.firstName,
-      lastName: dto.lastName,
-      organizationId: dto.organizationId,
-    });
-
-    return this.findOne(user.id, requestingUser);
+    throw new ForbiddenException(
+      'Lokal xodim yaratish yopilgan. Faqat Energo ID orqali kelgan xodimlar qo‘shiladi.',
+    );
   }
 
   async deleteStudent(

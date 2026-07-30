@@ -551,7 +551,12 @@ export class NesEmployeesService {
       const hideRows: Array<{ cnt: string }> = await manager.query(`
         WITH updated AS (
           UPDATE users u
-          SET energo_id = NULL, updated_at = NOW()
+          SET
+            energo_id = NULL,
+            report_active = false,
+            login_blocked = true,
+            password_hash = NULL,
+            updated_at = NOW()
           WHERE u.role = $1
             AND u.energo_id IS NOT NULL
             AND NOT EXISTS (
