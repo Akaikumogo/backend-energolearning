@@ -9,16 +9,22 @@ import {
   Put,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiOkResponse,
   ApiOperation,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -31,6 +37,21 @@ import { CreateTheoryDto } from './dto/create-theory.dto';
 import { UpdateTheoryDto } from './dto/update-theory.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
+import { ImportQuestionsDocxDto } from './dto/import-questions-docx.dto';
+
+const docxUpload = FileInterceptor('file', {
+  storage: memoryStorage(),
+  limits: { fileSize: 30 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const name = (file.originalname || '').toLowerCase();
+    const ok =
+      name.endsWith('.docx') ||
+      file.mimetype ===
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      file.mimetype === 'application/octet-stream';
+    cb(ok ? null : new BadRequestException('Faqat .docx fayl yuklang'), ok);
+  },
+});
 
 @ApiTags('Content (Admin)')
 @Controller('admin')
@@ -217,6 +238,56 @@ export class ContentController {
     @Req() req: Request & { user: { id: string } },
   ) {
     return this.contentService.createQuestion(dto, req.user.id);
+  }
+
+  @Post('questions/import-docx')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'DOCX dan savollarni dars (lesson root) ga import qilish. dryRun=true → preview.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file', 'levelId', 'theoryId'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        levelId: { type: 'string', format: 'uuid' },
+        theoryId: { type: 'string', format: 'uuid' },
+        dryRun: { type: 'boolean', default: false },
+        latinize: { type: 'boolean', default: true },
+      },
+    },
+  })
+  @UseInterceptors(docxUpload)
+  importQuestionsDocx(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: ImportQuestionsDocxDto,
+    @Req() req: Request & { user: { id: string } },
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('DOCX fayl yuklanmadi');
+    }
+    const levelId = String(body.levelId ?? '').trim();
+    const theoryId = String(body.theoryId ?? '').trim();
+    if (!levelId || !theoryId) {
+      throw new BadRequestException('levelId va theoryId majburiy');
+    }
+    return this.contentService.importQuestionsFromDocx(file.buffer, {
+      levelId,
+      theoryId,
+      dryRun:
+        (body.dryRun as unknown) === true ||
+        (body.dryRun as unknown) === 'true' ||
+        (body.dryRun as unknown) === '1',
+      latinize: !(
+        (body.latinize as unknown) === false ||
+        (body.latinize as unknown) === 'false' ||
+        (body.latinize as unknown) === '0'
+      ),
+      userId: req.user.id,
+    });
   }
 
   @Put('questions/:id')
