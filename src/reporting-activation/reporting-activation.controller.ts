@@ -68,16 +68,24 @@ export class ReportingActivationController {
   }
 
   @Patch('organizations/:orgId')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary: 'Filial switch — OFF = hisobotdan chiqarish (DELETE emas)',
   })
   @ApiBody({ type: SetReportActiveDto })
-  setOrganization(
-    @Req() req: Request & { user: { id: string } },
+  async setOrganization(
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('orgId', ParseUUIDPipe) orgId: string,
     @Body() dto: SetReportActiveDto,
   ) {
+    await this.orgService.assertModeratorOrgAccess(
+      req.user.role,
+      req.user.organizationIds,
+      orgId,
+    );
     return this.activationService.setOrganizationActive(
       orgId,
       dto.isActive,
@@ -86,15 +94,23 @@ export class ReportingActivationController {
   }
 
   @Patch('divisions')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary: 'Bo‘lim switch — OFF = filial KPI dan chiqarish',
   })
   @ApiBody({ type: SetDivisionReportActiveDto })
   async setDivision(
-    @Req() req: Request & { user: { id: string } },
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Body() dto: SetDivisionReportActiveDto,
   ) {
+    await this.orgService.assertModeratorOrgAccess(
+      req.user.role,
+      req.user.organizationIds,
+      dto.organizationId,
+    );
     return this.activationService.setDivisionActive(
       dto.organizationId,
       dto.division ?? '',
@@ -104,16 +120,24 @@ export class ReportingActivationController {
   }
 
   @Patch('employees/:userId')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary: 'Xodim switch — OFF = reportingdan chiqarish',
   })
   @ApiBody({ type: SetReportActiveDto })
-  setEmployee(
-    @Req() req: Request & { user: { id: string } },
+  async setEmployee(
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() dto: SetReportActiveDto,
   ) {
+    await this.orgService.assertUserInModeratorScope(
+      req.user.role,
+      req.user.organizationIds,
+      userId,
+    );
     return this.activationService.setEmployeeActive(
       userId,
       dto.isActive,

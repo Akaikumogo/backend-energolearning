@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { IsNull } from 'typeorm';
 import { Level } from '../database/entities/level.entity';
 import { Theory } from '../database/entities/theory.entity';
@@ -17,6 +17,30 @@ import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import type { TheorySlide } from '../common/types/theory-slide';
 import { TheoryRole } from '../common/enums/theory-role.enum';
+import { QuestionType } from '../common/enums/question-type.enum';
+import {
+  parseDocxQuestions,
+  type ParsedDocxQuestion,
+} from '../common/utils/docx-questions.parser';
+
+export type ImportQuestionsDocxResult = {
+  success: boolean;
+  dryRun: boolean;
+  levelId: string;
+  theoryId: string;
+  parsed: number;
+  created: number;
+  skipped: number;
+  warnings: number;
+  questions: Array<{
+    sourceIndex: number;
+    prompt: string;
+    optionsCount: number;
+    correctCount: number;
+    warnings: string[];
+  }>;
+  skippedDetails: string[];
+};
 
 @Injectable()
 export class ContentService {
@@ -33,6 +57,7 @@ export class ContentService {
     private readonly levelPositionRepo: Repository<LevelPosition>,
     @InjectRepository(Position)
     private readonly positionRepo: Repository<Position>,
+    private readonly dataSource: DataSource,
   ) {}
 
   /**
@@ -709,5 +734,147 @@ export class ContentService {
     const option = await this.optionRepo.findOne({ where: { id } });
     if (!option) throw new NotFoundException('Javob varianti topilmadi');
     await this.optionRepo.remove(option);
+  }
+
+  /**
+   * DOCX dan savollarni dars (lesson root) theory_id ga import qiladi.
+   * dryRun=true → faqat parse/preview.
+   */
+  async importQuestionsFromDocx(
+    buffer: Buffer,
+    opts: {
+      levelId: string;
+      theoryId: string;
+      dryRun?: boolean;
+      latinize?: boolean;
+      userId: string;
+    },
+  ): Promise<ImportQuestionsDocxResult> {
+    const level = await this.findLevelById(opts.levelId);
+    const theory = await this.findTheoryById(opts.theoryId);
+
+    if (theory.levelId !== level.id) {
+      throw new BadRequestException(
+        'Tanlangan dars ushbu modulga tegishli emas',
+      );
+    }
+    if (theory.parentTheoryId) {
+      throw new BadRequestException(
+        'Savollar faqat dars (lesson root) ga bog‘lanadi — nazariya bolasiga emas',
+      );
+    }
+
+    let parsed;
+    try {
+      parsed = await parseDocxQuestions(buffer, {
+        latinize: opts.latinize !== false,
+      });
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'DOCX o‘qib bo‘lmadi',
+      );
+    }
+
+    if (parsed.questions.length === 0) {
+      throw new BadRequestException(
+        'DOCX dan hech qanday savol topilmadi. Format: `1-savol. ...` + `a) ...*`',
+      );
+    }
+
+    const preview = parsed.questions.map((q) => ({
+      sourceIndex: q.sourceIndex,
+      prompt: q.prompt,
+      optionsCount: q.options.length,
+      correctCount: q.options.filter((o) => o.isCorrect).length,
+      warnings: q.warnings,
+    }));
+
+    const dryRun = opts.dryRun === true;
+    if (dryRun) {
+      return {
+        success: true,
+        dryRun: true,
+        levelId: level.id,
+        theoryId: theory.id,
+        parsed: parsed.questions.length,
+        created: 0,
+        skipped: parsed.skipped.length,
+        warnings: preview.filter((q) => q.warnings.length > 0).length,
+        questions: preview,
+        skippedDetails: parsed.skipped,
+      };
+    }
+
+    const created = await this.persistParsedQuestions(
+      parsed.questions,
+      level.id,
+      theory.id,
+      opts.userId,
+    );
+
+    return {
+      success: true,
+      dryRun: false,
+      levelId: level.id,
+      theoryId: theory.id,
+      parsed: parsed.questions.length,
+      created,
+      skipped: parsed.skipped.length,
+      warnings: preview.filter((q) => q.warnings.length > 0).length,
+      questions: preview,
+      skippedDetails: parsed.skipped,
+    };
+  }
+
+  private async persistParsedQuestions(
+    questions: ParsedDocxQuestion[],
+    levelId: string,
+    theoryId: string,
+    userId: string,
+  ): Promise<number> {
+    let created = 0;
+
+    await this.dataSource.transaction(async (manager) => {
+      const questionRepo = manager.getRepository(Question);
+      const optionRepo = manager.getRepository(QuestionOption);
+
+      const maxOrder = await questionRepo
+        .createQueryBuilder('q')
+        .select('MAX(q.order_index)', 'max')
+        .where('q.level_id = :levelId', { levelId })
+        .getRawOne();
+      let nextOrder = (maxOrder?.max ?? -1) + 1;
+
+      for (const q of questions) {
+        // To‘g‘ri javob yo‘q bo‘lsa — birinchi variantni to‘g‘ri deb belgilamaymiz;
+        // admin previewda ko‘rgan bo‘lishi kerak. Baribir saqlaymiz.
+        const saved = await questionRepo.save(
+          questionRepo.create({
+            levelId,
+            theoryId,
+            prompt: q.prompt,
+            type: QuestionType.SINGLE_CHOICE,
+            orderIndex: nextOrder++,
+            isActive: true,
+            createdById: userId,
+          }),
+        );
+
+        await optionRepo.save(
+          q.options.map((o, i) =>
+            optionRepo.create({
+              questionId: saved.id,
+              optionText: o.optionText,
+              orderIndex: o.orderIndex ?? i,
+              isCorrect: o.isCorrect,
+              matchText: null,
+            }),
+          ),
+        );
+        created++;
+      }
+    });
+
+    return created;
   }
 }

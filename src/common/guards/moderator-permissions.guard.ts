@@ -74,6 +74,21 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
     return { module: 'users', action: 'update' };
   }
 
+  // Reporting activation switches (hisobotdan chiqarish / qaytarish)
+  if (
+    m === 'PATCH' &&
+    (/^\/admin\/reporting-activation\/organizations\/[^/]+$/.test(path) ||
+      path === '/admin/reporting-activation/divisions')
+  ) {
+    return { module: 'organizations', action: 'update' };
+  }
+  if (
+    m === 'PATCH' &&
+    /^\/admin\/reporting-activation\/employees\/[^/]+$/.test(path)
+  ) {
+    return { module: 'students', action: 'update' };
+  }
+
   // Employees: legacy /admin/students is still supported by the controller.
   if ((path === '/admin/students' || path === '/admin/employees') && m === 'POST') {
     return { module: 'students', action: 'create' };
