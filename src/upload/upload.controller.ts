@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  NotFoundException,
   Param,
   Post,
   Req,
@@ -31,6 +32,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../database/entities/user.entity';
+import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
 
 function makeDiskStorage(folder: string) {
   return diskStorage({
@@ -111,7 +113,38 @@ const avatarStorage = makeDiskStorage('avatars');
 export class UploadController {
   constructor(
     @InjectRepository(User) private readonly usersRepo: Repository<User>,
+    private readonly energoIdClient: EnergoIdAuthClient,
   ) {}
+
+  private async syncAvatarToEnergoId(
+    userId: string,
+    file: Express.Multer.File,
+  ): Promise<boolean> {
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
+      throw new NotFoundException('Foydalanuvchi topilmadi');
+    }
+
+    // Mahalliy/guest akkauntda Energo ID bog‘lanishi bo‘lmasligi mumkin.
+    if (!user.energoId) return false;
+
+    try {
+      await this.energoIdClient.uploadUserAvatar(user.energoId, file);
+      return true;
+    } catch (error) {
+      try {
+        fs.unlinkSync(file.path);
+      } catch {
+        /* ignore */
+      }
+      throw error;
+    }
+  }
 
   // ─── Avatar uploads (foydalanuvchi va admin) ────────────────────────────
   @Post('users/me/avatar')
@@ -180,13 +213,14 @@ export class UploadController {
       );
     }
 
+    const energoIdSynced = await this.syncAvatarToEnergoId(req.user.id, file);
     const avatarUrl = `/uploads/avatars/${file.filename}`;
     await this.usersRepo.update(req.user.id, {
       avatarUrl,
       avatarHasFace: true,
     });
 
-    return { success: true, avatarUrl, hasFace: true };
+    return { success: true, avatarUrl, hasFace: true, energoIdSynced };
   }
 
   @Post('users/:userId/avatar')
@@ -226,13 +260,20 @@ export class UploadController {
       body?.hasFace === 'true' ||
       body?.hasFace === '1';
 
+    const energoIdSynced = await this.syncAvatarToEnergoId(userId, file);
     const avatarUrl = `/uploads/avatars/${file.filename}`;
     await this.usersRepo.update(userId, {
       avatarUrl,
       ...(hasFace ? { avatarHasFace: true } : {}),
     });
 
-    return { success: true, avatarUrl, userId, hasFace: !!hasFace };
+    return {
+      success: true,
+      avatarUrl,
+      userId,
+      hasFace: !!hasFace,
+      energoIdSynced,
+    };
   }
 
   // ─── Audio upload (admin/moderator) ─────────────────────────────────────

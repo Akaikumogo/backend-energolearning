@@ -8,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
+import { readFile } from 'fs/promises';
 import { resolveEnergoIdBaseUrl } from './energo-id-env.util';
 
 export type EnergoIdUser = {
@@ -29,6 +30,7 @@ export type EnergoIdUser = {
   post?: string;
   lastSyncedAt?: string | null;
   initialPassword?: string | null;
+  avatarUrl?: string | null;
 };
 
 type EnergoIdEmployeesResponse = {
@@ -358,6 +360,43 @@ export class EnergoIdAuthClient {
   async listPositions(): Promise<EnergoIdPosition[]> {
     const payload = await this.platformSync(['positions']);
     return Array.isArray(payload.data?.positions) ? payload.data.positions : [];
+  }
+
+  async uploadUserAvatar(
+    energoUserId: string,
+    file: { path: string; mimetype: string; originalname: string },
+  ): Promise<{ success: boolean; userId: string; avatarUrl: string }> {
+    const config = this.getConfig();
+    const bytes = await readFile(file.path);
+    const form = new FormData();
+    form.append(
+      'file',
+      new Blob([new Uint8Array(bytes)], { type: file.mimetype }),
+      file.originalname || `avatar-${energoUserId}.jpg`,
+    );
+
+    const response = await this.request(
+      `${config.baseUrl}/internal/v1/users/${encodeURIComponent(energoUserId)}/avatar`,
+      {
+        method: 'PUT',
+        headers: {
+          'X-Platform': config.platform,
+          'X-Client-Id': config.clientId,
+          Authorization: `Bearer ${config.clientSecret}`,
+        },
+        body: form,
+      },
+      Math.max(config.timeoutMs, 15000),
+    );
+
+    if (!response.ok) {
+      await this.throwMappedError(response);
+    }
+    return (await response.json()) as {
+      success: boolean;
+      userId: string;
+      avatarUrl: string;
+    };
   }
 
   private async platformSync(
