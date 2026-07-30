@@ -215,13 +215,7 @@ export class BranchAnalyticsController {
     @Query('month') month: string | undefined,
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
   ) {
-    let allowedOrgIds: string[] | null = null;
-    if (req.user.role === Role.MODERATOR) {
-      allowedOrgIds =
-        (await this.orgService.resolveModeratorScope(
-          req.user.organizationIds,
-        )) ?? req.user.organizationIds;
-    }
+    const allowedOrgIds = await this.moderatorOrgIds(req);
     return this.analyticsService.getBranchComparison(month, allowedOrgIds);
   }
 

@@ -28,7 +28,6 @@ import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { AssignUserDto } from './dto/assign-user.dto';
 import { Request } from 'express';
-import { NotFoundException } from '@nestjs/common';
 
 @ApiTags('Organizations (Admin)')
 @Controller('admin/organizations')
@@ -54,14 +53,15 @@ export class OrganizationsController {
   @Get(':id')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Tashkilot batafsil' })
-  findById(
+  async findById(
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    if (req.user.role === Role.MODERATOR) {
-      const allowed = req.user.organizationIds.includes(id);
-      if (!allowed) throw new NotFoundException('Tashkilot topilmadi');
-    }
+    await this.orgService.assertModeratorOrgAccess(
+      req.user.role,
+      req.user.organizationIds,
+      id,
+    );
     return this.orgService.findById(id);
   }
 

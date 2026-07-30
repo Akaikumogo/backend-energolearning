@@ -675,7 +675,10 @@ export class ExamLiveService {
     }
     if (dto.moderator.role === Role.MODERATOR) {
       const scoped = await this.organizationsService.resolveModeratorScope(dto.moderator.organizationIds);
-      if (!(scoped ?? []).includes(dto.organizationId)) throw new ForbiddenException();
+      // undefined = asosiy boshqarma moderatori, ya'ni barcha filiallar
+      if (scoped !== undefined && !scoped.includes(dto.organizationId)) {
+        throw new ForbiddenException();
+      }
     }
     if (!dto.includesPt && !dto.includesTb) {
       throw new BadRequestException('Kamida bitta tur (PT yoki TB) tanlang');
