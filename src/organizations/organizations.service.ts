@@ -222,11 +222,6 @@ export class OrganizationsService {
           'Energo ID filial nomi bu yerda o‘zgartirilmaydi — Energo ID da yangilang va sync qiling',
         );
       }
-      if (dto.isDefault !== undefined) {
-        throw new BadRequestException(
-          'Energo ID filial holati bu yerda o‘zgartirilmaydi',
-        );
-      }
     }
     if (dto.name) org.name = dto.name;
     if (dto.parentOrganizationId !== undefined) {
