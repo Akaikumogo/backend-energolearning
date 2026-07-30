@@ -38,6 +38,7 @@ import { UpdateTheoryDto } from './dto/update-theory.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { UpdateQuestionDto } from './dto/update-question.dto';
 import { ImportQuestionsDocxDto } from './dto/import-questions-docx.dto';
+import { ImportModuleDocxDto } from './dto/import-module-docx.dto';
 
 const docxUpload = FileInterceptor('file', {
   storage: memoryStorage(),
@@ -86,6 +87,46 @@ export class ContentController {
     @Req() req: Request & { user: { id: string } },
   ) {
     return this.contentService.createLevel(dto, req.user.id);
+  }
+
+  @Post('levels/import-docx')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'Qat’iy DOCX shablonidan to‘liq modul yaratish (nazariya, savol va variantlar)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+        dryRun: { type: 'boolean', default: false },
+        latinize: { type: 'boolean', default: true },
+      },
+    },
+  })
+  @UseInterceptors(docxUpload)
+  importModuleDocx(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: ImportModuleDocxDto,
+    @Req() req: Request & { user: { id: string } },
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('DOCX fayl yuklanmadi');
+    }
+    const dryRaw = body.dryRun as unknown;
+    const latinRaw = body.latinize as unknown;
+    return this.contentService.importModuleFromDocx(file.buffer, {
+      dryRun: dryRaw === true || dryRaw === 'true' || dryRaw === '1',
+      latinize: !(
+        latinRaw === false ||
+        latinRaw === 'false' ||
+        latinRaw === '0'
+      ),
+      userId: req.user.id,
+    });
   }
 
   @Put('levels/:id')

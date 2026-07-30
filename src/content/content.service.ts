@@ -22,6 +22,7 @@ import {
   parseDocxQuestions,
   type ParsedDocxQuestion,
 } from '../common/utils/docx-questions.parser';
+import { parseModuleDocx } from '../common/utils/docx-module.parser';
 
 export type ImportQuestionsDocxResult = {
   success: boolean;
@@ -40,6 +41,20 @@ export type ImportQuestionsDocxResult = {
     warnings: string[];
   }>;
   skippedDetails: string[];
+};
+
+export type ImportModuleDocxResult = {
+  success: boolean;
+  dryRun: boolean;
+  moduleTitle: string;
+  theories: Array<{
+    title: string;
+    contentLength: number;
+    questionsCount: number;
+  }>;
+  totalQuestions: number;
+  errors: string[];
+  createdLevelId: string | null;
 };
 
 @Injectable()
@@ -734,6 +749,162 @@ export class ContentService {
     const option = await this.optionRepo.findOne({ where: { id } });
     if (!option) throw new NotFoundException('Javob varianti topilmadi');
     await this.optionRepo.remove(option);
+  }
+
+  /**
+   * Qat'iy shablondagi DOCX dan to'liq modul yaratadi:
+   * Level → LESSON root → NAZARIYA child → Questions.
+   */
+  async importModuleFromDocx(
+    buffer: Buffer,
+    opts: {
+      dryRun?: boolean;
+      latinize?: boolean;
+      userId: string;
+    },
+  ): Promise<ImportModuleDocxResult> {
+    let parsed;
+    try {
+      parsed = await parseModuleDocx(buffer, {
+        latinize: opts.latinize !== false,
+      });
+    } catch (err) {
+      throw new BadRequestException(
+        err instanceof Error ? err.message : 'DOCX o‘qib bo‘lmadi',
+      );
+    }
+
+    const existing = parsed.title
+      ? await this.levelRepo
+          .createQueryBuilder('l')
+          .where('LOWER(l.title) = LOWER(:title)', { title: parsed.title })
+          .getOne()
+      : null;
+    const errors = [...parsed.errors];
+    if (existing) errors.push(`"${parsed.title}" nomli modul allaqachon mavjud`);
+
+    const resultBase = {
+      moduleTitle: parsed.title,
+      theories: parsed.theories.map((theory) => ({
+        title: theory.title,
+        contentLength: theory.content.length,
+        questionsCount: theory.questions.length,
+      })),
+      totalQuestions: parsed.totalQuestions,
+      errors,
+    };
+
+    if (opts.dryRun === true) {
+      return {
+        success: errors.length === 0,
+        dryRun: true,
+        ...resultBase,
+        createdLevelId: null,
+      };
+    }
+
+    if (errors.length > 0) {
+      throw new BadRequestException(errors);
+    }
+
+    const createdLevelId = await this.dataSource.transaction(async (manager) => {
+      const levelRepo = manager.getRepository(Level);
+      const theoryRepo = manager.getRepository(Theory);
+      const questionRepo = manager.getRepository(Question);
+      const optionRepo = manager.getRepository(QuestionOption);
+
+      const duplicate = await levelRepo
+        .createQueryBuilder('l')
+        .where('LOWER(l.title) = LOWER(:title)', { title: parsed.title })
+        .getOne();
+      if (duplicate) {
+        throw new BadRequestException(
+          `"${parsed.title}" nomli modul allaqachon mavjud`,
+        );
+      }
+
+      const maxLevelOrder = await levelRepo
+        .createQueryBuilder('l')
+        .select('MAX(l.order_index)', 'max')
+        .getRawOne();
+      const level = await levelRepo.save(
+        levelRepo.create({
+          title: parsed.title,
+          orderIndex: (maxLevelOrder?.max ?? -1) + 1,
+          isActive: true,
+          createdById: opts.userId,
+        }),
+      );
+
+      for (let theoryIndex = 0; theoryIndex < parsed.theories.length; theoryIndex++) {
+        const sourceTheory = parsed.theories[theoryIndex];
+        const lesson = await theoryRepo.save(
+          theoryRepo.create({
+            levelId: level.id,
+            title: sourceTheory.title,
+            orderIndex: theoryIndex,
+            content: '',
+            slides: null,
+            parentTheoryId: null,
+            theoryRole: TheoryRole.LESSON,
+            createdById: opts.userId,
+          }),
+        );
+
+        await theoryRepo.save(
+          theoryRepo.create({
+            levelId: level.id,
+            title: `${sourceTheory.title} · Nazariya`,
+            orderIndex: 0,
+            content: sourceTheory.content,
+            slides: null,
+            parentTheoryId: lesson.id,
+            theoryRole: TheoryRole.NAZARIYA,
+            createdById: opts.userId,
+          }),
+        );
+
+        for (
+          let questionIndex = 0;
+          questionIndex < sourceTheory.questions.length;
+          questionIndex++
+        ) {
+          const sourceQuestion = sourceTheory.questions[questionIndex];
+          const question = await questionRepo.save(
+            questionRepo.create({
+              levelId: level.id,
+              theoryId: lesson.id,
+              prompt: sourceQuestion.prompt,
+              type: QuestionType.SINGLE_CHOICE,
+              orderIndex: questionIndex,
+              isActive: true,
+              createdById: opts.userId,
+            }),
+          );
+
+          await optionRepo.save(
+            sourceQuestion.options.map((option, optionIndex) =>
+              optionRepo.create({
+                questionId: question.id,
+                optionText: option.text,
+                orderIndex: optionIndex,
+                isCorrect: option.isCorrect,
+                matchText: null,
+              }),
+            ),
+          );
+        }
+      }
+
+      return level.id;
+    });
+
+    return {
+      success: true,
+      dryRun: false,
+      ...resultBase,
+      createdLevelId,
+    };
   }
 
   /**

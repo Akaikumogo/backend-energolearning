@@ -1,6 +1,16 @@
 import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import { randomInt } from 'node:crypto';
 import { ContentService } from './content.service';
+
+function shuffle<T>(items: T[]): T[] {
+  const result = items.slice();
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
 
 @ApiTags('Content (Mobile)')
 @Controller()
@@ -85,13 +95,12 @@ export class MobileContentController {
       prompt: q.prompt,
       type: q.type,
       orderIndex: q.orderIndex,
-      options: (q.options ?? [])
-        .slice()
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((o) => ({
+      // Har so'rovda variantlar tartibi o'zgaradi: foydalanuvchi
+      // javobning doimiy A/B/V/G o'rnini yodlab ololmaydi.
+      options: shuffle(q.options ?? []).map((o, displayIndex) => ({
           id: o.id,
           optionText: o.optionText,
-          orderIndex: o.orderIndex,
+          orderIndex: displayIndex,
           matchText: o.matchText,
         })),
     }));
