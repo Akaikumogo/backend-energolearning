@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
+import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
 
 export type LeaderboardRow = {
   userId: string;
@@ -116,7 +117,7 @@ export class LeaderboardService {
       firstName: r.firstName ?? '',
       lastName: r.lastName ?? '',
       email: r.email ?? '',
-      avatarUrl: r.avatarUrl ?? null,
+      avatarUrl: resolveStoredAvatarUrl(r.avatarUrl ?? null),
       xp: Number(r.xp) || 0,
       correctAnswers: Number(r.correctAnswers) || Math.floor((Number(r.xp) || 0) / 10),
       rank: Number(r.rank) || 0,

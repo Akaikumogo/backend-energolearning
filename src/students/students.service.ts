@@ -23,6 +23,7 @@ import {
   variantsForSearchToken,
 } from '../common/utils/latinize-search.util';
 import { extractPersonnelNumberFromLogin } from '../common/utils/personnel-number.util';
+import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
 
 const BADGES = [
   { label: 'Yangi ishchi', bolts: 1 },
@@ -262,6 +263,12 @@ export class StudentsService {
     const uniqueCorrectRow = await uniqueCorrectQb.getRawOne<{ cnt: string }>();
     const uniqueCorrectQuestions = Number(uniqueCorrectRow?.cnt ?? 0);
 
+    // Guvohnoma uchun kerak: otasining ismi, lavozim, bo‘lim, tabel raqami.
+    const nes = await this.nesEmployeeRepo.findOne({
+      where: { userId: id },
+      select: ['personnelNumber', 'division', 'post', 'middleName'],
+    });
+
     const totalXp = xpCount * 10;
     const completedLevels = Array.from(completionMap.values()).filter(
       (c) => c.completionPercent >= 100,
@@ -284,8 +291,15 @@ export class StudentsService {
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      avatarUrl: user.avatarUrl,
+      middleName: nes?.middleName?.trim() || null,
+      avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
       role: user.role,
+      personnelNumber:
+        nes?.personnelNumber ??
+        extractPersonnelNumberFromLogin(user.email) ??
+        null,
+      division: nes?.division?.trim() || null,
+      post: nes?.post?.trim() || null,
       organizations:
         requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
           ? (user.organizations ?? [])
@@ -613,7 +627,7 @@ export class StudentsService {
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
-        avatarUrl: user.avatarUrl,
+        avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
         role: user.role,
         personnelNumber:
           nes?.personnelNumber ??
@@ -730,7 +744,7 @@ export class StudentsService {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
-      avatarUrl: user.avatarUrl,
+      avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
       role: user.role,
       personnelNumber:
         nes?.personnelNumber ??

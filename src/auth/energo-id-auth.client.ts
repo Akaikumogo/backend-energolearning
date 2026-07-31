@@ -4,6 +4,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -102,8 +103,39 @@ type EnergoIdOAuthClientConfig = {
   scopes: string[];
 };
 
+/** Query stringda `code` kabi maxfiy qiymatlar bo‘lishi mumkin — logga faqat manzil yoziladi. */
+function describeTarget(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url;
+  }
+}
+
+/** undici `fetch` xatolarida asl sabab `cause` ichida bo‘ladi (ENOTFOUND, ECONNREFUSED, ERR_TLS_CERT_ALTNAME_INVALID ...). */
+function describeFetchError(
+  error: unknown,
+  timedOut: boolean,
+  timeoutMs: number,
+) {
+  if (timedOut) {
+    return `timeout ${timeoutMs}ms`;
+  }
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const cause = error.cause as { code?: string; message?: string } | undefined;
+  const causeText = [cause?.code, cause?.message].filter(Boolean).join(' — ');
+  return causeText
+    ? `${error.name}: ${error.message} (cause: ${causeText})`
+    : `${error.name}: ${error.message}`;
+}
+
 @Injectable()
 export class EnergoIdAuthClient {
+  private readonly logger = new Logger(EnergoIdAuthClient.name);
+
   isConfigured() {
     return !!resolveEnergoIdBaseUrl();
   }
@@ -364,10 +396,23 @@ export class EnergoIdAuthClient {
 
   async uploadUserAvatar(
     energoUserId: string,
-    file: { path: string; mimetype: string; originalname: string },
-  ): Promise<{ success: boolean; userId: string; avatarUrl: string }> {
+    file: {
+      buffer?: Buffer;
+      path?: string;
+      mimetype: string;
+      originalname: string;
+    },
+  ): Promise<{
+    success: boolean;
+    userId: string;
+    imageId: string;
+    avatarUrl: string;
+  }> {
     const config = this.getConfig();
-    const bytes = await readFile(file.path);
+    const bytes = file.buffer ?? (file.path ? await readFile(file.path) : null);
+    if (!bytes?.length) {
+      throw new BadRequestException('Rasm fayli bo‘sh');
+    }
     const form = new FormData();
     form.append(
       'file',
@@ -392,11 +437,79 @@ export class EnergoIdAuthClient {
     if (!response.ok) {
       await this.throwMappedError(response);
     }
-    return (await response.json()) as {
+    const payload = (await response.json()) as {
       success: boolean;
       userId: string;
+      imageId?: string;
       avatarUrl: string;
     };
+    const imageId =
+      payload.imageId ??
+      payload.avatarUrl?.match(
+        /\/images\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/i,
+      )?.[1];
+    if (!imageId) {
+      throw new ServiceUnavailableException(
+        'Energo ID rasm ID qaytarmadi',
+      );
+    }
+    return {
+      success: payload.success,
+      userId: payload.userId,
+      imageId,
+      avatarUrl: payload.avatarUrl,
+    };
+  }
+
+  async uploadImage(file: {
+    buffer?: Buffer;
+    path?: string;
+    mimetype: string;
+    originalname: string;
+  }): Promise<{
+    success: boolean;
+    imageId: string;
+    imageUrl: string;
+  }> {
+    const config = this.getConfig();
+    const bytes = file.buffer ?? (file.path ? await readFile(file.path) : null);
+    if (!bytes?.length) {
+      throw new BadRequestException('Rasm fayli bo‘sh');
+    }
+    const form = new FormData();
+    form.append(
+      'file',
+      new Blob([new Uint8Array(bytes)], { type: file.mimetype }),
+      file.originalname || 'image.jpg',
+    );
+
+    const response = await this.request(
+      `${config.baseUrl}/internal/v1/images`,
+      {
+        method: 'POST',
+        headers: {
+          'X-Platform': config.platform,
+          'X-Client-Id': config.clientId,
+          Authorization: `Bearer ${config.clientSecret}`,
+        },
+        body: form,
+      },
+      Math.max(config.timeoutMs, 15000),
+    );
+
+    if (!response.ok) {
+      await this.throwMappedError(response);
+    }
+
+    const payload = (await response.json()) as {
+      success: boolean;
+      imageId: string;
+      imageUrl: string;
+    };
+    if (!payload.imageId) {
+      throw new ServiceUnavailableException('Energo ID rasm ID qaytarmadi');
+    }
+    return payload;
   }
 
   private async platformSync(
@@ -473,6 +586,10 @@ export class EnergoIdAuthClient {
       ) {
         throw error;
       }
+      this.logger.error(
+        `Energo ID ga ulanib bo‘lmadi: ${describeTarget(url)} — ` +
+          describeFetchError(error, controller.signal.aborted, timeoutMs),
+      );
       throw new ServiceUnavailableException('Auth service unavailable');
     } finally {
       clearTimeout(timeout);
