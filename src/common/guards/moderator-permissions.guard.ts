@@ -96,6 +96,14 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   if (/^\/admin\/(students|employees)\/[^/]+$/.test(path) && (m === 'PUT' || m === 'PATCH')) return { module: 'students', action: 'update' };
   if (/^\/admin\/(students|employees)\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'students', action: 'delete' };
 
+  // Certificates (guvohnoma berish / bekor qilish)
+  if (/^\/admin\/certificates\/employees\/[^/]+$/.test(path) && m === 'POST') {
+    return { module: 'students', action: 'create' };
+  }
+  if (/^\/admin\/certificates\/[^/]+\/revoke$/.test(path) && m === 'POST') {
+    return { module: 'students', action: 'delete' };
+  }
+
   // Users / Moderators management
   if (path === '/admin/users/moderators' && m === 'POST') return { module: 'moderators', action: 'create' };
   if (path === '/admin/users' && m === 'POST') return { module: 'users', action: 'create' };

@@ -1,5 +1,6 @@
 import { User } from '../database/entities/user.entity';
 import { UserProfileDto } from './dto/user-profile.dto';
+import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
 
 export type UserOrganizationSummary = {
   id: string;
@@ -29,7 +30,7 @@ export function mapUserToProfile(user: User): UserProfileDto & { energoId?: stri
     firstName: user.firstName,
     lastName: user.lastName,
     role: user.role,
-    avatarUrl: user.avatarUrl ?? null,
+    avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
     organizationIds: organizations.map((o) => o.id),
     organizations,
     mustChangePassword: user.mustChangePassword ?? false,

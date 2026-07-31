@@ -22,8 +22,8 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { Request } from 'express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { diskStorage, memoryStorage } from 'multer';
+import { extname, join } from 'path';
 import * as fs from 'fs';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -33,6 +33,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../database/entities/user.entity';
 import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
+import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
 
 function makeDiskStorage(folder: string) {
   return diskStorage({
@@ -106,7 +107,18 @@ const videoFileFilter = (
   cb(null, true);
 };
 
-const avatarStorage = makeDiskStorage('avatars');
+const avatarMemoryStorage = memoryStorage();
+
+function parseHasFace(body: {
+  hasFace?: string | boolean;
+  faceConfidence?: string | number;
+}): boolean {
+  return (
+    body?.hasFace === true ||
+    body?.hasFace === 'true' ||
+    body?.hasFace === '1'
+  );
+}
 
 @ApiTags('Upload')
 @Controller()
@@ -116,34 +128,67 @@ export class UploadController {
     private readonly energoIdClient: EnergoIdAuthClient,
   ) {}
 
-  private async syncAvatarToEnergoId(
+  private saveLocalAvatar(file: Express.Multer.File): string {
+    const dir = 'uploads/avatars';
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    const ext = (extname(file.originalname) || '.jpg').toLowerCase();
+    const filename = `${unique}${ext}`;
+    fs.writeFileSync(join(dir, filename), file.buffer);
+    return `/uploads/avatars/${filename}`;
+  }
+
+  /**
+   * Energo ID bog‘langan user: rasm Energo ga yuboriladi, EL faqat imageId saqlaydi.
+   * Guest (energoId yo‘q): eski lokal `/uploads/avatars/...` saqlanadi.
+   */
+  private async persistAvatar(
     userId: string,
     file: Express.Multer.File,
-  ): Promise<boolean> {
+    opts?: { requireFace?: boolean; hasFace?: boolean },
+  ): Promise<{
+    avatarUrl: string;
+    imageId: string | null;
+    energoIdSynced: boolean;
+  }> {
     const user = await this.usersRepo.findOne({ where: { id: userId } });
     if (!user) {
-      try {
-        fs.unlinkSync(file.path);
-      } catch {
-        /* ignore */
-      }
       throw new NotFoundException('Foydalanuvchi topilmadi');
     }
 
-    // Mahalliy/guest akkauntda Energo ID bog‘lanishi bo‘lmasligi mumkin.
-    if (!user.energoId) return false;
-
-    try {
-      await this.energoIdClient.uploadUserAvatar(user.energoId, file);
-      return true;
-    } catch (error) {
-      try {
-        fs.unlinkSync(file.path);
-      } catch {
-        /* ignore */
-      }
-      throw error;
+    if (opts?.requireFace && !opts.hasFace) {
+      throw new BadRequestException(
+        'Rasmda yuz aniqlanmadi. Iltimos, yuzingiz aniq ko‘rinadigan boshqa rasm yuklang.',
+      );
     }
+
+    if (user.energoId) {
+      const uploaded = await this.energoIdClient.uploadUserAvatar(
+        user.energoId,
+        file,
+      );
+      await this.usersRepo.update(userId, {
+        // Faqat Energo image ID — binary EL diskida saqlanmaydi.
+        avatarUrl: uploaded.imageId,
+        ...(opts?.hasFace ? { avatarHasFace: true } : {}),
+      });
+      return {
+        imageId: uploaded.imageId,
+        avatarUrl: resolveStoredAvatarUrl(uploaded.imageId) ?? uploaded.avatarUrl,
+        energoIdSynced: true,
+      };
+    }
+
+    const localPath = this.saveLocalAvatar(file);
+    await this.usersRepo.update(userId, {
+      avatarUrl: localPath,
+      ...(opts?.hasFace ? { avatarHasFace: true } : {}),
+    });
+    return {
+      imageId: null,
+      avatarUrl: localPath,
+      energoIdSynced: false,
+    };
   }
 
   // ─── Avatar uploads (foydalanuvchi va admin) ────────────────────────────
@@ -152,7 +197,7 @@ export class UploadController {
   @ApiBearerAuth('bearer')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: avatarStorage,
+      storage: avatarMemoryStorage,
       fileFilter: imageFileFilter,
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
@@ -160,7 +205,7 @@ export class UploadController {
   @ApiOperation({
     summary: "O'z avatarini yuklash",
     description:
-      "Login qilgan user o'z profiliga rasm qo'yadi. Max: 5MB. Formatlar: jpg, png, gif, webp.",
+      "Login qilgan user o'z profiliga rasm qo'yadi. Max: 5MB. Formatlar: jpg, png, gif, webp. Energo ID bog‘langanda rasm Energo da saqlanadi, EL faqat imageId saqlaydi.",
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -173,14 +218,19 @@ export class UploadController {
     },
   })
   @ApiOkResponse({
-    description: 'Avatar URL qaytaradi',
+    description: 'Avatar URL va (Energo bo‘lsa) imageId qaytaradi',
     schema: {
       type: 'object',
       properties: {
         success: { type: 'boolean', example: true },
         avatarUrl: {
           type: 'string',
-          example: '/uploads/avatars/1234567890.png',
+          example: 'https://cabinetid-api.uzbekistonmet.uz/images/uuid',
+        },
+        imageId: {
+          type: 'string',
+          nullable: true,
+          example: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
         },
       },
     },
@@ -191,36 +241,21 @@ export class UploadController {
     @Req() req: Request & { user: { id: string } },
     @Body() body: { hasFace?: string | boolean; faceConfidence?: string | number },
   ) {
-    if (!file) throw new BadRequestException('Fayl yuklanmadi');
+    if (!file?.buffer?.length) throw new BadRequestException('Fayl yuklanmadi');
 
-    // Mobil client-side face detection natijasi (face-api.js yoki mediapipe)
-    const hasFace =
-      body?.hasFace === true ||
-      body?.hasFace === 'true' ||
-      body?.hasFace === '1';
-
-    // Yuz aniqlanmagan bo'lsa — saqlamaymiz, qayta urinish so'raymiz.
-    // Mobil app shu xatoga moslab boshqa rasm tanlashni so'raydi.
-    if (!hasFace) {
-      // Yuklangan faylni o'chiramiz (saqlanmagan rasm uchun joy egallamaslik)
-      try {
-        fs.unlinkSync(file.path);
-      } catch {
-        /* ignore */
-      }
-      throw new BadRequestException(
-        'Rasmda yuz aniqlanmadi. Iltimos, yuzingiz aniq ko‘rinadigan boshqa rasm yuklang.',
-      );
-    }
-
-    const energoIdSynced = await this.syncAvatarToEnergoId(req.user.id, file);
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
-    await this.usersRepo.update(req.user.id, {
-      avatarUrl,
-      avatarHasFace: true,
+    const hasFace = parseHasFace(body);
+    const result = await this.persistAvatar(req.user.id, file, {
+      requireFace: true,
+      hasFace,
     });
 
-    return { success: true, avatarUrl, hasFace: true, energoIdSynced };
+    return {
+      success: true,
+      avatarUrl: result.avatarUrl,
+      imageId: result.imageId,
+      hasFace: true,
+      energoIdSynced: result.energoIdSynced,
+    };
   }
 
   @Post('users/:userId/avatar')
@@ -229,7 +264,7 @@ export class UploadController {
   @ApiBearerAuth('bearer')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: avatarStorage,
+      storage: avatarMemoryStorage,
       fileFilter: imageFileFilter,
       limits: { fileSize: 5 * 1024 * 1024 },
     }),
@@ -253,26 +288,18 @@ export class UploadController {
     @Param('userId') userId: string,
     @Body() body: { hasFace?: string | boolean; faceConfidence?: string | number },
   ) {
-    if (!file) throw new BadRequestException('Fayl yuklanmadi');
+    if (!file?.buffer?.length) throw new BadRequestException('Fayl yuklanmadi');
 
-    const hasFace =
-      body?.hasFace === true ||
-      body?.hasFace === 'true' ||
-      body?.hasFace === '1';
-
-    const energoIdSynced = await this.syncAvatarToEnergoId(userId, file);
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
-    await this.usersRepo.update(userId, {
-      avatarUrl,
-      ...(hasFace ? { avatarHasFace: true } : {}),
-    });
+    const hasFace = parseHasFace(body);
+    const result = await this.persistAvatar(userId, file, { hasFace });
 
     return {
       success: true,
-      avatarUrl,
+      avatarUrl: result.avatarUrl,
+      imageId: result.imageId,
       userId,
       hasFace: !!hasFace,
-      energoIdSynced,
+      energoIdSynced: result.energoIdSynced,
     };
   }
 
@@ -372,7 +399,7 @@ export class UploadController {
   @ApiBearerAuth('bearer')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: makeDiskStorage('image'),
+      storage: avatarMemoryStorage,
       fileFilter: imageFileFilter,
       limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
     }),
@@ -380,7 +407,7 @@ export class UploadController {
   @ApiOperation({
     summary: 'Rasm fayl yuklash (admin)',
     description:
-      "Audiokitob muqovasi, kontent rasmlari uchun. Formatlar: jpg/png/gif/webp/svg. Maks: 10MB.",
+      "Audiokitob muqovasi, kontent rasmlari uchun. Rasm Energo ID ga yuboriladi; javobda imageId va public URL qaytadi. Maks: 10MB.",
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -393,10 +420,14 @@ export class UploadController {
     },
   })
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException('Fayl yuklanmadi');
+    if (!file?.buffer?.length) throw new BadRequestException('Fayl yuklanmadi');
+
+    const uploaded = await this.energoIdClient.uploadImage(file);
     return {
       success: true,
-      url: `/uploads/image/${file.filename}`,
+      // Clientlar va coverUrl maydonlari URL kutadi — Energo public URL.
+      url: uploaded.imageUrl,
+      imageId: uploaded.imageId,
       size: file.size,
       mimeType: file.mimetype,
       originalName: file.originalname,

@@ -71,6 +71,7 @@ import { FixCountsForXpDailyPlanOnly1747800000000 } from './migrations/0032-fix-
 import { BackfillXpWithPlanCutoff1747900000000 } from './migrations/0033-backfill-xp-with-plan-cutoff';
 import { AddReportingActivation1748000000000 } from './migrations/0034-add-reporting-activation';
 import { ArchiveSelfRegisteredUsers1748100000000 } from './migrations/0035-archive-self-registered-users';
+import { AddEmployeeCertificates1748200000000 } from './migrations/0036-add-employee-certificates';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
@@ -165,6 +166,7 @@ export const AppDataSource = new DataSource({
     BackfillXpWithPlanCutoff1747900000000,
     AddReportingActivation1748000000000,
     ArchiveSelfRegisteredUsers1748100000000,
+    AddEmployeeCertificates1748200000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

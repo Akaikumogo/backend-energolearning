@@ -23,6 +23,7 @@ import { ContentModule } from './content/content.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { ProgressModule } from './progress/progress.module';
 import { StudentsModule } from './students/students.module';
+import { CertificatesModule } from './certificates/certificates.module';
 import { SeedModule } from './seed/seed.module';
 import { HeartsModule } from './hearts/hearts.module';
 import { ModeratorPermission } from './database/entities/moderator-permission.entity';
@@ -153,6 +154,7 @@ import { ReportingActivationModule } from './reporting-activation/reporting-acti
     OrganizationsModule,
     ProgressModule,
     StudentsModule,
+    CertificatesModule,
     ReportingActivationModule,
     SeedModule,
     HeartsModule,

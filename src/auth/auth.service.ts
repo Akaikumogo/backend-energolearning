@@ -33,6 +33,7 @@ import {
   isAllowedOAuthRedirectUri,
   resolveOAuthRedirectUri,
 } from './oauth-redirect.util';
+import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
 
 @Injectable()
 export class AuthService {
@@ -322,7 +323,7 @@ export class AuthService {
       firstName: user.firstName,
       lastName: user.lastName,
       role: user.role,
-      avatarUrl: user.avatarUrl ?? null,
+      avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
       organizationIds: this.getOrganizationIds(user),
       organizations,
       mustChangePassword: user.mustChangePassword ?? false,
