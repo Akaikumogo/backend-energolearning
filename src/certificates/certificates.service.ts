@@ -182,10 +182,7 @@ export class CertificatesService {
     const branchName =
       organization?.name?.trim() || nes?.organizationName?.trim() || '';
 
-    const prefix = resolveCertificatePrefix(
-      organization?.branchCode,
-      branchName,
-    );
+    const prefix = resolveCertificatePrefix(branchName);
     const certificateNumber = await this.nextCertificateNumber(prefix);
 
     const saved = await this.certificateRepo.save(
