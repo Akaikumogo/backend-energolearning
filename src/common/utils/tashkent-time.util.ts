@@ -2,6 +2,7 @@
 export const TZ_OFFSET_MS = 5 * 3600 * 1000;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONTH_RE = /^\d{4}-\d{2}$/;
 
 /** Toshkent bo'yicha bugungi sana YYYY-MM-DD. */
 export function tashkentToday(nowMs = Date.now()): string {
@@ -25,15 +26,20 @@ export function addTashkentDays(dateStr: string, days: number): string {
   return instantToTashkentDate(new Date(from.getTime() + days * 24 * 3600 * 1000));
 }
 
-/** Oy chegaralari. month: YYYY-MM (Toshkent). */
+/**
+ * Oy chegaralari. `month`: YYYY-MM yoki YYYY-MM-DD (birinchisi olinadi).
+ * Eslatma: YYYY-MM ni DATE_RE bilan tekshirish mumkin emas — doim joriy oyga tushardi.
+ */
 export function tashkentMonthBounds(month?: string): {
   month: string;
   daysInMonth: number;
   from: Date;
   to: Date;
 } {
-  const m = DATE_RE.test(month?.slice(0, 7) ?? '')
-    ? (month as string).slice(0, 7)
+  const raw = (month ?? '').trim();
+  const candidate = raw.slice(0, 7);
+  const m = MONTH_RE.test(candidate)
+    ? candidate
     : tashkentToday().slice(0, 7);
   const [y, mo] = m.split('-').map(Number);
   const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate();
