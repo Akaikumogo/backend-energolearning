@@ -4,6 +4,7 @@ import {
   listTashkentDays,
   parseTashkentRange,
   tashkentDayBounds,
+  tashkentMonthBounds,
   tashkentToday,
 } from './tashkent-time.util';
 
@@ -42,5 +43,18 @@ describe('tashkent-time.util', () => {
   it('instantToTashkentDate matches backend daily plan day key', () => {
     const instant = new Date('2026-07-08T20:30:00.000Z'); // 01:30 next day in Tashkent
     expect(instantToTashkentDate(instant)).toBe('2026-07-09');
+  });
+
+  it('tashkentMonthBounds accepts YYYY-MM (not only YYYY-MM-DD)', () => {
+    const r = tashkentMonthBounds('2026-07');
+    expect(r.month).toBe('2026-07');
+    expect(r.daysInMonth).toBe(31);
+    expect(r.from.toISOString()).toBe('2026-06-30T19:00:00.000Z');
+    expect(r.to.toISOString()).toBe('2026-07-31T19:00:00.000Z');
+  });
+
+  it('tashkentMonthBounds accepts YYYY-MM-DD by taking month prefix', () => {
+    expect(tashkentMonthBounds('2026-02-15').month).toBe('2026-02');
+    expect(tashkentMonthBounds('2026-02-15').daysInMonth).toBe(28);
   });
 });
