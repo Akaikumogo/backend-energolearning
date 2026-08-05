@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Brackets, Repository } from 'typeorm';
-import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
+import { REPORTING_ROLES, Role, isOrgScopedAdminRole } from '../common/enums/role.enum';
 import {
   listTashkentDays,
   parseTashkentRange,
@@ -96,13 +96,13 @@ export class StudentsService {
       .andWhere('u.energo_id IS NOT NULL')
       .orderBy('u.createdAt', 'DESC');
 
-    if (requestingUser.role === Role.MODERATOR) {
-      const scopedOrgIds =
-        (await this.organizationsService.resolveModeratorScope(
-          requestingUser.organizationIds,
-        )) ?? null;
+    if (isOrgScopedAdminRole(requestingUser.role)) {
+      const scopedOrgIds = await this.organizationsService.getAllowedOrgIds(
+        requestingUser.role,
+        requestingUser.organizationIds,
+      );
 
-      // default-org moderator => scopedOrgIds === null meaning no filter
+      // null = no filter (default-org moderator / superadmin path not used here)
       if (scopedOrgIds && scopedOrgIds.length === 0) {
         return { data: [], total: 0, page, limit };
       }
@@ -196,14 +196,14 @@ export class StudentsService {
     }
 
     const levels = await this.levelRepo.find({ order: { orderIndex: 'ASC' } });
-    const orgIds =
-      requestingUser.role === Role.MODERATOR
-        ? await this.organizationsService.resolveModeratorScope(
-            requestingUser.organizationIds,
-          )
-        : undefined;
+    const orgIds = isOrgScopedAdminRole(requestingUser.role)
+      ? await this.organizationsService.getAllowedOrgIds(
+          requestingUser.role,
+          requestingUser.organizationIds,
+        )
+      : null;
 
-    if (requestingUser.role === Role.MODERATOR) {
+    if (isOrgScopedAdminRole(requestingUser.role)) {
       const allowed = (user.organizations ?? []).some((uo) =>
         orgIds ? orgIds.includes(uo.organization?.id ?? '') : true,
       );
@@ -212,7 +212,7 @@ export class StudentsService {
 
     const completions = await this.completionRepo.find({
       where:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? { userId: id, organizationId: In(orgIds) }
           : { userId: id },
     });
@@ -235,19 +235,19 @@ export class StudentsService {
 
     const xpCount = await this.attemptRepo.count({
       where:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? { userId: id, isCorrect: true, countsForXp: true, organizationId: In(orgIds) }
           : { userId: id, isCorrect: true, countsForXp: true },
     });
     const correctCount = await this.attemptRepo.count({
       where:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? { userId: id, isCorrect: true, organizationId: In(orgIds) }
           : { userId: id, isCorrect: true },
     });
     const wrongCount = await this.attemptRepo.count({
       where:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? { userId: id, isCorrect: false, organizationId: In(orgIds) }
           : { userId: id, isCorrect: false },
     });
@@ -257,7 +257,7 @@ export class StudentsService {
       .select('COUNT(DISTINCT a.question_id)', 'cnt')
       .where('a.user_id = :userId', { userId: id })
       .andWhere('a.is_correct = true');
-    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+    if (isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length) {
       uniqueCorrectQb.andWhere('a.organization_id IN (:...orgIds)', { orgIds });
     }
     const uniqueCorrectRow = await uniqueCorrectQb.getRawOne<{ cnt: string }>();
@@ -301,7 +301,7 @@ export class StudentsService {
       division: nes?.division?.trim() || null,
       post: nes?.post?.trim() || null,
       organizations:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? (user.organizations ?? [])
               .filter((uo) => orgIds.includes(uo.organization?.id ?? ''))
               .map((uo) => ({
@@ -341,7 +341,7 @@ export class StudentsService {
             requestingUser.organizationIds,
           )
         : undefined;
-    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+    if (isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length) {
       const allowed = (user.organizations ?? []).some((uo) =>
         orgIds.includes(uo.organization?.id ?? ''),
       );
@@ -365,7 +365,7 @@ export class StudentsService {
       )
       .where('a.user_id = :userId', { userId: studentId })
       .andWhere(
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? 'a.organization_id IN (:...orgIds)'
           : '1=1',
         { orgIds: orgIds ?? [] },
@@ -411,7 +411,7 @@ export class StudentsService {
             requestingUser.organizationIds,
           )
         : undefined;
-    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+    if (isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length) {
       const allowed = (user.organizations ?? []).some((uo) =>
         orgIds.includes(uo.organization?.id ?? ''),
       );
@@ -434,7 +434,7 @@ export class StudentsService {
     if (onlyCorrect) {
       qb.andWhere('a.is_correct = true');
     }
-    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+    if (isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length) {
       qb.andWhere('a.organization_id IN (:...orgIds)', { orgIds });
     }
 
@@ -533,7 +533,7 @@ export class StudentsService {
         : undefined;
 
     // Moderator uchun allowance check: agar xodim ularning organization'lardan biriga tegishli bo'lmasa, empty heatmap qaytaramiz.
-    if (requestingUser.role === Role.MODERATOR && orgIds && orgIds.length) {
+    if (isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length) {
       // attempts query ham org bilan kesiladi (quyida), lekin membership check uchun relations kerak bo'ladi.
       const allowed = (user.organizations ?? []).some((uo) =>
         orgIds.includes(uo.organization?.id ?? ''),
@@ -549,7 +549,7 @@ export class StudentsService {
       .addSelect('COUNT(*)', 'count')
       .where('a.user_id = :userId', { userId: studentId })
       .andWhere(
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? 'a.organization_id IN (:...orgIds)'
           : '1=1',
         { orgIds: orgIds ?? [] },
@@ -683,14 +683,14 @@ export class StudentsService {
 
     const completions = await this.completionRepo.find({
       where:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? { userId: user.id, organizationId: In(orgIds) }
           : { userId: user.id },
     });
 
     const correctCount = await this.attemptRepo.count({
       where:
-        requestingUser.role === Role.MODERATOR && orgIds && orgIds.length
+        isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? {
               userId: user.id,
               isCorrect: true,

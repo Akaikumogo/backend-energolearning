@@ -38,6 +38,8 @@ export type ModeratorPermissions = {
   logs: CrudPermissions;
   nesSync: CrudPermissions;
   aiAssistant: CrudPermissions;
+  /** Xavfsizlik / sertifikat ma'lumotlari (manual entry) */
+  safetyRecords: CrudPermissions;
 };
 
 const DEFAULT_CRUD: CrudPermissions = {
@@ -64,6 +66,7 @@ export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   logs: DEFAULT_CRUD,
   nesSync: DEFAULT_CRUD,
   aiAssistant: DEFAULT_CRUD,
+  safetyRecords: DEFAULT_CRUD,
 };
 
 export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
@@ -83,6 +86,7 @@ export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
   'logs',
   'nesSync',
   'aiAssistant',
+  'safetyRecords',
 ];
 
 /** Eski jsonb qatorlarida yangi modullar bo‘lmasa, default bilan to‘ldiradi. */

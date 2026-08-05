@@ -81,6 +81,11 @@ export class OrganizationsService {
     organizationIds: string[] | undefined,
   ): Promise<string[] | null> {
     if (role === Role.SUPERADMIN) return null;
+    // Director hech qachon default-org "global" huquqiga ega emas.
+    if (role === Role.DIRECTOR) {
+      if (!organizationIds?.length) return [];
+      return this.expandOrgScope(organizationIds);
+    }
     const scope = await this.resolveModeratorScope(organizationIds);
     if (scope === undefined) return null;
     return scope;
