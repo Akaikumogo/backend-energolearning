@@ -32,6 +32,8 @@ export type EnergoIdUser = {
   lastSyncedAt?: string | null;
   initialPassword?: string | null;
   avatarUrl?: string | null;
+  /** From Energo ID userinfo after OAuth (PASSWORD | EID_AGENT). */
+  authMethod?: 'PASSWORD' | 'EID_AGENT';
 };
 
 type EnergoIdEmployeesResponse = {
@@ -86,6 +88,7 @@ type EnergoIdUserInfo = {
   middleName?: string;
   role: string;
   permissions: string[];
+  auth_method?: string;
   organization: {
     externalId: string | null;
     name: string;
@@ -330,6 +333,8 @@ export class EnergoIdAuthClient {
     if (!energoUserId || !login) {
       throw new ServiceUnavailableException('Energo ID userinfo noto`g`ri');
     }
+    const authMethod =
+      row.auth_method === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
     return {
       energoUserId,
       login,
@@ -341,6 +346,7 @@ export class EnergoIdAuthClient {
       organization: row.organization ?? null,
       mustChangePassword: false,
       status: row.status ?? 'ACTIVE',
+      authMethod,
     };
   }
 

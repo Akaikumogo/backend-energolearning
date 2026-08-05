@@ -466,6 +466,56 @@ export class UsersService {
     return this.findById(user.id) as Promise<User>;
   }
 
+  async promoteToDirector(dto: PromoteModeratorDto): Promise<User> {
+    const user = await this.findById(dto.userId);
+    if (!user) throw new NotFoundException('Xodim topilmadi');
+    if (user.role === Role.DIRECTOR) {
+      throw new BadRequestException('Bu xodim allaqachon direktor');
+    }
+    if (user.role === Role.SUPERADMIN) {
+      throw new BadRequestException('SuperAdmin direktor qilib belgilanmaydi');
+    }
+    if (!user.energoId) {
+      throw new BadRequestException(
+        'Faqat Energo ID orqali kelgan xodim direktor qilinadi',
+      );
+    }
+    if (!dto.organizationId) {
+      throw new BadRequestException('Direktor uchun filial (organizationId) majburiy');
+    }
+
+    const org = await this.orgRepo.findOne({
+      where: { id: dto.organizationId },
+    });
+    if (!org) throw new NotFoundException('Tashkilot topilmadi');
+
+    await this.usersRepo.update(user.id, {
+      role: Role.DIRECTOR,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+    await this.attachUserToOrganization(user.id, org.id);
+    return this.findById(user.id) as Promise<User>;
+  }
+
+  async demoteFromDirector(id: string): Promise<User> {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException('Direktor topilmadi');
+    if (user.role !== Role.DIRECTOR) {
+      throw new BadRequestException('Faqat direktor rolini olib tashlash mumkin');
+    }
+
+    await this.usersRepo.update(user.id, {
+      role: Role.USER,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+
+    return this.findById(user.id) as Promise<User>;
+  }
+
   async promoteToSuperAdmin(dto: PromoteSuperAdminDto): Promise<User> {
     const user = await this.findById(dto.userId);
     if (!user) throw new NotFoundException('Xodim topilmadi');
@@ -669,7 +719,11 @@ export class UsersService {
   }
 
   private isProtectedRole(role: Role): boolean {
-    return role === Role.MODERATOR || role === Role.SUPERADMIN;
+    return (
+      role === Role.MODERATOR ||
+      role === Role.SUPERADMIN ||
+      role === Role.DIRECTOR
+    );
   }
 
   private resolveSyncRole(existing: User | null, incomingRole: string): Role {

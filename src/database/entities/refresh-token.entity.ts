@@ -24,6 +24,10 @@ export class RefreshToken {
   @Column({ type: 'timestamptz', name: 'revoked_at', nullable: true })
   revokedAt: Date | null;
 
+  /** PASSWORD | EID_AGENT — login usuli (Director admin EID-only uchun). */
+  @Column({ type: 'text', name: 'auth_method', default: 'PASSWORD' })
+  authMethod: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 }

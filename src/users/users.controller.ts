@@ -179,6 +179,27 @@ export class UsersController {
       .then((user) => mapUserToProfile(user));
   }
 
+  @Post('directors/promote')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary: 'Mavjud xodimga direktor statusi berish (filial majburiy)',
+  })
+  @ApiBody({ type: PromoteModeratorDto })
+  promoteDirector(@Body() dto: PromoteModeratorDto) {
+    return this.usersService
+      .promoteToDirector(dto)
+      .then((user) => mapUserToProfile(user));
+  }
+
+  @Post('directors/:id/demote')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Direktorlikdan olib tashlash (xodim USER bo`lib qoladi)' })
+  demoteDirector(@Param('id', ParseUUIDPipe) id: string) {
+    return this.usersService
+      .demoteFromDirector(id)
+      .then((user) => mapUserToProfile(user));
+  }
+
   @Post('moderators')
   @Roles(Role.SUPERADMIN)
   @ApiOperation({

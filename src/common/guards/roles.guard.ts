@@ -7,7 +7,11 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
 import { ROLES_KEY } from '../decorators/roles.decorator';
-import { Role } from '../enums/role.enum';
+import {
+  AuthMethod,
+  DIRECTOR_EID_ONLY_MESSAGE,
+  Role,
+} from '../enums/role.enum';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -23,13 +27,22 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context
-      .switchToHttp()
-      .getRequest<Request & { user?: { role?: Role } }>();
+    const request = context.switchToHttp().getRequest<
+      Request & {
+        user?: { role?: Role; authMethod?: AuthMethod };
+      }
+    >();
     const { user } = request;
 
     if (!user?.role || !requiredRoles.includes(user.role)) {
       throw new ForbiddenException('Sizda ushbu endpoint uchun ruxsat yo`q');
+    }
+
+    if (
+      user.role === Role.DIRECTOR &&
+      user.authMethod !== 'EID_AGENT'
+    ) {
+      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
     }
 
     return true;

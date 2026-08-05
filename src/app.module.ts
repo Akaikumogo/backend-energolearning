@@ -89,6 +89,10 @@ import { ReportSubmission } from './database/entities/report-submission.entity';
 import { OrganizationDivisionSetting } from './database/entities/organization-division-setting.entity';
 import { ReportingActivationHistory } from './database/entities/reporting-activation-history.entity';
 import { ReportingActivationModule } from './reporting-activation/reporting-activation.module';
+import { SafetyRecordsModule } from './safety-records/safety-records.module';
+import { SafetyRecordType } from './database/entities/safety-record-type.entity';
+import { EmployeeSafetyRecord } from './database/entities/employee-safety-record.entity';
+import { EmployeeSafetyRecordChange } from './database/entities/employee-safety-record-change.entity';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -143,6 +147,9 @@ import { ReportingActivationModule } from './reporting-activation/reporting-acti
         ReportSubmission,
         OrganizationDivisionSetting,
         ReportingActivationHistory,
+        SafetyRecordType,
+        EmployeeSafetyRecord,
+        EmployeeSafetyRecordChange,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
@@ -155,6 +162,7 @@ import { ReportingActivationModule } from './reporting-activation/reporting-acti
     ProgressModule,
     StudentsModule,
     CertificatesModule,
+    SafetyRecordsModule,
     ReportingActivationModule,
     SeedModule,
     HeartsModule,

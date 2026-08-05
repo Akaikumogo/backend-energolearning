@@ -1,5 +1,18 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
@@ -12,10 +25,20 @@ export class NotificationsController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('bearer')
-  @ApiOperation({ summary: 'Mening notificationlarim (mobile stub)' })
+  @ApiOperation({ summary: 'Mening notificationlarim' })
   @ApiOkResponse({ description: 'Latest notifications' })
   listMy(@Req() req: Request & { user: { id: string } }) {
     return this.notificationsService.listForUser(req.user.id);
   }
-}
 
+  @Patch(':id/read')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'Notificationni o‘qilgan deb belgilash' })
+  markRead(
+    @Req() req: Request & { user: { id: string } },
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.notificationsService.markRead(id, req.user.id);
+  }
+}

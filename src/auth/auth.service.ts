@@ -16,6 +16,10 @@ import { UpdateProfileDto } from '../users/dto/update-profile.dto';
 import { UsersService } from '../users/users.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { Role } from '../common/enums/role.enum';
+import type { AuthMethod } from '../common/enums/role.enum';
+import {
+  DIRECTOR_EID_ONLY_MESSAGE,
+} from '../common/enums/role.enum';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { User } from '../database/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
@@ -34,6 +38,12 @@ import {
   resolveOAuthRedirectUri,
 } from './oauth-redirect.util';
 import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
+
+const ADMIN_PANEL_ROLES: Role[] = [
+  Role.SUPERADMIN,
+  Role.MODERATOR,
+  Role.DIRECTOR,
+];
 
 @Injectable()
 export class AuthService {
@@ -154,7 +164,9 @@ export class AuthService {
       effectiveVerifier,
     );
     const user = await this.usersService.syncFromEnergoIdentity(energoUser);
-    return this.issueLoginResponse(user, clientMeta);
+    const authMethod: AuthMethod =
+      energoUser.authMethod === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
+    return this.issueLoginResponse(user, clientMeta, authMethod);
   }
 
   async adminLoginWithEnergoIdCode(
@@ -165,35 +177,67 @@ export class AuthService {
     codeVerifier?: string,
     clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
-    const response = await this.loginWithEnergoIdCode(
-      code,
-      redirectUri,
-      state,
-      client,
-      codeVerifier,
-      clientMeta,
+    if (!this.energoIdAuthClient.isConfigured()) {
+      throw new BadRequestException('Energo ID sozlanmagan');
+    }
+    if (!state?.trim()) {
+      throw new BadRequestException('OAuth state talab qilinadi');
+    }
+    const normalizedClient = resolveOAuthClientType(redirectUri, client);
+    const oauthConfig = await this.energoIdAuthClient.fetchOAuthClientConfig(
+      normalizedClient,
     );
-    const role = response.data.user.role;
-    if (role !== Role.SUPERADMIN && role !== Role.MODERATOR) {
-      throw new ForbiddenException(
-        'Admin panelga faqat moderator yoki superadmin kira oladi',
+    const effectiveRedirect =
+      redirectUri?.trim() || oauthConfig.redirectUri;
+    if (!isAllowedOAuthRedirectUri(oauthConfig, effectiveRedirect)) {
+      throw new BadRequestException(
+        `Redirect URI ruxsat etilmagan: ${effectiveRedirect}`,
       );
     }
-    return response;
+    const pending = this.oauthPendingService.consume(
+      state.trim(),
+      effectiveRedirect,
+      normalizedClient,
+    );
+    const effectiveVerifier =
+      codeVerifier?.trim() || pending.codeVerifier?.trim();
+    if (normalizedClient === 'mobile' && !effectiveVerifier) {
+      throw new BadRequestException('PKCE code_verifier talab qilinadi');
+    }
+    const energoUser = await this.energoIdAuthClient.exchangeAuthorizationCode(
+      code.trim(),
+      effectiveRedirect,
+      effectiveVerifier,
+    );
+    const user = await this.usersService.syncFromEnergoIdentity(energoUser);
+    if (!ADMIN_PANEL_ROLES.includes(user.role)) {
+      throw new ForbiddenException(
+        'Admin panelga faqat moderator, direktor yoki superadmin kira oladi',
+      );
+    }
+    const authMethod: AuthMethod =
+      energoUser.authMethod === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
+    if (user.role === Role.DIRECTOR && authMethod !== 'EID_AGENT') {
+      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
+    }
+    return this.issueLoginResponse(user, clientMeta, authMethod);
   }
 
-  /** Admin panel — faqat ElektroLearn bazasi, SUPERADMIN va MODERATOR. */
+  /** Admin panel — SUPERADMIN/MODERATOR (password); DIRECTOR faqat EID. */
   async adminLogin(
     dto: LoginDto,
     clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
     const user = await this.resolveLocalUser(dto);
+    if (user.role === Role.DIRECTOR) {
+      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
+    }
     if (user.role !== Role.SUPERADMIN && user.role !== Role.MODERATOR) {
       throw new ForbiddenException(
         'Admin panelga faqat moderator yoki superadmin kira oladi',
       );
     }
-    return this.issueLoginResponse(user, clientMeta);
+    return this.issueLoginResponse(user, clientMeta, 'PASSWORD');
   }
 
   private async loginWithLocalPassword(
@@ -201,7 +245,7 @@ export class AuthService {
     clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
     const user = await this.resolveLocalUser(dto);
-    return this.issueLoginResponse(user, clientMeta);
+    return this.issueLoginResponse(user, clientMeta, 'PASSWORD');
   }
 
   private async resolveLocalUser(dto: LoginDto): Promise<User> {
@@ -232,6 +276,7 @@ export class AuthService {
   private async issueLoginResponse(
     user: User,
     clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
+    authMethod: AuthMethod = 'PASSWORD',
   ): Promise<LoginSuccessResponseDto> {
     this.assertLoginAllowed(user);
 
@@ -240,10 +285,11 @@ export class AuthService {
       email: user.email,
       role: user.role,
       organizationIds: this.getOrganizationIds(user),
+      authMethod,
     };
 
     const accessToken = await this.jwtService.signAsync(payload);
-    const refreshToken = await this.issueRefreshToken(user.id);
+    const refreshToken = await this.issueRefreshToken(user.id, authMethod);
     const profile = this.toProfile(user);
 
     const orgIds = this.getOrganizationIds(user);
@@ -348,11 +394,17 @@ export class AuthService {
 
     const user = record.user;
     this.assertLoginAllowed(user);
+    const authMethod: AuthMethod =
+      record.authMethod === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
+    if (user.role === Role.DIRECTOR && authMethod !== 'EID_AGENT') {
+      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
+    }
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       organizationIds: this.getOrganizationIds(user),
+      authMethod,
     };
 
     const accessToken = await this.jwtService.signAsync(payload);
@@ -400,7 +452,10 @@ export class AuthService {
     );
   }
 
-  private async issueRefreshToken(userId: string): Promise<string> {
+  private async issueRefreshToken(
+    userId: string,
+    authMethod: AuthMethod = 'PASSWORD',
+  ): Promise<string> {
     const raw = randomBytes(48).toString('hex');
     const tokenHash = this.hashToken(raw);
     const days = Number(process.env.REFRESH_TOKEN_DAYS ?? 30);
@@ -412,6 +467,7 @@ export class AuthService {
         tokenHash,
         expiresAt,
         revokedAt: null,
+        authMethod,
       }),
     );
 
