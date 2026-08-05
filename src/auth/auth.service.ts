@@ -18,7 +18,7 @@ import { OrganizationsService } from '../organizations/organizations.service';
 import { Role } from '../common/enums/role.enum';
 import type { AuthMethod } from '../common/enums/role.enum';
 import {
-  DIRECTOR_EID_ONLY_MESSAGE,
+  APPROVER_EID_ONLY_MESSAGE,
 } from '../common/enums/role.enum';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { User } from '../database/entities/user.entity';
@@ -42,7 +42,7 @@ import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
 const ADMIN_PANEL_ROLES: Role[] = [
   Role.SUPERADMIN,
   Role.MODERATOR,
-  Role.DIRECTOR,
+  Role.APPROVER,
 ];
 
 @Injectable()
@@ -217,20 +217,20 @@ export class AuthService {
     }
     const authMethod: AuthMethod =
       energoUser.authMethod === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
-    if (user.role === Role.DIRECTOR && authMethod !== 'EID_AGENT') {
-      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
+    if (user.role === Role.APPROVER && authMethod !== 'EID_AGENT') {
+      throw new ForbiddenException(APPROVER_EID_ONLY_MESSAGE);
     }
     return this.issueLoginResponse(user, clientMeta, authMethod);
   }
 
-  /** Admin panel — SUPERADMIN/MODERATOR (password); DIRECTOR faqat EID. */
+  /** Admin panel — SUPERADMIN/MODERATOR (password); APPROVER faqat EID. */
   async adminLogin(
     dto: LoginDto,
     clientMeta?: { ipAddress?: string | null; userAgent?: string | null },
   ): Promise<LoginSuccessResponseDto> {
     const user = await this.resolveLocalUser(dto);
-    if (user.role === Role.DIRECTOR) {
-      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
+    if (user.role === Role.APPROVER) {
+      throw new ForbiddenException(APPROVER_EID_ONLY_MESSAGE);
     }
     if (user.role !== Role.SUPERADMIN && user.role !== Role.MODERATOR) {
       throw new ForbiddenException(
@@ -396,8 +396,8 @@ export class AuthService {
     this.assertLoginAllowed(user);
     const authMethod: AuthMethod =
       record.authMethod === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
-    if (user.role === Role.DIRECTOR && authMethod !== 'EID_AGENT') {
-      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
+    if (user.role === Role.APPROVER && authMethod !== 'EID_AGENT') {
+      throw new ForbiddenException(APPROVER_EID_ONLY_MESSAGE);
     }
     const payload: JwtPayload = {
       sub: user.id,

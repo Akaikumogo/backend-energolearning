@@ -38,14 +38,14 @@ export class SafetyRecordsController {
   constructor(private readonly safetyRecordsService: SafetyRecordsService) {}
 
   @Get('safety-record-types')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.DIRECTOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
   @ApiOperation({ summary: 'Sertifikat / xavfsizlik turlari' })
   listTypes() {
     return this.safetyRecordsService.listTypes();
   }
 
   @Get('students/:userId/safety-records')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.DIRECTOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
   @ApiOperation({ summary: 'Xodimning joriy safety yozuvlari' })
   @ApiOkResponse({ description: 'Types + latest records + pending changes' })
   listForEmployee(
@@ -56,7 +56,7 @@ export class SafetyRecordsController {
   }
 
   @Get('students/:userId/safety-records/:typeCode/history')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.DIRECTOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
   @ApiOperation({ summary: 'Xodim safety tarixi (records + audit)' })
   history(
     @Req() req: Authed,
@@ -86,7 +86,7 @@ export class SafetyRecordsController {
   }
 
   @Post('safety-changes/:changeId/approve')
-  @Roles(Role.SUPERADMIN, Role.DIRECTOR)
+  @Roles(Role.SUPERADMIN, Role.APPROVER)
   @ApiOperation({ summary: 'Safety o‘zgarishini tasdiqlash' })
   approve(
     @Req() req: Authed,
@@ -96,7 +96,7 @@ export class SafetyRecordsController {
   }
 
   @Post('safety-changes/:changeId/reject')
-  @Roles(Role.SUPERADMIN, Role.DIRECTOR)
+  @Roles(Role.SUPERADMIN, Role.APPROVER)
   @ApiOperation({ summary: 'Safety o‘zgarishini rad etish' })
   reject(
     @Req() req: Authed,

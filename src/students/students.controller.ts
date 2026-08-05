@@ -31,7 +31,7 @@ import { CreateStudentDto } from './dto/create-student.dto';
 @ApiTags('Employees')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.DIRECTOR)
+@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
 @Controller(['admin/students', 'admin/employees'])
 export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
