@@ -1,13 +1,14 @@
 export enum Role {
   SUPERADMIN = 'SUPERADMIN',
   MODERATOR = 'MODERATOR',
-  DIRECTOR = 'DIRECTOR',
+  /** Filial tasdiqlovchi shaxs — moderator kiritgan jadvallarni tasdiqlaydi. */
+  APPROVER = 'APPROVER',
   USER = 'USER',
 }
 
 /**
  * Plan/KPI/Xodimlar ro‘yxati: oddiy xodim + moderator.
- * SUPERADMIN / DIRECTOR hisobga olinmaydi.
+ * SUPERADMIN / APPROVER hisobga olinmaydi.
  */
 export const REPORTING_ROLES: readonly Role[] = [
   Role.USER,
@@ -20,10 +21,13 @@ export function isReportingRole(role: Role | string): boolean {
 
 /** Admin panelda filial bo‘yicha cheklanadigan rollar. */
 export function isOrgScopedAdminRole(role: Role | string): boolean {
-  return role === Role.MODERATOR || role === Role.DIRECTOR;
+  return role === Role.MODERATOR || role === Role.APPROVER;
 }
 
 export type AuthMethod = 'PASSWORD' | 'EID_AGENT';
 
-export const DIRECTOR_EID_ONLY_MESSAGE =
+export const APPROVER_EID_ONLY_MESSAGE =
   'Ushbu platformaga faqat EID orqali kirishingiz mumkin.';
+
+/** @deprecated use APPROVER_EID_ONLY_MESSAGE */
+export const DIRECTOR_EID_ONLY_MESSAGE = APPROVER_EID_ONLY_MESSAGE;

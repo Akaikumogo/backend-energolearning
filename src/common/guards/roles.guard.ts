@@ -9,7 +9,7 @@ import { Request } from 'express';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import {
   AuthMethod,
-  DIRECTOR_EID_ONLY_MESSAGE,
+  APPROVER_EID_ONLY_MESSAGE,
   Role,
 } from '../enums/role.enum';
 
@@ -39,10 +39,10 @@ export class RolesGuard implements CanActivate {
     }
 
     if (
-      user.role === Role.DIRECTOR &&
+      user.role === Role.APPROVER &&
       user.authMethod !== 'EID_AGENT'
     ) {
-      throw new ForbiddenException(DIRECTOR_EID_ONLY_MESSAGE);
+      throw new ForbiddenException(APPROVER_EID_ONLY_MESSAGE);
     }
 
     return true;

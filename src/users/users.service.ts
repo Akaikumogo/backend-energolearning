@@ -466,22 +466,26 @@ export class UsersService {
     return this.findById(user.id) as Promise<User>;
   }
 
-  async promoteToDirector(dto: PromoteModeratorDto): Promise<User> {
+  async promoteToApprover(dto: PromoteModeratorDto): Promise<User> {
     const user = await this.findById(dto.userId);
     if (!user) throw new NotFoundException('Xodim topilmadi');
-    if (user.role === Role.DIRECTOR) {
-      throw new BadRequestException('Bu xodim allaqachon direktor');
+    if (user.role === Role.APPROVER) {
+      throw new BadRequestException('Bu xodim allaqachon tasdiqlovchi');
     }
     if (user.role === Role.SUPERADMIN) {
-      throw new BadRequestException('SuperAdmin direktor qilib belgilanmaydi');
+      throw new BadRequestException(
+        'SuperAdmin tasdiqlovchi qilib belgilanmaydi',
+      );
     }
     if (!user.energoId) {
       throw new BadRequestException(
-        'Faqat Energo ID orqali kelgan xodim direktor qilinadi',
+        'Faqat Energo ID orqali kelgan xodim tasdiqlovchi qilinadi',
       );
     }
     if (!dto.organizationId) {
-      throw new BadRequestException('Direktor uchun filial (organizationId) majburiy');
+      throw new BadRequestException(
+        'Tasdiqlovchi uchun filial (organizationId) majburiy',
+      );
     }
 
     const org = await this.orgRepo.findOne({
@@ -490,7 +494,7 @@ export class UsersService {
     if (!org) throw new NotFoundException('Tashkilot topilmadi');
 
     await this.usersRepo.update(user.id, {
-      role: Role.DIRECTOR,
+      role: Role.APPROVER,
       passwordHash: null,
       initialPassword: null,
       mustChangePassword: false,
@@ -499,11 +503,13 @@ export class UsersService {
     return this.findById(user.id) as Promise<User>;
   }
 
-  async demoteFromDirector(id: string): Promise<User> {
+  async demoteFromApprover(id: string): Promise<User> {
     const user = await this.findById(id);
-    if (!user) throw new NotFoundException('Direktor topilmadi');
-    if (user.role !== Role.DIRECTOR) {
-      throw new BadRequestException('Faqat direktor rolini olib tashlash mumkin');
+    if (!user) throw new NotFoundException('Tasdiqlovchi topilmadi');
+    if (user.role !== Role.APPROVER) {
+      throw new BadRequestException(
+        'Faqat tasdiqlovchi rolini olib tashlash mumkin',
+      );
     }
 
     await this.usersRepo.update(user.id, {
@@ -722,7 +728,7 @@ export class UsersService {
     return (
       role === Role.MODERATOR ||
       role === Role.SUPERADMIN ||
-      role === Role.DIRECTOR
+      role === Role.APPROVER
     );
   }
 

@@ -82,7 +82,7 @@ export class OrganizationsService {
   ): Promise<string[] | null> {
     if (role === Role.SUPERADMIN) return null;
     // Director hech qachon default-org "global" huquqiga ega emas.
-    if (role === Role.DIRECTOR) {
+    if (role === Role.APPROVER) {
       if (!organizationIds?.length) return [];
       return this.expandOrgScope(organizationIds);
     }

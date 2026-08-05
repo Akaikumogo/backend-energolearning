@@ -126,8 +126,8 @@ export class SafetyRecordsService {
     dto: UpsertSafetyRecordDto,
     actor: Actor,
   ) {
-    if (actor.role === Role.DIRECTOR) {
-      throw new ForbiddenException('Direktor maʼlumot kiritolmaydi');
+    if (actor.role === Role.APPROVER) {
+      throw new ForbiddenException('Tasdiqlovchi maʼlumot kiritolmaydi');
     }
     const employee = await this.assertEmployeeAccess(employeeUserId, actor);
     const type = await this.requireType(typeCode);
@@ -211,7 +211,7 @@ export class SafetyRecordsService {
   }
 
   async approve(changeId: string, actor: Actor) {
-    if (actor.role !== Role.DIRECTOR && actor.role !== Role.SUPERADMIN) {
+    if (actor.role !== Role.APPROVER && actor.role !== Role.SUPERADMIN) {
       throw new ForbiddenException('Tasdiqlash huquqi yoʻq');
     }
     const change = await this.requirePendingChange(changeId, actor);
@@ -262,7 +262,7 @@ export class SafetyRecordsService {
   }
 
   async reject(changeId: string, dto: RejectSafetyChangeDto, actor: Actor) {
-    if (actor.role !== Role.DIRECTOR && actor.role !== Role.SUPERADMIN) {
+    if (actor.role !== Role.APPROVER && actor.role !== Role.SUPERADMIN) {
       throw new ForbiddenException('Rad etish huquqi yoʻq');
     }
     const change = await this.requirePendingChange(changeId, actor);
@@ -378,11 +378,11 @@ export class SafetyRecordsService {
     change: EmployeeSafetyRecordChange,
     actor: Actor,
   ) {
-    const directors = await this.userRepo
+    const approvers = await this.userRepo
       .createQueryBuilder('u')
       .innerJoin('u.organizations', 'uo')
       .innerJoin('uo.organization', 'org')
-      .where('u.role = :role', { role: Role.DIRECTOR })
+      .where('u.role = :role', { role: Role.APPROVER })
       .andWhere('org.id = :orgId', {
         orgId: change.organizationId,
       })
@@ -393,7 +393,7 @@ export class SafetyRecordsService {
     });
 
     const recipients = new Map<string, User>();
-    for (const d of directors) recipients.set(d.id, d);
+    for (const a of approvers) recipients.set(a.id, a);
     for (const s of superadmins) recipients.set(s.id, s);
     recipients.delete(actor.id);
 

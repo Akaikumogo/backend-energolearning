@@ -114,6 +114,41 @@ export class UsersController {
       }));
   }
 
+  @Get('approvers')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Tasdiqlovchilar ro`yxati (search + pagination)' })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'orgId', required: false })
+  @ApiQuery({
+    name: 'orgMode',
+    required: false,
+    enum: ['include', 'exclude'],
+  })
+  @ApiQuery({ name: 'page', required: false })
+  @ApiQuery({ name: 'limit', required: false })
+  findApprovers(
+    @Query('search') search?: string,
+    @Query('orgId') orgId?: string,
+    @Query('orgMode') orgMode?: 'include' | 'exclude',
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.usersService
+      .findAll({
+        role: Role.APPROVER,
+        search,
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? parseInt(limit, 10) : undefined,
+        organizationIds: orgId?.trim() ? [orgId.trim()] : undefined,
+        organizationFilterMode: orgMode === 'exclude' ? 'exclude' : 'include',
+        requireEnergoId: true,
+      })
+      .then((result) => ({
+        ...result,
+        data: result.data.map(mapUserToProfile),
+      }));
+  }
+
   @Get(':id')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Foydalanuvchi batafsil' })
@@ -179,24 +214,27 @@ export class UsersController {
       .then((user) => mapUserToProfile(user));
   }
 
-  @Post('directors/promote')
+  @Post('approvers/promote')
   @Roles(Role.SUPERADMIN)
   @ApiOperation({
-    summary: 'Mavjud xodimga direktor statusi berish (filial majburiy)',
+    summary:
+      'Filialga tasdiqlovchi shaxs tayinlash (moderator jadvallarini tasdiqlaydi)',
   })
   @ApiBody({ type: PromoteModeratorDto })
-  promoteDirector(@Body() dto: PromoteModeratorDto) {
+  promoteApprover(@Body() dto: PromoteModeratorDto) {
     return this.usersService
-      .promoteToDirector(dto)
+      .promoteToApprover(dto)
       .then((user) => mapUserToProfile(user));
   }
 
-  @Post('directors/:id/demote')
+  @Post('approvers/:id/demote')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'Direktorlikdan olib tashlash (xodim USER bo`lib qoladi)' })
-  demoteDirector(@Param('id', ParseUUIDPipe) id: string) {
+  @ApiOperation({
+    summary: 'Tasdiqlovchilikdan olib tashlash (xodim USER bo`lib qoladi)',
+  })
+  demoteApprover(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService
-      .demoteFromDirector(id)
+      .demoteFromApprover(id)
       .then((user) => mapUserToProfile(user));
   }
 
