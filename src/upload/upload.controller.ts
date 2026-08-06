@@ -107,6 +107,31 @@ const videoFileFilter = (
   cb(null, true);
 };
 
+const documentFileFilter = (
+  _req: Request,
+  file: Express.Multer.File,
+  cb: (error: Error | null, acceptFile: boolean) => void,
+) => {
+  const name = file.originalname?.toLowerCase() ?? '';
+  const okExt = /\.(pdf|docx|doc)$/i.test(name);
+  const okMime =
+    file.mimetype === 'application/pdf' ||
+    file.mimetype ===
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    file.mimetype === 'application/msword' ||
+    file.mimetype === 'application/octet-stream';
+  if (!okExt && !okMime) {
+    cb(
+      new BadRequestException(
+        'Faqat PDF yoki Word (.pdf, .docx, .doc) fayllar qabul qilinadi',
+      ),
+      false,
+    );
+    return;
+  }
+  cb(null, true);
+};
+
 const avatarMemoryStorage = memoryStorage();
 
 function parseHasFace(body: {
@@ -351,6 +376,51 @@ export class UploadController {
       size: file.size,
       mimeType: file.mimetype,
       originalName: file.originalname,
+    };
+  }
+
+  // ─── Document upload (PDF / Word) ───────────────────────────────────────
+  @Post('admin/upload/document')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiBearerAuth('bearer')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: makeDiskStorage('documents'),
+      fileFilter: documentFileFilter,
+      limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+    }),
+  )
+  @ApiOperation({
+    summary: 'Kutubxona hujjati yuklash (PDF / Word)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  async uploadDocument(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Fayl yuklanmadi');
+    const name = file.originalname?.toLowerCase() ?? '';
+    let fileKind: 'PDF' | 'DOCX' | 'DOC' = 'PDF';
+    if (name.endsWith('.docx')) fileKind = 'DOCX';
+    else if (name.endsWith('.doc')) fileKind = 'DOC';
+    else if (name.endsWith('.pdf')) fileKind = 'PDF';
+    else if (file.mimetype.includes('wordprocessingml')) fileKind = 'DOCX';
+    else if (file.mimetype === 'application/msword') fileKind = 'DOC';
+
+    return {
+      success: true,
+      url: `/uploads/documents/${file.filename}`,
+      size: file.size,
+      mimeType: file.mimetype,
+      originalName: file.originalname,
+      fileKind,
     };
   }
 

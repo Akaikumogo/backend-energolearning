@@ -7,6 +7,7 @@ import { QuestionOption } from '../database/entities/question-option.entity';
 import { QuestionPosition } from '../database/entities/question-position.entity';
 import { LevelPosition } from '../database/entities/level-position.entity';
 import { Position } from '../database/entities/position.entity';
+import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { ContentController } from './content.controller';
 import { MobileContentController } from './mobile-content.controller';
 import { ContentService } from './content.service';
@@ -21,6 +22,7 @@ import { ContentService } from './content.service';
       QuestionPosition,
       LevelPosition,
       Position,
+      UserQuestionAttempt,
     ]),
   ],
   controllers: [ContentController, MobileContentController],

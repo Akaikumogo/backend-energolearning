@@ -684,6 +684,15 @@ export class BranchAnalyticsService {
       return { done: false, exhausted: true, question: null, progress };
     }
 
+    const shuffledOptions = [...(question.options ?? [])];
+    for (let i = shuffledOptions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffledOptions[i], shuffledOptions[j]] = [
+        shuffledOptions[j],
+        shuffledOptions[i],
+      ];
+    }
+
     return {
       done: false,
       exhausted: false,
@@ -692,14 +701,12 @@ export class BranchAnalyticsService {
         id: question.id,
         prompt: question.prompt,
         type: question.type,
-        options: (question.options ?? [])
-          .sort((a, b) => a.orderIndex - b.orderIndex)
-          .map((o) => ({
-            id: o.id,
-            optionText: o.optionText,
-            orderIndex: o.orderIndex,
-            matchText: o.matchText ?? null,
-          })),
+        options: shuffledOptions.map((o, displayIndex) => ({
+          id: o.id,
+          optionText: o.optionText,
+          orderIndex: displayIndex,
+          matchText: o.matchText ?? null,
+        })),
       },
     };
   }

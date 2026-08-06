@@ -93,6 +93,8 @@ import { SafetyRecordsModule } from './safety-records/safety-records.module';
 import { SafetyRecordType } from './database/entities/safety-record-type.entity';
 import { EmployeeSafetyRecord } from './database/entities/employee-safety-record.entity';
 import { EmployeeSafetyRecordChange } from './database/entities/employee-safety-record-change.entity';
+import { LibraryDocumentsModule } from './library-documents/library-documents.module';
+import { LibraryDocument } from './database/entities/library-document.entity';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -150,6 +152,7 @@ import { EmployeeSafetyRecordChange } from './database/entities/employee-safety-
         SafetyRecordType,
         EmployeeSafetyRecord,
         EmployeeSafetyRecordChange,
+        LibraryDocument,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
@@ -175,6 +178,7 @@ import { EmployeeSafetyRecordChange } from './database/entities/employee-safety-
     DbAdminModule,
     AiChatModule,
     AudioLibraryModule,
+    LibraryDocumentsModule,
     NesEmployeesModule,
     UserActivityModule,
     BranchAnalyticsModule,

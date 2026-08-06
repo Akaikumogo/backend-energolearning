@@ -9,6 +9,7 @@ import { QuestionOption } from '../database/entities/question-option.entity';
 import { QuestionPosition } from '../database/entities/question-position.entity';
 import { LevelPosition } from '../database/entities/level-position.entity';
 import { Position } from '../database/entities/position.entity';
+import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { CreateLevelDto } from './dto/create-level.dto';
 import { UpdateLevelDto } from './dto/update-level.dto';
 import { CreateTheoryDto } from './dto/create-theory.dto';
@@ -57,6 +58,18 @@ export type ImportModuleDocxResult = {
   createdLevelId: string | null;
 };
 
+/** Mobile modul quiz: davom etish yoki tugatilgan modulni qayta random. */
+export type MobileTheoryQuizMode = 'continue' | 'retry';
+
+export type MobileTheoryQuestionsResult = {
+  mode: MobileTheoryQuizMode;
+  questions: Question[];
+  totalQuestions: number;
+  answeredCount: number;
+  remainingCount: number;
+  isModuleComplete: boolean;
+};
+
 @Injectable()
 export class ContentService {
   constructor(
@@ -72,6 +85,8 @@ export class ContentService {
     private readonly levelPositionRepo: Repository<LevelPosition>,
     @InjectRepository(Position)
     private readonly positionRepo: Repository<Position>,
+    @InjectRepository(UserQuestionAttempt)
+    private readonly attemptRepo: Repository<UserQuestionAttempt>,
     private readonly dataSource: DataSource,
   ) {}
 
@@ -260,23 +275,83 @@ export class ContentService {
     };
   }
 
-  /** Mobile: nazariya bo'yicha har safar tasodifiy 4 ta savol (kamida 4 ta bo'lsa hammasi qaytadi). */
+  /**
+   * Mobile modul quiz:
+   * - continue: yechilgan (attempt bor) savollar chiqmaydi, qolganlardan random ≤4
+   * - retry: modul tugaganidan keyin — barcha aktiv savollar qayta random
+   */
   private static readonly MOBILE_THEORY_QUESTION_SAMPLE = 4;
 
   async findQuestionsForMobileByTheoryId(
     theoryId: string,
-  ): Promise<Question[]> {
-    const idRows = await this.questionRepo
+    userId: string,
+    mode: MobileTheoryQuizMode = 'continue',
+  ): Promise<MobileTheoryQuestionsResult> {
+    const effectiveMode: MobileTheoryQuizMode =
+      mode === 'retry' ? 'retry' : 'continue';
+
+    const totalQuestions = await this.questionRepo.count({
+      where: { theoryId, isActive: true },
+    });
+
+    const answeredRow = await this.attemptRepo
+      .createQueryBuilder('a')
+      .innerJoin('a.question', 'q')
+      .select('COUNT(DISTINCT a.question_id)', 'cnt')
+      .where('a.user_id = :userId', { userId })
+      .andWhere('q.theory_id = :theoryId', { theoryId })
+      .andWhere('q.is_active = true')
+      .getRawOne<{ cnt: string }>();
+
+    const answeredCount = parseInt(answeredRow?.cnt ?? '0', 10);
+    const remainingCount = Math.max(0, totalQuestions - answeredCount);
+    const isModuleComplete =
+      totalQuestions > 0 && answeredCount >= totalQuestions;
+
+    if (effectiveMode === 'continue' && isModuleComplete) {
+      return {
+        mode: 'continue',
+        questions: [],
+        totalQuestions,
+        answeredCount,
+        remainingCount: 0,
+        isModuleComplete: true,
+      };
+    }
+
+    const idQb = this.questionRepo
       .createQueryBuilder('q')
       .select('q.id')
       .where('q.theory_id = :theoryId', { theoryId })
       .andWhere('q.is_active = true')
-      .orderBy('RANDOM()')
-      .limit(ContentService.MOBILE_THEORY_QUESTION_SAMPLE)
-      .getRawMany();
+      .orderBy('RANDOM()');
 
+    if (effectiveMode === 'continue') {
+      idQb
+        .andWhere(
+          `NOT EXISTS (
+            SELECT 1 FROM user_question_attempts a
+            WHERE a.question_id = q.id AND a.user_id = :userId
+          )`,
+        )
+        .setParameter('userId', userId)
+        .limit(ContentService.MOBILE_THEORY_QUESTION_SAMPLE);
+    }
+
+    const idRows = await idQb.getRawMany();
     const ids = idRows.map((row) => row.q_id as string);
-    if (ids.length === 0) return [];
+
+    if (ids.length === 0) {
+      return {
+        mode: effectiveMode,
+        questions: [],
+        totalQuestions,
+        answeredCount,
+        remainingCount:
+          effectiveMode === 'retry' ? totalQuestions : remainingCount,
+        isModuleComplete,
+      };
+    }
 
     const questions = await this.questionRepo
       .createQueryBuilder('q')
@@ -286,7 +361,19 @@ export class ContentService {
       .getMany();
 
     const byId = new Map(questions.map((q) => [q.id, q]));
-    return ids.map((id) => byId.get(id)).filter((q): q is Question => q != null);
+    const ordered = ids
+      .map((id) => byId.get(id))
+      .filter((q): q is Question => q != null);
+
+    return {
+      mode: effectiveMode,
+      questions: ordered,
+      totalQuestions,
+      answeredCount,
+      remainingCount:
+        effectiveMode === 'retry' ? totalQuestions : remainingCount,
+      isModuleComplete,
+    };
   }
 
   // ─── Levels ──────────────────────────────────────────
