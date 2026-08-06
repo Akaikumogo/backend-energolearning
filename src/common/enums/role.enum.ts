@@ -3,12 +3,14 @@ export enum Role {
   MODERATOR = 'MODERATOR',
   /** Filial tasdiqlovchi shaxs — moderator kiritgan jadvallarni tasdiqlaydi. */
   APPROVER = 'APPROVER',
+  /** Hisob bo‘limi — analitika/hisobotlar + xodim detail (read-only). */
+  ACCOUNTING = 'ACCOUNTING',
   USER = 'USER',
 }
 
 /**
  * Plan/KPI/Xodimlar ro‘yxati: oddiy xodim + moderator.
- * SUPERADMIN / APPROVER hisobga olinmaydi.
+ * SUPERADMIN / APPROVER / ACCOUNTING hisobga olinmaydi.
  */
 export const REPORTING_ROLES: readonly Role[] = [
   Role.USER,
@@ -21,8 +23,24 @@ export function isReportingRole(role: Role | string): boolean {
 
 /** Admin panelda filial bo‘yicha cheklanadigan rollar. */
 export function isOrgScopedAdminRole(role: Role | string): boolean {
-  return role === Role.MODERATOR || role === Role.APPROVER;
+  return (
+    role === Role.MODERATOR ||
+    role === Role.APPROVER ||
+    role === Role.ACCOUNTING
+  );
 }
+
+/** Analitika / hisobot / Excel — filial scope qo‘llanadigan rollar. */
+export function isAnalyticsOrgScopedRole(role: Role | string): boolean {
+  return role === Role.MODERATOR || role === Role.ACCOUNTING;
+}
+
+/** Analitika + hisobot endpointlari. */
+export const ANALYTICS_ACCESS_ROLES: readonly Role[] = [
+  Role.SUPERADMIN,
+  Role.MODERATOR,
+  Role.ACCOUNTING,
+] as const;
 
 export type AuthMethod = 'PASSWORD' | 'EID_AGENT';
 

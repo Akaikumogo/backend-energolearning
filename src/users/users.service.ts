@@ -420,8 +420,14 @@ export class UsersService {
     if (user.role === Role.MODERATOR) {
       throw new BadRequestException('Bu xodim allaqachon moderator');
     }
-    if (user.role === Role.SUPERADMIN) {
-      throw new BadRequestException('SuperAdmin moderator qilib belgilanmaydi');
+    if (
+      user.role === Role.SUPERADMIN ||
+      user.role === Role.APPROVER ||
+      user.role === Role.ACCOUNTING
+    ) {
+      throw new BadRequestException(
+        'Avval joriy rolni olib tashlang, keyin moderator qiling',
+      );
     }
     if (!user.energoId) {
       throw new BadRequestException(
@@ -472,9 +478,13 @@ export class UsersService {
     if (user.role === Role.APPROVER) {
       throw new BadRequestException('Bu xodim allaqachon tasdiqlovchi');
     }
-    if (user.role === Role.SUPERADMIN) {
+    if (
+      user.role === Role.SUPERADMIN ||
+      user.role === Role.MODERATOR ||
+      user.role === Role.ACCOUNTING
+    ) {
       throw new BadRequestException(
-        'SuperAdmin tasdiqlovchi qilib belgilanmaydi',
+        'Avval joriy rolni olib tashlang, keyin tasdiqlovchi qiling',
       );
     }
     if (!user.energoId) {
@@ -509,6 +519,67 @@ export class UsersService {
     if (user.role !== Role.APPROVER) {
       throw new BadRequestException(
         'Faqat tasdiqlovchi rolini olib tashlash mumkin',
+      );
+    }
+
+    await this.usersRepo.update(user.id, {
+      role: Role.USER,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+
+    return this.findById(user.id) as Promise<User>;
+  }
+
+  async promoteToAccounting(dto: PromoteModeratorDto): Promise<User> {
+    const user = await this.findById(dto.userId);
+    if (!user) throw new NotFoundException('Xodim topilmadi');
+    if (user.role === Role.ACCOUNTING) {
+      throw new BadRequestException('Bu xodim allaqachon hisob bo‘limi xodimi');
+    }
+    if (user.role === Role.SUPERADMIN) {
+      throw new BadRequestException(
+        'SuperAdmin hisob bo‘limi qilib belgilanmaydi',
+      );
+    }
+    if (user.role === Role.MODERATOR || user.role === Role.APPROVER) {
+      throw new BadRequestException(
+        'Avval joriy rolni olib tashlang, keyin hisob bo‘limiga tayinlang',
+      );
+    }
+    if (!user.energoId) {
+      throw new BadRequestException(
+        'Faqat Energo ID orqali kelgan xodim hisob bo‘limiga tayinlanadi',
+      );
+    }
+    if (!dto.organizationId) {
+      throw new BadRequestException(
+        'Hisob bo‘limi uchun filial (organizationId) majburiy',
+      );
+    }
+
+    const org = await this.orgRepo.findOne({
+      where: { id: dto.organizationId },
+    });
+    if (!org) throw new NotFoundException('Tashkilot topilmadi');
+
+    await this.usersRepo.update(user.id, {
+      role: Role.ACCOUNTING,
+      passwordHash: null,
+      initialPassword: null,
+      mustChangePassword: false,
+    });
+    await this.attachUserToOrganization(user.id, org.id);
+    return this.findById(user.id) as Promise<User>;
+  }
+
+  async demoteFromAccounting(id: string): Promise<User> {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException('Hisob bo‘limi xodimi topilmadi');
+    if (user.role !== Role.ACCOUNTING) {
+      throw new BadRequestException(
+        'Faqat hisob bo‘limi rolini olib tashlash mumkin',
       );
     }
 
@@ -617,8 +688,10 @@ export class UsersService {
   async updateModerator(id: string, dto: UpdateModeratorDto): Promise<User> {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('Moderator topilmadi');
-    if (user.role !== Role.MODERATOR) {
-      throw new BadRequestException('Faqat moderator yangilanadi');
+    if (user.role !== Role.MODERATOR && user.role !== Role.ACCOUNTING) {
+      throw new BadRequestException(
+        'Faqat moderator yoki hisob bo‘limi xodimi yangilanadi',
+      );
     }
 
     if (dto.email && dto.email.trim().toLowerCase() !== user.email.toLowerCase()) {

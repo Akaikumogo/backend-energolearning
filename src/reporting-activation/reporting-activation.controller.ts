@@ -1,4 +1,4 @@
-import {
+﻿import {
   Body,
   Controller,
   Get,
@@ -31,7 +31,7 @@ import { ReportingActivationService } from './reporting-activation.service';
 @ApiTags('Reporting activation')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN, Role.MODERATOR)
+@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
 @Controller('admin/reporting-activation')
 export class ReportingActivationController {
   constructor(
@@ -41,7 +41,7 @@ export class ReportingActivationController {
 
   @Get()
   @ApiOperation({
-    summary: 'Filial / bo‘lim report_active holatlari (ierarxiya UI)',
+    summary: 'Filial / boвЂlim report_active holatlari (ierarxiya UI)',
   })
   @ApiQuery({ name: 'orgId', required: false })
   async snapshot(
@@ -70,7 +70,7 @@ export class ReportingActivationController {
   @Patch('organizations/:orgId')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
-    summary: 'Filial switch — OFF = hisobotdan chiqarish (DELETE emas)',
+    summary: 'Filial switch вЂ” OFF = hisobotdan chiqarish (DELETE emas)',
   })
   @ApiBody({ type: SetReportActiveDto })
   async setOrganization(
@@ -96,7 +96,7 @@ export class ReportingActivationController {
   @Patch('divisions')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
-    summary: 'Bo‘lim switch — OFF = filial KPI dan chiqarish',
+    summary: 'BoвЂlim switch вЂ” OFF = filial KPI dan chiqarish',
   })
   @ApiBody({ type: SetDivisionReportActiveDto })
   async setDivision(
@@ -122,7 +122,7 @@ export class ReportingActivationController {
   @Patch('employees/:userId')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
-    summary: 'Xodim switch — OFF = reportingdan chiqarish',
+    summary: 'Xodim switch вЂ” OFF = reportingdan chiqarish',
   })
   @ApiBody({ type: SetReportActiveDto })
   async setEmployee(

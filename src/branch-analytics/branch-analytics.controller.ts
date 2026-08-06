@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   ForbiddenException,
   Get,
@@ -34,7 +34,7 @@ export class BranchAnalyticsController {
   ) {}
 
   @Get('summary')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Filial analitika summary' })
   @ApiQuery({ name: 'orgId', required: true })
   @ApiQuery({ name: 'from', required: false })
@@ -53,7 +53,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('activity-matrix')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Xodimlar kunlik aktivlik matritsasi' })
   @ApiQuery({ name: 'orgId', required: true })
   @ApiQuery({ name: 'from', required: false })
@@ -72,7 +72,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('daily-plan-result')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Kunlik plan va natija' })
   @ApiQuery({ name: 'orgId', required: true })
   @ApiQuery({ name: 'date', required: false })
@@ -89,7 +89,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('employee-attempts')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary:
       'Xodim javoblari auditi: qaysi savolga qaysi variantni belgilagani (sana oralig`i bilan)',
@@ -124,7 +124,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('monthly-progress')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary: 'Oylik progress: bajarilgan kunlar / oy kunlari (har xodim)',
   })
@@ -143,16 +143,16 @@ export class BranchAnalyticsController {
   }
 
   @Get('monthly-plan-matrix')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary:
-      'Oylik reja jadvali: xodim × kun (X/10). orgId ixtiyoriy — bo‘lmasa barcha filial',
+      'Oylik reja jadvali: xodim Г— kun (X/10). orgId ixtiyoriy вЂ” boвЂlmasa barcha filial',
   })
   @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
   @ApiQuery({ name: 'userId', required: false })
   @ApiQuery({ name: 'page', required: false })
-  @ApiQuery({ name: 'limit', required: false, description: '1–200; 0 = hammasi' })
+  @ApiQuery({ name: 'limit', required: false, description: '1вЂ“200; 0 = hammasi' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD (kunlik UI)' })
   async monthlyPlanMatrix(
@@ -184,10 +184,10 @@ export class BranchAnalyticsController {
   }
 
   @Get('yearly-plan-matrix')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary:
-      'Yillik reja jadvali: xodim × oy (% va X/kunlar). orgId ixtiyoriy',
+      'Yillik reja jadvali: xodim Г— oy (% va X/kunlar). orgId ixtiyoriy',
   })
   @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'year', required: false, description: 'YYYY' })
@@ -208,7 +208,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('branch-comparison')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Filiallar oylik reytingi (o`rtacha progress %)' })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
   async branchComparison(
@@ -222,18 +222,20 @@ export class BranchAnalyticsController {
   private async moderatorOrgIds(
     req: Request & { user: { role: Role; organizationIds: string[] } },
   ): Promise<string[] | null> {
-    if (req.user.role !== Role.MODERATOR) return null;
+    if (req.user.role !== Role.MODERATOR && req.user.role !== Role.ACCOUNTING) {
+      return null;
+    }
     const scope = await this.orgService.resolveModeratorScope(
       req.user.organizationIds,
     );
-    // undefined = asosiy filial moderator → barcha filiallar
+    // undefined = asosiy filial moderator в†’ barcha filiallar
     if (scope === undefined) return null;
     return scope;
   }
 
   @Get('executive-dashboard')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Rahbar bosh dashboard — kunlik reja KPI' })
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @ApiOperation({ summary: 'Rahbar bosh dashboard вЂ” kunlik reja KPI' })
   @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD' })
   async executiveDashboard(
     @Query('date') date: string | undefined,
@@ -244,7 +246,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('branch-ranking')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Kunlik filiallar reytingi' })
   @ApiQuery({ name: 'date', required: false, description: 'YYYY-MM-DD' })
   async branchRanking(
@@ -256,7 +258,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('division-summary')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Filial ichidagi bo`limlar bo`yicha kunlik reja' })
   @ApiQuery({ name: 'orgId', required: true })
   @ApiQuery({ name: 'date', required: false })
@@ -270,7 +272,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('employee-ranking')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Xodimlar reytingi (filial yoki bo`lim)' })
   @ApiQuery({ name: 'orgId', required: true })
   @ApiQuery({ name: 'date', required: false })
@@ -286,7 +288,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('hourly-progress')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Kun davomida bajarilish (soat bo`yicha)' })
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'orgId', required: false })
@@ -311,7 +313,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('daily-trend')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Kunlik trend (oxirgi 30 kun)' })
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })
@@ -331,8 +333,8 @@ export class BranchAnalyticsController {
   }
 
   @Get('weekday-heatmap')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Filiallar × hafta kuni heatmap' })
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @ApiOperation({ summary: 'Filiallar Г— hafta kuni heatmap' })
   @ApiQuery({ name: 'from', required: false })
   @ApiQuery({ name: 'to', required: false })
   @ApiQuery({ name: 'orgId', required: false })
@@ -351,7 +353,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('underperformers')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Rejani bajarmayotganlar (filial/bo`lim/xodim)' })
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'threshold', required: false })
@@ -366,7 +368,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('daily-report')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Kunlik hisobot (dashboard + filiallar + xodimlar)' })
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
@@ -380,7 +382,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('monthly-report')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Oylik hisobot (filiallar + trend + xodimlar)' })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
   @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
@@ -394,9 +396,9 @@ export class BranchAnalyticsController {
   }
 
   @Get('export/daily-report')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
-    summary: 'Kunlik hisobot Excel — Xulosa + har filial alohida sheet (rangli)',
+    summary: 'Kunlik hisobot Excel вЂ” Xulosa + har filial alohida sheet (rangli)',
   })
   @ApiQuery({ name: 'date', required: false })
   @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
@@ -427,9 +429,9 @@ export class BranchAnalyticsController {
   }
 
   @Get('export/monthly-report')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
-    summary: 'Oylik hisobot Excel — Xulosa + trend + har filial alohida sheet (rangli)',
+    summary: 'Oylik hisobot Excel вЂ” Xulosa + trend + har filial alohida sheet (rangli)',
   })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
   @ApiQuery({ name: 'orgId', required: false, description: 'Bitta filial UUID (ixtiyoriy)' })
@@ -460,7 +462,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('export/monthly-progress')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Oylik progress Excel (masalan 2026-07_Toshkent.xlsx)' })
   @ApiQuery({ name: 'orgId', required: true })
   @ApiQuery({ name: 'month', required: false, description: 'YYYY-MM' })
@@ -491,7 +493,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('export/monthly-plan-matrix')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary:
       'Reja jadvali Excel (kunlik/oylik). period=daily|monthly, date=YYYY-MM-DD (kunlik)',
@@ -556,7 +558,7 @@ export class BranchAnalyticsController {
   }
 
   @Get('export/yearly-plan-matrix')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Yillik reja jadvali Excel (oylik % va X/Y)' })
   @ApiQuery({ name: 'orgId', required: false })
   @ApiQuery({ name: 'year', required: false, description: 'YYYY' })
@@ -606,7 +608,7 @@ export class BranchAnalyticsController {
 
   @Get('export/moderators-credentials')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ deprecated: true, summary: 'O`chirilgan — Energo ID OAuth ishlating' })
+  @ApiOperation({ deprecated: true, summary: 'O`chirilgan вЂ” Energo ID OAuth ishlating' })
   exportModerators() {
     throw new ForbiddenException(
       'Login/parol export o`chirilgan. Moderatorlar Energo ID orqali kiradi.',

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+﻿import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
@@ -30,8 +30,8 @@ export class AnalyticsController {
   ) {}
 
   @Get('home-overview')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Bosh sahifa — filial activity heatmap va reytinglar' })
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @ApiOperation({ summary: 'Bosh sahifa вЂ” filial activity heatmap va reytinglar' })
   @ApiOkResponse({ type: HomeOverviewDto })
   async homeOverview(
     @Req()
@@ -47,7 +47,7 @@ export class AnalyticsController {
   }
 
   @Get('summary')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary: 'Analitika summary (KPI)',
     description:
@@ -84,8 +84,8 @@ export class AnalyticsController {
   }
 
   @Get('level-funnel')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
-  @ApiOperation({ summary: 'Level funnel — har daraja uchun boshlagan/tugatgan' })
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @ApiOperation({ summary: 'Level funnel вЂ” har daraja uchun boshlagan/tugatgan' })
   @ApiQuery({ name: 'orgId', required: false, example: 'all' })
   async levelFunnel(
     @Query('orgId') orgId: string | undefined,
@@ -103,7 +103,7 @@ export class AnalyticsController {
   }
 
   @Get('questions')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Eng ko`p xato qilingan savollar' })
   @ApiQuery({ name: 'orgId', required: false, example: 'all' })
   async questionErrors(
@@ -122,7 +122,7 @@ export class AnalyticsController {
   }
 
   @Get('hearts-lost')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary: 'Yurak yo`qotish (noto`g`ri javoblar) statistikasi',
     description: 'range=today|month|year, orgId=all faqat SUPERADMIN uchun.',

@@ -37,7 +37,7 @@ export class OrganizationsController {
   constructor(private readonly orgService: OrganizationsService) {}
 
   @Get()
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
   @Header('Cache-Control', 'no-store, no-cache, must-revalidate')
   @Header('Pragma', 'no-cache')
   @ApiOperation({ summary: 'Barcha tashkilotlar ro`yxati (search bilan)' })
@@ -46,7 +46,12 @@ export class OrganizationsController {
     @Req() req: Request & { user: { role: Role; organizationIds: string[] } },
     @Query('search') search?: string,
   ) {
-    const orgIds = req.user.role === Role.MODERATOR ? req.user.organizationIds : undefined;
+    const orgIds =
+      req.user.role === Role.MODERATOR ||
+      req.user.role === Role.ACCOUNTING ||
+      req.user.role === Role.APPROVER
+        ? req.user.organizationIds
+        : undefined;
     return this.orgService.findAll({ search }, orgIds);
   }
 

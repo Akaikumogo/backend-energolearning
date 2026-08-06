@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Get,
   Param,
@@ -61,7 +61,7 @@ export class ReportSubmissionsController {
   })
   @ApiOperation({
     summary:
-      'Filial oylik Excel ni yuklash — ID bilan saqlanadi (asosiy filial solishtiradi)',
+      'Filial oylik Excel ni yuklash вЂ” ID bilan saqlanadi (asosiy filial solishtiradi)',
   })
   upload(
     @UploadedFile() file: Express.Multer.File,
@@ -71,7 +71,7 @@ export class ReportSubmissionsController {
   }
 
   @Get()
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary: 'Yuklangan hisobotlar (faqat asosiy filial / SUPERADMIN)',
   })
@@ -86,7 +86,7 @@ export class ReportSubmissionsController {
   }
 
   @Get(':id')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Yuklangan hisobot (ID)' })
   getOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -96,7 +96,7 @@ export class ReportSubmissionsController {
   }
 
   @Get(':id/compare')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
   @ApiOperation({
     summary: 'Yuklangan Excel ni tizimdagi joriy filial hisoboti bilan solishtirish',
   })

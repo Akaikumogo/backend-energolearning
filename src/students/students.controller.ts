@@ -31,12 +31,13 @@ import { CreateStudentDto } from './dto/create-student.dto';
 @ApiTags('Employees')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
+@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER, Role.ACCOUNTING)
 @Controller(['admin/students', 'admin/employees'])
 export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
 
   @Post()
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Xodim qo`shish (admin)' })
   @ApiBody({ type: CreateStudentDto })
   create(
@@ -101,6 +102,7 @@ export class StudentsController {
   }
 
   @Delete(':id')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Xodimni o`chirish (admin)' })
   @ApiParam({ name: 'id', description: 'Employee ID' })
   remove(

@@ -43,6 +43,7 @@ const ADMIN_PANEL_ROLES: Role[] = [
   Role.SUPERADMIN,
   Role.MODERATOR,
   Role.APPROVER,
+  Role.ACCOUNTING,
 ];
 
 @Injectable()
@@ -232,7 +233,11 @@ export class AuthService {
     if (user.role === Role.APPROVER) {
       throw new ForbiddenException(APPROVER_EID_ONLY_MESSAGE);
     }
-    if (user.role !== Role.SUPERADMIN && user.role !== Role.MODERATOR) {
+    if (
+      user.role !== Role.SUPERADMIN &&
+      user.role !== Role.MODERATOR &&
+      user.role !== Role.ACCOUNTING
+    ) {
       throw new ForbiddenException(
         'Admin panelga faqat moderator yoki superadmin kira oladi',
       );
