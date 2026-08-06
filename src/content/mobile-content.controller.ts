@@ -1,7 +1,27 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { randomInt } from 'node:crypto';
-import { ContentService } from './content.service';
+import { Request } from 'express';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import {
+  ContentService,
+  type MobileTheoryQuizMode,
+} from './content.service';
 
 function shuffle<T>(items: T[]): T[] {
   const result = items.slice();
@@ -10,6 +30,10 @@ function shuffle<T>(items: T[]): T[] {
     [result[i], result[j]] = [result[j], result[i]];
   }
   return result;
+}
+
+function parseQuizMode(raw?: string): MobileTheoryQuizMode {
+  return raw === 'retry' ? 'retry' : 'continue';
 }
 
 @ApiTags('Content (Mobile)')
@@ -73,37 +97,58 @@ export class MobileContentController {
   }
 
   @Get('theories/:theoryId/questions')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
   @ApiOperation({
-    summary: 'Nazariya savollari (mobile uchun)',
+    summary: 'Modul savollari (mobile)',
     description:
-      'Nazariya ichidagi tasodifiy 4 ta savol (kamida 4 ta bo`lsa barchasi). Har safar yangi tanlov.',
+      'continue: yechilgan savollarsiz qolganlardan random ≤4. ' +
+      'retry: tugatilgan modul — barcha savollar qayta random.',
   })
   @ApiParam({ name: 'theoryId' })
+  @ApiQuery({
+    name: 'mode',
+    required: false,
+    enum: ['continue', 'retry'],
+    description: 'continue (default) | retry',
+  })
   @ApiOkResponse({
     description:
-      'Tasodifiy 4 ta savol (variantlar bilan, isCorrectsiz); savollar soni 4 dan kam bo`lishi mumkin',
+      'Savollar + progress meta (variantlar shuffled, isCorrect yo`q)',
   })
   async getQuestionsByTheoryId(
     @Param('theoryId', ParseUUIDPipe) theoryId: string,
+    @Query('mode') modeRaw: string | undefined,
+    @Req() req: Request & { user: { id: string } },
   ) {
-    const questions = await this.contentService.findQuestionsForMobileByTheoryId(theoryId);
+    const mode = parseQuizMode(modeRaw);
+    const result = await this.contentService.findQuestionsForMobileByTheoryId(
+      theoryId,
+      req.user.id,
+      mode,
+    );
 
     // Business rule: mobile clients to`g`ri javobni ko`rmasligi kerak,
     // shuning uchun `isCorrect` ni response’ga kiritmaymiz.
-    return questions.map((q) => ({
-      id: q.id,
-      prompt: q.prompt,
-      type: q.type,
-      orderIndex: q.orderIndex,
-      // Har so'rovda variantlar tartibi o'zgaradi: foydalanuvchi
-      // javobning doimiy A/B/V/G o'rnini yodlab ololmaydi.
-      options: shuffle(q.options ?? []).map((o, displayIndex) => ({
+    return {
+      mode: result.mode,
+      totalQuestions: result.totalQuestions,
+      answeredCount: result.answeredCount,
+      remainingCount: result.remainingCount,
+      isModuleComplete: result.isModuleComplete,
+      questions: result.questions.map((q) => ({
+        id: q.id,
+        prompt: q.prompt,
+        type: q.type,
+        orderIndex: q.orderIndex,
+        // Har so'rovda variantlar tartibi o'zgaradi.
+        options: shuffle(q.options ?? []).map((o, displayIndex) => ({
           id: o.id,
           optionText: o.optionText,
           orderIndex: displayIndex,
           matchText: o.matchText,
         })),
-    }));
+      })),
+    };
   }
 }
-

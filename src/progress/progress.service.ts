@@ -500,23 +500,16 @@ export class ProgressService {
         const quizTheoryId = theory.id;
 
         const totalQuestions = await this.questionRepo.count({
-          where: { theoryId: quizTheoryId },
+          where: { theoryId: quizTheoryId, isActive: true },
         });
 
         const answeredQuestions = await this.attemptRepo
           .createQueryBuilder('a')
+          .innerJoin('a.question', 'q')
           .select('COUNT(DISTINCT a.questionId)', 'cnt')
           .where('a.userId = :userId', { userId })
-          .andWhere((qb) => {
-            const subQuery = qb
-              .subQuery()
-              .select('q.id')
-              .from(Question, 'q')
-              .where('q.theoryId = :theoryId')
-              .getQuery();
-            return `a.questionId IN ${subQuery}`;
-          })
-          .setParameters({ userId, theoryId: quizTheoryId })
+          .andWhere('q.theoryId = :theoryId', { theoryId: quizTheoryId })
+          .andWhere('q.isActive = true')
           .getRawOne<{ cnt: string }>();
 
         const readParts = [theory.content?.trim(), naz?.content?.trim()].filter(Boolean);
@@ -721,7 +714,7 @@ export class ProgressService {
     organizationId: string,
   ) {
     const totalQuestions = await this.questionRepo.count({
-      where: { levelId },
+      where: { levelId, isActive: true },
     });
     if (totalQuestions === 0) return;
 
@@ -731,6 +724,7 @@ export class ProgressService {
       .select('COUNT(DISTINCT a.question_id)', 'cnt')
       .where('a.userId = :userId', { userId })
       .andWhere('q.levelId = :levelId', { levelId })
+      .andWhere('q.isActive = true')
       .setParameters({ userId, levelId })
       .getRawOne<{ cnt: string }>();
 

@@ -141,6 +141,20 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
   if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
 
+  // Library documents (PDF / Word) — same permission as audio library
+  if (path === '/admin/library-documents' && m === 'POST') {
+    return { module: 'audioLibrary', action: 'create' };
+  }
+  if (/^\/admin\/library-documents\/[^/]+$/.test(path) && m === 'PUT') {
+    return { module: 'audioLibrary', action: 'update' };
+  }
+  if (/^\/admin\/library-documents\/[^/]+$/.test(path) && m === 'DELETE') {
+    return { module: 'audioLibrary', action: 'delete' };
+  }
+  if (path === '/admin/upload/document' && m === 'POST') {
+    return { module: 'audioLibrary', action: 'create' };
+  }
+
   // NES / ENERGO ID
   if (path === '/admin/nes-employees/sync' && m === 'POST') {
     return { module: 'nesSync', action: 'create' };

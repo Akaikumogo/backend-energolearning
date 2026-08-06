@@ -31,6 +31,7 @@ import { Notification } from './entities/notification.entity';
 import { AudioBook } from './entities/audio-book.entity';
 import { AudioChapter } from './entities/audio-chapter.entity';
 import { AudioParagraph } from './entities/audio-paragraph.entity';
+import { LibraryDocument } from './entities/library-document.entity';
 import { NesEmployee } from './entities/nes-employee.entity';
 import { NesEmployeeHistory } from './entities/nes-employee-history.entity';
 import { NesEmployeePositionHistory } from './entities/nes-employee-position-history.entity';
@@ -75,6 +76,7 @@ import { AddEmployeeCertificates1748200000000 } from './migrations/0036-add-empl
 import { AddSafetyRecordsAndAuthMethod1748300000000 } from './migrations/0037-add-safety-records';
 import { RenameDirectorToApprover1748400000000 } from './migrations/0038-rename-director-to-approver';
 import { NormalizeSingleCorrectOptions1748500000000 } from './migrations/0039-normalize-single-correct-options';
+import { AddLibraryDocuments1748600000000 } from './migrations/0040-add-library-documents';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
@@ -123,6 +125,7 @@ export const AppDataSource = new DataSource({
     AudioBook,
     AudioChapter,
     AudioParagraph,
+    LibraryDocument,
     NesEmployee,
     NesEmployeeHistory,
     NesEmployeePositionHistory,
@@ -179,6 +182,7 @@ export const AppDataSource = new DataSource({
     AddSafetyRecordsAndAuthMethod1748300000000,
     RenameDirectorToApprover1748400000000,
     NormalizeSingleCorrectOptions1748500000000,
+    AddLibraryDocuments1748600000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
