@@ -666,13 +666,22 @@ export class ContentService {
     const saved = await this.questionRepo.save(question);
 
     if (dto.options?.length) {
-      const options = dto.options.map((o, i) =>
-        this.optionRepo.create({
-          questionId: saved.id,
+      const normalized = this.normalizeSingleCorrectOptions(
+        dto.type ?? QuestionType.SINGLE_CHOICE,
+        dto.options.map((o, i) => ({
           optionText: o.optionText,
           orderIndex: o.orderIndex ?? i,
           isCorrect: o.isCorrect,
           matchText: o.matchText ?? null,
+        })),
+      );
+      const options = normalized.map((o) =>
+        this.optionRepo.create({
+          questionId: saved.id,
+          optionText: o.optionText,
+          orderIndex: o.orderIndex,
+          isCorrect: o.isCorrect,
+          matchText: o.matchText,
         }),
       );
       await this.optionRepo.save(options);
@@ -695,35 +704,39 @@ export class ContentService {
     await this.questionRepo.save(question);
 
     if (dto.options) {
+      const type = dto.type ?? question.type;
+      const normalized = this.normalizeSingleCorrectOptions(
+        type,
+        dto.options.map((o, i) => ({
+          id: o.id,
+          optionText: o.optionText ?? '',
+          orderIndex: o.orderIndex ?? i,
+          isCorrect: o.isCorrect ?? false,
+          matchText: o.matchText ?? null,
+        })),
+      );
+
       const existingIds = new Set(
-        dto.options.filter((o) => o.id).map((o) => o.id!),
+        normalized.filter((o) => o.id).map((o) => o.id!),
       );
       const toRemove = question.options.filter((o) => !existingIds.has(o.id));
       if (toRemove.length) await this.optionRepo.remove(toRemove);
 
-      for (const optDto of dto.options) {
+      for (const optDto of normalized) {
         if (optDto.id) {
           await this.optionRepo.update(optDto.id, {
-            ...(optDto.optionText !== undefined && {
-              optionText: optDto.optionText,
-            }),
-            ...(optDto.orderIndex !== undefined && {
-              orderIndex: optDto.orderIndex,
-            }),
-            ...(optDto.isCorrect !== undefined && {
-              isCorrect: optDto.isCorrect,
-            }),
-            ...(optDto.matchText !== undefined && {
-              matchText: optDto.matchText,
-            }),
+            optionText: optDto.optionText,
+            orderIndex: optDto.orderIndex,
+            isCorrect: optDto.isCorrect,
+            matchText: optDto.matchText,
           });
         } else {
           const newOpt = this.optionRepo.create({
             questionId: id,
-            optionText: optDto.optionText ?? '',
-            orderIndex: optDto.orderIndex ?? 0,
-            isCorrect: optDto.isCorrect ?? false,
-            matchText: optDto.matchText ?? null,
+            optionText: optDto.optionText,
+            orderIndex: optDto.orderIndex,
+            isCorrect: optDto.isCorrect,
+            matchText: optDto.matchText,
           });
           await this.optionRepo.save(newOpt);
         }
@@ -1047,5 +1060,25 @@ export class ContentService {
     });
 
     return created;
+  }
+
+  /**
+   * SINGLE_CHOICE / YES_NO: faqat bitta to‘g‘ri javob.
+   * Bir nechta belgilangan bo‘lsa — massivdagi birinchisi; hech biri yo‘q — 0-index.
+   */
+  private normalizeSingleCorrectOptions<
+    T extends { isCorrect?: boolean },
+  >(type: QuestionType, options: T[]): T[] {
+    if (
+      type !== QuestionType.SINGLE_CHOICE &&
+      type !== QuestionType.YES_NO
+    ) {
+      return options;
+    }
+    const keep = Math.max(
+      0,
+      options.findIndex((o) => o.isCorrect),
+    );
+    return options.map((o, i) => ({ ...o, isCorrect: i === keep }));
   }
 }
