@@ -38,14 +38,14 @@ export class SafetyRecordsController {
   constructor(private readonly safetyRecordsService: SafetyRecordsService) {}
 
   @Get('safety-record-types')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Sertifikat / xavfsizlik turlari' })
   listTypes() {
     return this.safetyRecordsService.listTypes();
   }
 
   @Get('students/:userId/safety-records')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Xodimning joriy safety yozuvlari' })
   @ApiOkResponse({ description: 'Types + latest records + pending changes' })
   listForEmployee(
@@ -56,7 +56,7 @@ export class SafetyRecordsController {
   }
 
   @Get('students/:userId/safety-records/:typeCode/history')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Xodim safety tarixi (records + audit)' })
   history(
     @Req() req: Authed,

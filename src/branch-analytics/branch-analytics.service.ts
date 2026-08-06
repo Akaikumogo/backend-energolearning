@@ -86,7 +86,7 @@ export class BranchAnalyticsService {
     if (!UUID_RE.test(orgId)) {
       throw new BadRequestException('orgId UUID formatida bo‘lishi kerak');
     }
-    if (user.role === Role.MODERATOR) {
+    if (user.role === Role.MODERATOR || user.role === Role.ACCOUNTING) {
       const scoped = await this.orgService.resolveModeratorScope(
         user.organizationIds,
       );
@@ -108,8 +108,8 @@ export class BranchAnalyticsService {
     user: { role: Role; organizationIds: string[] },
   ): Promise<string | undefined> {
     if (!orgId?.trim() || orgId === 'all') {
-      if (orgId === 'all' && user.role === Role.MODERATOR) {
-        // Moderator "all" deb so‘rasa ham faqat o‘z scope'i (allowedOrgIds) ishlatiladi
+      if (orgId === 'all' && (user.role === Role.MODERATOR || user.role === Role.ACCOUNTING)) {
+        // Moderator/Hisob "all" deb so‘rasa ham faqat o‘z scope'i (allowedOrgIds) ishlatiladi
         return undefined;
       }
       return undefined;

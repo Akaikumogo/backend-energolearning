@@ -31,7 +31,7 @@ type AuthedRequest = Request & {
 @ApiTags('Certificates')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN, Role.MODERATOR)
+@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
 @Controller('admin/certificates')
 export class CertificatesController {
   constructor(private readonly certificatesService: CertificatesService) {}
@@ -60,6 +60,7 @@ export class CertificatesController {
   }
 
   @Post('employees/:userId')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Xodimga guvohnoma berish' })
   @ApiParam({ name: 'userId', description: 'Employee ID' })
   issue(
@@ -73,6 +74,7 @@ export class CertificatesController {
   }
 
   @Post(':id/revoke')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Guvohnomani bekor qilish' })
   @ApiParam({ name: 'id', description: 'Certificate ID' })
   revoke(
