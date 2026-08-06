@@ -203,11 +203,16 @@ export class ProgressService {
     });
     if (!selectedOption) throw new NotFoundException('Variant topilmadi');
 
-    const isCorrect = selectedOption.isCorrect;
-
-    const correctOption = await this.optionRepo.findOne({
+    // To'g'ri javob: shu savolning is_correct=true variant(lar)i bilan ID solishtirish.
+    const correctOptions = await this.optionRepo.find({
       where: { questionId: dto.questionId, isCorrect: true },
+      order: { orderIndex: 'ASC' },
     });
+    const correctOptionIds = new Set(correctOptions.map((o) => o.id));
+    const isCorrect = correctOptionIds.has(dto.selectedOptionId);
+    const correctOptionId = isCorrect
+      ? dto.selectedOptionId
+      : (correctOptions[0]?.id ?? null);
 
     const user = await this.userRepo.findOne({
       where: { id: userId },
@@ -236,20 +241,23 @@ export class ProgressService {
           levelId: question.levelId,
           selectedOptionId: dto.selectedOptionId,
           isCorrect,
-          correctOptionId: correctOption?.id ?? null,
+          correctOptionId,
         });
       }
 
       const hearts = await this.heartsService.getMyHearts(userId, orgId);
       return {
-        isCorrect: existing.isCorrect,
-        correctOptionId: correctOption?.id ?? null,
+        // UI uchun: joriy tanlov to‘g‘rimi (eski urinish XP/yurakni o‘zgartirmaydi).
+        isCorrect,
+        correctOptionId,
         xpEarned: 0,
         countsForXp: false,
         xpDeniedReason: 'ALREADY_COUNTED' as const,
         xpMessage: existing.isCorrect
           ? 'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.'
-          : null,
+          : isCorrect
+            ? 'To‘g‘ri, lekin bugun bu savol uchun ball allaqachon hisoblangan.'
+            : null,
         hearts,
         duplicate: true,
       };
@@ -285,7 +293,7 @@ export class ProgressService {
         const hearts = await this.heartsService.getMyHearts(userId, orgId);
         return {
           isCorrect,
-          correctOptionId: correctOption?.id ?? null,
+          correctOptionId,
           xpEarned: 0,
           countsForXp: false,
           xpDeniedReason: 'ALREADY_COUNTED' as const,
@@ -302,7 +310,7 @@ export class ProgressService {
 
     return {
       isCorrect,
-      correctOptionId: correctOption?.id ?? null,
+      correctOptionId,
       xpEarned: xpMeta.xpEarned,
       countsForXp: xpMeta.countsForXp,
       xpDeniedReason: xpMeta.xpDeniedReason,
