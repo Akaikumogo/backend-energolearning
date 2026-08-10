@@ -8,6 +8,7 @@ export type LeaderboardRow = {
   userId: string;
   firstName: string;
   lastName: string;
+  middleName: string | null;
   email: string;
   avatarUrl: string | null;
   xp: number;
@@ -59,6 +60,12 @@ export class LeaderboardService {
           u.id AS "userId",
           u.first_name AS "firstName",
           u.last_name AS "lastName",
+          (
+            SELECT ne.middle_name
+            FROM nes_employees ne
+            WHERE ne.user_id = u.id
+            LIMIT 1
+          ) AS "middleName",
           u.email AS "email",
           u.avatar_url AS "avatarUrl",
           (COUNT(*) FILTER (WHERE uqa.is_correct = true AND uqa.counts_for_xp = true) * 10)::int AS "xp",
@@ -89,6 +96,12 @@ export class LeaderboardService {
           u.id AS "userId",
           u.first_name AS "firstName",
           u.last_name AS "lastName",
+          (
+            SELECT ne.middle_name
+            FROM nes_employees ne
+            WHERE ne.user_id = u.id
+            LIMIT 1
+          ) AS "middleName",
           u.email AS "email",
           u.avatar_url AS "avatarUrl",
           (COUNT(*) FILTER (WHERE uqa.is_correct = true AND uqa.counts_for_xp = true) * 10)::int AS "xp",
@@ -116,6 +129,7 @@ export class LeaderboardService {
       userId: r.userId,
       firstName: r.firstName ?? '',
       lastName: r.lastName ?? '',
+      middleName: (r.middleName ?? '').trim() || null,
       email: r.email ?? '',
       avatarUrl: resolveStoredAvatarUrl(r.avatarUrl ?? null),
       xp: Number(r.xp) || 0,
@@ -131,4 +145,3 @@ export class LeaderboardService {
     };
   }
 }
-

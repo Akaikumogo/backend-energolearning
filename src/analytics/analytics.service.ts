@@ -70,10 +70,14 @@ export class AnalyticsService {
           .select('COUNT(DISTINCT u.id)', 'c');
 
     const orgCountQb = isAll
-      ? this.orgRepo.createQueryBuilder('o').select('COUNT(*)', 'c')
+      ? this.orgRepo
+          .createQueryBuilder('o')
+          .where('o.archivedAt IS NULL')
+          .select('COUNT(*)', 'c')
       : this.orgRepo
           .createQueryBuilder('o')
           .where('o.id = :orgId', { orgId })
+          .andWhere('o.archivedAt IS NULL')
           .select('COUNT(*)', 'c');
 
     const modCountQb = (() => {
@@ -260,6 +264,7 @@ export class AnalyticsService {
       userId: string;
       firstName: string;
       lastName: string;
+      middleName: string | null;
       email: string;
       lostHearts: number;
     }>;
@@ -280,6 +285,10 @@ export class AnalyticsService {
       .select('u.id', 'userId')
       .addSelect('u.firstName', 'firstName')
       .addSelect('u.lastName', 'lastName')
+      .addSelect(
+        `(SELECT ne.middle_name FROM nes_employees ne WHERE ne.user_id = u.id LIMIT 1)`,
+        'middleName',
+      )
       .addSelect('u.email', 'email')
       .addSelect('COUNT(*)::int', 'lostHearts')
       .where('uqa.answeredAt >= :from', { from })
@@ -330,6 +339,7 @@ export class AnalyticsService {
         userId: string;
         firstName: string;
         lastName: string;
+        middleName: string | null;
         email: string;
         lostHearts: number;
       }>(),
@@ -349,6 +359,7 @@ export class AnalyticsService {
         userId: r.userId,
         firstName: r.firstName ?? '',
         lastName: r.lastName ?? '',
+        middleName: r.middleName?.trim() || null,
         email: r.email ?? '',
         lostHearts: Number(r.lostHearts) || 0,
       })),

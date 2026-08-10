@@ -18,6 +18,7 @@ export type EnergoIdUser = {
   email: string | null;
   firstName: string;
   lastName: string;
+  middleName?: string | null;
   role: string;
   permissions: string[];
   organization: {
@@ -341,6 +342,7 @@ export class EnergoIdAuthClient {
       email: row.email ?? null,
       firstName: row.firstName ?? '',
       lastName: row.lastName ?? '',
+      middleName: row.middleName?.trim() || null,
       role: row.role ?? 'USER',
       permissions: row.permissions ?? [],
       organization: row.organization ?? null,
@@ -354,12 +356,15 @@ export class EnergoIdAuthClient {
     row: EnergoIdUser & {
       id?: string;
       personnel_number?: string | null;
+      middle_name?: string | null;
     },
   ): EnergoIdUser {
     const energoUserId = (row.energoUserId ?? row.id ?? '').trim();
     const login = (row.login ?? row.email ?? '').trim();
     const personnelNumber =
       (row.personnelNumber ?? row.personnel_number ?? '').trim() || null;
+    const middleName =
+      (row.middleName ?? row.middle_name ?? '').trim() || null;
     return {
       ...row,
       energoUserId,
@@ -367,6 +372,7 @@ export class EnergoIdAuthClient {
       email: row.email ?? null,
       firstName: row.firstName ?? '',
       lastName: row.lastName ?? '',
+      middleName,
       role: row.role ?? 'USER',
       permissions: row.permissions ?? [],
       mustChangePassword: row.mustChangePassword ?? false,

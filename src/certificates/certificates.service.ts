@@ -13,6 +13,7 @@ import { Organization } from '../database/entities/organization.entity';
 import { User } from '../database/entities/user.entity';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
+import { extractPersonnelNumberFromLogin } from '../common/utils/personnel-number.util';
 import { OralResult } from '../common/enums/oral-result.enum';
 import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import {
@@ -35,6 +36,9 @@ export interface CertificateEligibility {
 
 const ORG_TITLE = '«O‘zbekiston milliy elektr tarmoqlari» AJ';
 const DEFAULT_VALID_MONTHS = 12;
+const ENERGO_PORTAL_ORIGIN =
+  process.env.ENERGO_USER_PORTAL_URL?.trim() ||
+  'https://cabinetid.uzbekistonmet.uz';
 
 @Injectable()
 export class CertificatesService {
@@ -56,13 +60,87 @@ export class CertificatesService {
 
   async listForUser(userId: string, actor: Actor) {
     const user = await this.loadEmployeeInScope(userId, actor);
-    return this.listByUserId(userId, resolveStoredAvatarUrl(user.avatarUrl));
+    return [await this.buildEnergoIdCard(user)];
   }
 
+  /** Mobil: ENERGO ID kartasi — generatsiyasiz, har doim. */
   async listMine(userId: string) {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['organizations', 'organizations.organization'],
+    });
     if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
-    return this.listByUserId(userId, resolveStoredAvatarUrl(user.avatarUrl));
+    return [await this.buildEnergoIdCard(user)];
+  }
+
+  private async buildEnergoIdCard(user: User) {
+    const nes = await this.nesEmployeeRepo.findOne({
+      where: { userId: user.id },
+    });
+
+    const org = user.organizations?.[0]?.organization ?? null;
+
+    const branchName =
+      org?.name?.trim() || nes?.organizationName?.trim() || '';
+    const lastName = user.lastName?.trim() ?? '';
+    const firstName = user.firstName?.trim() ?? '';
+    const middleName = nes?.middleName?.trim() || '';
+    const personnelNumber =
+      nes?.personnelNumber?.trim() ||
+      extractPersonnelNumberFromLogin(user.email) ||
+      null;
+    const prefix = resolveCertificatePrefix(branchName);
+    const digits = this.energoCardDigits(personnelNumber, user);
+    const certificateNumber = `${prefix}${digits}`;
+    const publicId = user.energoId?.trim() || user.id;
+    const issuedAt =
+      user.createdAt instanceof Date
+        ? user.createdAt
+        : user.createdAt
+          ? new Date(user.createdAt)
+          : new Date();
+    const validUntil = new Date(
+      Number.isNaN(issuedAt.getTime()) ? Date.now() : issuedAt.getTime(),
+    );
+    validUntil.setFullYear(validUntil.getFullYear() + 2);
+
+    return {
+      id: `energo-card-${user.id}`,
+      certificateNumber,
+      userId: user.id,
+      organizationId: org?.id ?? '',
+      organizationTitle: ORG_TITLE,
+      branchName,
+      fullName: [lastName, firstName, middleName].filter(Boolean).join(' '),
+      lastName,
+      firstName,
+      middleName,
+      positionTitle: nes?.post?.trim() || '',
+      personnelNumber,
+      examAttemptId: null,
+      issuedAt: (Number.isNaN(issuedAt.getTime()) ? new Date() : issuedAt).toISOString(),
+      validUntil: validUntil.toISOString(),
+      revokedAt: null,
+      revokeReason: null,
+      status: 'VALID' as CertificateStatus,
+      verifyUrl: `${ENERGO_PORTAL_ORIGIN.replace(/\/+$/, '')}/public/${encodeURIComponent(publicId)}`,
+      avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
+    };
+  }
+
+  private energoCardDigits(
+    personnelNumber: string | null,
+    user: User,
+  ): string {
+    const personnel = (personnelNumber ?? '').replace(/\D/g, '');
+    if (personnel) return personnel.slice(-4).padStart(4, '0');
+
+    const src = user.email || user.energoId || user.id || '';
+    let hash = 0;
+    for (let i = 0; i < src.length; i += 1) {
+      hash = (hash * 31 + src.charCodeAt(i)) % 10000;
+    }
+    return String(hash).padStart(4, '0');
   }
 
   private async listByUserId(userId: string, avatarUrl: string | null) {
@@ -74,8 +152,8 @@ export class CertificatesService {
   }
 
   /**
-   * Guvohnoma berish mumkinmi — imtihon muvaffaqiyatli yakunlanganmi.
-   * UI tugmani shu asosda faollashtiradi.
+   * Guvohnoma berish mumkinmi.
+   * Admin har qanday vaziyatda berishi mumkin — imtihon shart emas.
    */
   async checkEligibility(
     userId: string,
@@ -84,32 +162,11 @@ export class CertificatesService {
     await this.loadEmployeeInScope(userId, actor);
     const attempt = await this.findPassedAttempt(userId);
 
-    if (!attempt) {
-      return {
-        eligible: false,
-        reason: 'Xodim imtihondan muvaffaqiyatli o‘tmagan',
-        examAttemptId: null,
-        finalizedAt: null,
-      };
-    }
-
-    const existing = await this.certificateRepo.findOne({
-      where: { examAttemptId: attempt.id },
-    });
-    if (existing && !existing.revokedAt) {
-      return {
-        eligible: false,
-        reason: 'Bu imtihon uchun guvohnoma allaqachon berilgan',
-        examAttemptId: attempt.id,
-        finalizedAt: attempt.finalizedAt?.toISOString() ?? null,
-      };
-    }
-
     return {
       eligible: true,
       reason: null,
-      examAttemptId: attempt.id,
-      finalizedAt: attempt.finalizedAt?.toISOString() ?? null,
+      examAttemptId: attempt?.id ?? null,
+      finalizedAt: attempt?.finalizedAt?.toISOString() ?? null,
     };
   }
 
@@ -133,6 +190,45 @@ export class CertificatesService {
       issuedAt: row.issuedAt?.toISOString() ?? null,
       validUntil: row.validUntil?.toISOString() ?? null,
       status: this.resolveStatus(row),
+      avatarUrl: null as string | null,
+      personnelNumber: row.personnelNumber,
+    };
+  }
+
+  /** QR /public/{energoId} yoki user id orqali ochiq guvohnoma. */
+  async getPublicIdCard(energoOrUserId: string) {
+    const id = energoOrUserId.trim();
+    if (!id) throw new NotFoundException('Xodim topilmadi');
+
+    let user = await this.userRepo.findOne({
+      where: { energoId: id },
+      relations: ['organizations', 'organizations.organization'],
+    });
+    if (!user) {
+      user = await this.userRepo.findOne({
+        where: { id },
+        relations: ['organizations', 'organizations.organization'],
+      });
+    }
+    if (!user) throw new NotFoundException('Xodim topilmadi');
+
+    const card = await this.buildEnergoIdCard(user);
+    return {
+      found: true as const,
+      certificateNumber: card.certificateNumber,
+      fullName: card.fullName,
+      lastName: card.lastName,
+      firstName: card.firstName,
+      middleName: card.middleName,
+      positionTitle: card.positionTitle,
+      branchName: card.branchName,
+      organizationTitle: card.organizationTitle,
+      issuedAt: card.issuedAt,
+      validUntil: card.validUntil,
+      status: card.status,
+      avatarUrl: card.avatarUrl,
+      personnelNumber: card.personnelNumber,
+      verifyUrl: card.verifyUrl,
     };
   }
 
@@ -145,24 +241,11 @@ export class CertificatesService {
   ) {
     const user = await this.loadEmployeeInScope(userId, actor);
 
+    // Imtihon bo‘lsa — muddat/filial undan; bo‘lmasa ham guvohnoma beriladi.
     const attempt = await this.findPassedAttempt(userId, options.examAttemptId);
-    if (!attempt) {
-      throw new BadRequestException(
-        'Guvohnoma berib bo‘lmaydi: xodim imtihondan muvaffaqiyatli o‘tmagan',
-      );
-    }
-
-    const existing = await this.certificateRepo.findOne({
-      where: { examAttemptId: attempt.id },
-    });
-    if (existing && !existing.revokedAt) {
-      throw new ConflictException(
-        `Bu imtihon uchun guvohnoma allaqachon berilgan: ${existing.certificateNumber}`,
-      );
-    }
 
     const organizationId =
-      attempt.assignment?.organizationId ??
+      attempt?.assignment?.organizationId ??
       user.organizations?.[0]?.organization?.id;
     if (!organizationId) {
       throw new BadRequestException('Xodimning filiali aniqlanmadi');
@@ -185,6 +268,17 @@ export class CertificatesService {
     const prefix = resolveCertificatePrefix(branchName);
     const certificateNumber = await this.nextCertificateNumber(prefix);
 
+    // Unique index: bir imtihonga faqat bitta bog‘lanish — takror bo‘lsa null.
+    let examAttemptId: string | null = attempt?.id ?? null;
+    if (examAttemptId) {
+      const alreadyLinked = await this.certificateRepo.findOne({
+        where: { examAttemptId },
+      });
+      if (alreadyLinked) {
+        examAttemptId = null;
+      }
+    }
+
     const saved = await this.certificateRepo.save(
       this.certificateRepo.create({
         certificateNumber,
@@ -198,11 +292,13 @@ export class CertificatesService {
         positionTitle: nes?.post?.trim() || '',
         branchName,
         personnelNumber: nes?.personnelNumber?.trim() || null,
-        examAttemptId: attempt.id,
+        examAttemptId,
         issuedByUserId: actor.id,
         fileUrl: null,
         issuedAt: new Date(),
-        validUntil: this.resolveValidUntil(attempt),
+        validUntil: attempt
+          ? this.resolveValidUntil(attempt)
+          : this.defaultValidUntil(),
         revokedAt: null,
         revokeReason: null,
       }),
@@ -281,6 +377,12 @@ export class CertificatesService {
 
     const until = new Date(base);
     until.setMonth(until.getMonth() + months);
+    return until;
+  }
+
+  private defaultValidUntil(): Date {
+    const until = new Date();
+    until.setMonth(until.getMonth() + DEFAULT_VALID_MONTHS);
     return until;
   }
 

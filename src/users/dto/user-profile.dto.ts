@@ -42,4 +42,19 @@ export class UserProfileDto {
     example: false,
   })
   mustChangePassword: boolean;
+
+  @ApiProperty({ required: false, nullable: true })
+  energoId?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  middleName?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  personnelNumber?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  post?: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  createdAt?: string | null;
 }
