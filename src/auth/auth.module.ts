@@ -8,6 +8,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { User } from '../database/entities/user.entity';
 import { UserSession } from '../database/entities/user-session.entity';
+import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { BlockedEmailLoginsController } from './blocked-email-logins.controller';
@@ -32,6 +33,7 @@ const jwtExpiresIn: StringValue = (process.env.JWT_EXPIRES_IN ??
       RefreshToken,
       User,
       UserSession,
+      NesEmployee,
     ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET ?? 'elektrolearn-dev-secret',

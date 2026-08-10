@@ -22,6 +22,7 @@ import {
 } from '../common/enums/role.enum';
 import { RefreshToken } from '../database/entities/refresh-token.entity';
 import { User } from '../database/entities/user.entity';
+import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginSuccessResponseDto } from './dto/login-response.dto';
@@ -38,6 +39,7 @@ import {
   resolveOAuthRedirectUri,
 } from './oauth-redirect.util';
 import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
+import { extractPersonnelNumberFromLogin } from '../common/utils/personnel-number.util';
 
 const ADMIN_PANEL_ROLES: Role[] = [
   Role.SUPERADMIN,
@@ -59,6 +61,8 @@ export class AuthService {
     private readonly oauthIntegrationSettings: OAuthIntegrationSettingsService,
     @InjectRepository(RefreshToken)
     private readonly refreshRepo: Repository<RefreshToken>,
+    @InjectRepository(NesEmployee)
+    private readonly nesEmployeeRepo: Repository<NesEmployee>,
   ) {}
 
   /** Mobile — faqat OAuth orqali; legacy login/password o‘chirilgan. */
@@ -295,7 +299,7 @@ export class AuthService {
 
     const accessToken = await this.jwtService.signAsync(payload);
     const refreshToken = await this.issueRefreshToken(user.id, authMethod);
-    const profile = this.toProfile(user);
+    const profile = await this.toProfile(user);
 
     const orgIds = this.getOrganizationIds(user);
     void this.userActivityService
@@ -366,8 +370,11 @@ export class AuthService {
     return this.toProfile(full);
   }
 
-  private toProfile(user: User): UserProfileDto {
+  private async toProfile(user: User): Promise<UserProfileDto> {
     const organizations = this.getOrganizations(user);
+    const nes = await this.nesEmployeeRepo.findOne({
+      where: { userId: user.id },
+    });
     return {
       id: user.id,
       email: user.email,
@@ -378,6 +385,16 @@ export class AuthService {
       organizationIds: this.getOrganizationIds(user),
       organizations,
       mustChangePassword: user.mustChangePassword ?? false,
+      energoId: user.energoId ?? null,
+      middleName: nes?.middleName?.trim() || null,
+      personnelNumber:
+        nes?.personnelNumber?.trim() ||
+        extractPersonnelNumberFromLogin(user.email) ||
+        null,
+      post: nes?.post?.trim() || null,
+      createdAt: user.createdAt
+        ? new Date(user.createdAt).toISOString()
+        : null,
     };
   }
 

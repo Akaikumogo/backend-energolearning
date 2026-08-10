@@ -398,10 +398,22 @@ export class NesEmployeesService {
     }
 
     const total = await qb.getCount();
-    const data = await qb
+    const rows = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
+    const data = rows.map((row) => {
+      const snap = row.snapshot as {
+        middleName?: string;
+        employee?: { middle_name?: string };
+      } | null;
+      const middleName =
+        (typeof snap?.middleName === 'string' && snap.middleName.trim()) ||
+        (typeof snap?.employee?.middle_name === 'string' &&
+          snap.employee.middle_name.trim()) ||
+        null;
+      return { ...row, middleName };
+    });
     return { data, total, page, limit };
   }
 
@@ -518,8 +530,9 @@ export class NesEmployeesService {
           organization_name: string | null;
           division: string | null;
           post: string | null;
+          middle_name?: string | null;
         }> = await manager.query(
-          `SELECT personnel_number, organization_name, division, post
+          `SELECT personnel_number, organization_name, division, post, middle_name
            FROM nes_employees WHERE user_id = $1 LIMIT 1`,
           [user.id],
         );
@@ -543,7 +556,11 @@ export class NesEmployeesService {
             employee?.organization_name ?? null,
             employee?.division ?? '',
             employee?.post ?? '',
-            JSON.stringify({ user, employee: employee ?? null }),
+            JSON.stringify({
+              user,
+              employee: employee ?? null,
+              middleName: employee?.middle_name ?? '',
+            }),
           ],
         );
       }
@@ -889,10 +906,17 @@ export class NesEmployeesService {
       {
         division: employee.division ?? '',
         post: employee.post ?? '',
-        fullName: `${employee.lastName ?? ''} ${employee.firstName ?? ''}`.trim(),
+        fullName: [
+          employee.lastName ?? '',
+          employee.firstName ?? '',
+          employee.middleName ?? '',
+        ]
+          .map((p) => p.trim())
+          .filter(Boolean)
+          .join(' '),
         lastName: employee.lastName ?? '',
         firstName: employee.firstName ?? '',
-        middleName: '',
+        middleName: employee.middleName?.trim() || '',
         modifiedAt: null,
         hiredAt: null,
         login: employee.login,

@@ -294,6 +294,7 @@ export class StudentsService {
       middleName: nes?.middleName?.trim() || null,
       avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
       role: user.role,
+      energoId: user.energoId,
       personnelNumber:
         nes?.personnelNumber ??
         extractPersonnelNumberFromLogin(user.email) ??
@@ -599,7 +600,7 @@ export class StudentsService {
 
     const nesRows = await this.nesEmployeeRepo.find({
       where: { userId: In(userIds) },
-      select: ['userId', 'personnelNumber', 'division', 'post'],
+      select: ['userId', 'personnelNumber', 'division', 'post', 'middleName'],
     });
     const nesByUser = new Map(nesRows.map((n) => [n.userId, n]));
 
@@ -626,6 +627,7 @@ export class StudentsService {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
+        middleName: nes?.middleName?.trim() || null,
         email: user.email,
         avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
         role: user.role,
@@ -656,7 +658,7 @@ export class StudentsService {
 
     const nesRows = await this.nesEmployeeRepo.find({
       where: { userId: In(userIds) },
-      select: ['userId', 'personnelNumber', 'division', 'post'],
+      select: ['userId', 'personnelNumber', 'division', 'post', 'middleName'],
     });
     const nesByUser = new Map(nesRows.map((n) => [n.userId, n]));
 
@@ -672,7 +674,7 @@ export class StudentsService {
     requestingUser: { id: string; role: Role; organizationIds: string[] },
     nesEmployee?: Pick<
       NesEmployee,
-      'personnelNumber' | 'division' | 'post'
+      'personnelNumber' | 'division' | 'post' | 'middleName'
     > | null,
     preloadedOrgIds?: string[] | null,
   ) {
@@ -726,7 +728,7 @@ export class StudentsService {
     if (nes === undefined) {
       nes = await this.nesEmployeeRepo.findOne({
         where: { userId: user.id },
-        select: ['personnelNumber', 'division', 'post'],
+        select: ['personnelNumber', 'division', 'post', 'middleName'],
       });
     }
 
@@ -743,6 +745,7 @@ export class StudentsService {
       id: user.id,
       firstName: user.firstName,
       lastName: user.lastName,
+      middleName: nes?.middleName?.trim() || null,
       email: user.email,
       avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
       role: user.role,

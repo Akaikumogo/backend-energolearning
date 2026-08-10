@@ -62,14 +62,14 @@ export class SafetyRecordsService {
     await this.assertEmployeeAccess(employeeUserId, actor);
     const types = await this.listTypes();
     const records = await this.recordRepo.find({
-      where: { userId: employeeUserId, isLatest: true },
+      where: { userId: employeeUserId },
       relations: [
         'recordType',
         'createdByUser',
         'updatedByUser',
         'approvedByUser',
       ],
-      order: { updatedAt: 'DESC' },
+      order: { createdAt: 'DESC' },
     });
     const pendingChanges = await this.changeRepo.find({
       where: {
@@ -84,11 +84,13 @@ export class SafetyRecordsService {
     );
 
     return types.map((type) => {
-      const record = records.find((r) => r.recordTypeId === type.id) ?? null;
+      const typeRecords = records.filter((r) => r.recordTypeId === type.id);
+      const record = typeRecords.find((r) => r.isLatest) ?? null;
       const pending = pendingByType.get(type.code) ?? null;
       return {
         type: this.mapType(type),
         record: record ? this.mapRecord(record) : null,
+        records: typeRecords.map((r) => this.mapRecord(r)),
         pendingChange: pending ? this.mapChange(pending) : null,
       };
     });

@@ -318,6 +318,7 @@ export class UserActivityService {
       userId: string;
       firstName: string;
       lastName: string;
+      middleName: string | null;
       email: string;
       role: Role;
       organizationId: string | null;
@@ -353,6 +354,7 @@ export class UserActivityService {
       'u.id AS "userId"',
       'u.first_name AS "firstName"',
       'u.last_name AS "lastName"',
+      `(SELECT ne.middle_name FROM nes_employees ne WHERE ne.user_id = u.id LIMIT 1) AS "middleName"`,
       'u.email AS "email"',
       'u.role AS "role"',
       'uo.organizationId AS "organizationId"',
@@ -363,6 +365,7 @@ export class UserActivityService {
       userId: string;
       firstName: string;
       lastName: string;
+      middleName: string | null;
       email: string;
       role: Role;
       organizationId: string | null;

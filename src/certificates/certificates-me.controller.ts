@@ -19,8 +19,8 @@ export class CertificatesMeController {
   constructor(private readonly certificatesService: CertificatesService) {}
 
   @Get('me')
-  @ApiOperation({ summary: 'Mening guvohnomalarim' })
-  @ApiOkResponse({ description: 'Guvohnomalar ro`yxati' })
+  @ApiOperation({ summary: 'Mening ENERGO ID guvohnomam (avtomatik)' })
+  @ApiOkResponse({ description: 'ENERGO ID kartasi' })
   listMine(@Req() req: Request & { user: { id: string; role: Role } }) {
     return this.certificatesService.listMine(req.user.id);
   }
