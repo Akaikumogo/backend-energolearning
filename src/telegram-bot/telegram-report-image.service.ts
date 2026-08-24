@@ -341,28 +341,31 @@ export class TelegramReportImageService {
   }
 
   /**
-   * Toza, o'qiladigan filial nomi.
-   * AJ/AO + holding olib tashlanadi; viloyat/tashkilot nomi to'liq saqlanadi.
+   * Toza filial nomi. AJ/AO hech qachon chiqmasin.
    */
   displayOrgName(raw: string): string {
-    let s = String(raw || '').trim();
+    let s = String(raw || '')
+      .normalize('NFKC')
+      .replace(/[\u00a0\u202f\u2007]/g, ' ')
+      .trim();
     if (!s) return '—';
 
+    // Holding
     s = s.replace(
       /O['ʼʻ`ʹ′]?\s*ZBEKISTON\s+MILLIY\s+ELEKTR\s+TARMOQLARI/gi,
       ' ',
     );
     s = s.replace(/ЎЗБЕКИСТОН\s+МИЛЛИЙ\s+ЭЛЕКТР\s+ТАРМОҚЛАРИ/gi, ' ');
-    s = s.replace(/["«»“”„]+/g, ' ');
+    s = s.replace(/["«»“”„‹›]+/g, ' ');
     s = s.replace(/\bELEKTR\s+TARMOQLARI\b/gi, ' ');
     s = s.replace(/\bFILIALI?\b/gi, ' ');
     s = s.replace(/\s+/g, ' ').trim();
 
-    // AJ / AO — boshida va istalgan joyda (Aj, AJ, ao, …)
-    s = this.stripAjAo(s);
+    s = this.stripLeadingOrgForm(s);
 
     if (!s) return 'Bosh tashkilot';
 
+    // Title case (faqat FULL CAPS bo'lsa)
     const letters = s.replace(/[^a-zA-ZА-Яа-яЁёЎўҚқҒғҲҳ]/g, '');
     if (letters.length > 2 && letters === letters.toUpperCase()) {
       s = s
@@ -370,36 +373,61 @@ export class TelegramReportImageService {
         .replace(/(^|[\s\-])(\S)/g, (_, a, b) => a + String(b).toUpperCase());
     }
 
-    // Title case dan keyin yana bir marta (Aj → olib tashlash)
-    s = this.stripAjAo(s);
+    // Title case dan keyin yana AJ/Ao qolishi mumkin — qayta tozalash
+    s = this.stripLeadingOrgForm(s);
     if (!s) return 'Bosh tashkilot';
 
-    // Max ~36 belgi, so'z chegarasida
-    if (s.length > 36) {
-      const cut = s.slice(0, 36);
+    if (s.length > 40) {
+      const cut = s.slice(0, 40);
       const sp = cut.lastIndexOf(' ');
-      s = `${(sp > 20 ? cut.slice(0, sp) : cut).trim()}…`;
+      s = `${(sp > 18 ? cut.slice(0, sp) : cut).trim()}…`;
     }
     return s;
   }
 
-  /** AJ / AO prefiksini to'liq olib tashlash (takroriy). */
-  private stripAjAo(raw: string): string {
+  /**
+   * Birinchi so'z AJ/AO/MChJ bo'lsa — olib tashla (takroran).
+   * Harflarni normalizatsiya qilib solishtiradi (Aj, AJ, ао, …).
+   */
+  private stripLeadingOrgForm(raw: string): string {
     let s = raw.trim();
-    // Boshidagi: AJ, AO, MChJ, …
-    for (let i = 0; i < 5; i++) {
-      const next = s
-        .replace(/^(aj|ao|mchj|mchj|xk|чп|ооо)([.\s\-–—]|$)/i, '$2')
-        .replace(/^['ʼʻ`ʹ′\s.]+/, '')
-        .trim();
-      if (next === s) break;
-      s = next;
+    const junk = new Set([
+      'aj',
+      'ao',
+      'ао',
+      'аж',
+      'mchj',
+      'xk',
+      'чп',
+      'ооо',
+    ]);
+
+    for (let n = 0; n < 8; n++) {
+      const m = s.match(/^(\S+)(\s+|$)/);
+      if (!m) break;
+      const token = m[1] ?? '';
+      // Faqat harflarni olib solishtirish: "AJ.", "Aj,", "«AJ»"
+      const lettersOnly = token
+        .normalize('NFKC')
+        .replace(/[^a-zA-Zа-яА-ЯёЁўЎқҚғҒҳҲ]/g, '')
+        .toLowerCase();
+      if (!junk.has(lettersOnly)) break;
+      s = s.slice(m[0].length).trim();
     }
-    // Ichidagi alohida AJ/AO tokenlari
+
+    // Qolgan joydagi alohida AJ/AO so'zlari
     s = s
-      .replace(/(^|\s)(aj|ao)(?=\s|$)/gi, '$1')
-      .replace(/\s+/g, ' ')
+      .split(/\s+/)
+      .filter((w) => {
+        const lettersOnly = w
+          .normalize('NFKC')
+          .replace(/[^a-zA-Zа-яА-ЯёЁўЎқҚғҒҳҲ]/g, '')
+          .toLowerCase();
+        return !junk.has(lettersOnly);
+      })
+      .join(' ')
       .trim();
+
     return s;
   }
 
