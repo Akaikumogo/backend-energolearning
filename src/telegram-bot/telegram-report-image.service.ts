@@ -350,15 +350,14 @@ export class TelegramReportImageService {
       .trim();
     if (!s) return '—';
 
-    // Holding
+    // Holding (umumiy kompaniya nomi) — olib tashlanadi
     s = s.replace(
       /O['ʼʻ`ʹ′]?\s*ZBEKISTON\s+MILLIY\s+ELEKTR\s+TARMOQLARI/gi,
       ' ',
     );
     s = s.replace(/ЎЗБЕКИСТОН\s+МИЛЛИЙ\s+ЭЛЕКТР\s+ТАРМОҚЛАРИ/gi, ' ');
     s = s.replace(/["«»“”„‹›]+/g, ' ');
-    s = s.replace(/\bELEKTR\s+TARMOQLARI\b/gi, ' ');
-    s = s.replace(/\bFILIALI?\b/gi, ' ');
+    // ELEKTR TARMOQLARI FILIALI — saqlanadi (filialning o'z nomi)
     s = s.replace(/\s+/g, ' ').trim();
 
     s = this.stripLeadingOrgForm(s);
@@ -377,58 +376,78 @@ export class TelegramReportImageService {
     s = this.stripLeadingOrgForm(s);
     if (!s) return 'Bosh tashkilot';
 
-    if (s.length > 40) {
-      const cut = s.slice(0, 40);
+    if (s.length > 52) {
+      const cut = s.slice(0, 52);
       const sp = cut.lastIndexOf(' ');
-      s = `${(sp > 18 ? cut.slice(0, sp) : cut).trim()}…`;
+      s = `${(sp > 24 ? cut.slice(0, sp) : cut).trim()}…`;
     }
     return s;
   }
 
   /**
    * Birinchi so'z AJ/AO/MChJ bo'lsa — olib tashla (takroran).
-   * Harflarni normalizatsiya qilib solishtiradi (Aj, AJ, ао, …).
+   * Kirill/lotin aralash АJ / АО ham ushlanadi.
    */
   private stripLeadingOrgForm(raw: string): string {
     let s = raw.trim();
     const junk = new Set([
       'aj',
       'ao',
-      'ао',
       'аж',
+      'ао',
       'mchj',
       'xk',
       'чп',
       'ооо',
     ]);
 
+    const isJunkWord = (token: string): boolean => {
+      const folded = this.foldOrgToken(token);
+      return junk.has(folded);
+    };
+
+    // 1) Blunt: boshidagi AJ/AO/АЖ/АО + bo'shliq (eng ishonchli)
+    for (let n = 0; n < 8; n++) {
+      const next = s
+        .replace(/^(aj|ao|аж|ао)[\s.]+/i, '')
+        .replace(/^["'«»“”„\s.]+/, '')
+        .trim();
+      if (next === s) break;
+      s = next;
+    }
+
+    // 2) Token bo'yicha (aralash kirill/lotin uchun)
     for (let n = 0; n < 8; n++) {
       const m = s.match(/^(\S+)(\s+|$)/);
       if (!m) break;
-      const token = m[1] ?? '';
-      // Faqat harflarni olib solishtirish: "AJ.", "Aj,", "«AJ»"
-      const lettersOnly = token
-        .normalize('NFKC')
-        .replace(/[^a-zA-Zа-яА-ЯёЁўЎқҚғҒҳҲ]/g, '')
-        .toLowerCase();
-      if (!junk.has(lettersOnly)) break;
+      if (!isJunkWord(m[1] ?? '')) break;
       s = s.slice(m[0].length).trim();
     }
 
-    // Qolgan joydagi alohida AJ/AO so'zlari
+    // 3) Ichidagi alohida AJ/AO tokenlari
     s = s
       .split(/\s+/)
-      .filter((w) => {
-        const lettersOnly = w
-          .normalize('NFKC')
-          .replace(/[^a-zA-Zа-яА-ЯёЁўЎқҚғҒҳҲ]/g, '')
-          .toLowerCase();
-        return !junk.has(lettersOnly);
-      })
+      .filter((w) => !isJunkWord(w))
       .join(' ')
       .trim();
 
     return s;
+  }
+
+  /** А→a, О→o, Ж→j — aralash yozuvni bir xil qilish. */
+  private foldOrgToken(token: string): string {
+    return token
+      .normalize('NFKC')
+      .replace(/[^a-zA-Zа-яА-ЯёЁўЎқҚғҒҳҲжЖії]/g, '')
+      .toLowerCase()
+      .replace(/а/g, 'a')
+      .replace(/о/g, 'o')
+      .replace(/е/g, 'e')
+      .replace(/с/g, 'c')
+      .replace(/і/g, 'i')
+      .replace(/ї/g, 'i')
+      .replace(/ј/g, 'j')
+      .replace(/ж/g, 'j');
   }
 
   private statusFromPercent(p: number): 'green' | 'yellow' | 'red' {
