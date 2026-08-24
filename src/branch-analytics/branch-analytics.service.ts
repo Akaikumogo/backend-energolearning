@@ -86,12 +86,17 @@ export class BranchAnalyticsService {
     if (!UUID_RE.test(orgId)) {
       throw new BadRequestException('orgId UUID formatida bo‘lishi kerak');
     }
-    if (user.role === Role.MODERATOR || user.role === Role.ACCOUNTING) {
-      const scoped = await this.orgService.resolveModeratorScope(
+    if (
+      user.role === Role.MODERATOR ||
+      user.role === Role.ACCOUNTING ||
+      user.role === Role.APPROVER
+    ) {
+      const allowed = await this.orgService.getAllowedOrgIds(
+        user.role,
         user.organizationIds,
       );
-      // undefined = asosiy filial (barcha). [] yoki ro‘yxat = faqat shu ID lar.
-      if (scoped !== undefined && !scoped.includes(orgId)) {
+      // null = asosiy filial / superadmin scope (barcha). [] yoki ro‘yxat = faqat shu ID lar.
+      if (allowed !== null && !allowed.includes(orgId)) {
         throw new ForbiddenException('Ruxsat yo`q');
       }
     }

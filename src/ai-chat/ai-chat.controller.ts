@@ -13,7 +13,7 @@ export class AiChatController {
 
   @Get('status')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.USER)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER, Role.USER)
   @ApiBearerAuth('bearer')
   @ApiOperation({ summary: 'AI provider holati' })
   status() {

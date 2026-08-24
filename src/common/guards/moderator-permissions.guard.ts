@@ -104,12 +104,13 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
     return { module: 'students', action: 'delete' };
   }
 
-  // Safety / certification records (manual entry)
+  // Safety / certification records: barcha moderatorlarga ochiq.
+  // Filial/xodim chegarasi SafetyRecordsService.assertEmployeeAccess da.
   if (
     /^\/admin\/students\/[^/]+\/safety-records\/[^/]+$/.test(path) &&
     (m === 'PUT' || m === 'POST')
   ) {
-    return { module: 'safetyRecords', action: 'update' };
+    return null;
   }
 
   // Users / Moderators management

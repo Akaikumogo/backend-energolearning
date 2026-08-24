@@ -71,7 +71,7 @@ export class ReportSubmissionsController {
   }
 
   @Get()
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
   @ApiOperation({
     summary: 'Yuklangan hisobotlar (faqat asosiy filial / SUPERADMIN)',
   })
@@ -86,7 +86,7 @@ export class ReportSubmissionsController {
   }
 
   @Get(':id')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
   @ApiOperation({ summary: 'Yuklangan hisobot (ID)' })
   getOne(
     @Param('id', ParseUUIDPipe) id: string,
@@ -96,7 +96,7 @@ export class ReportSubmissionsController {
   }
 
   @Get(':id/compare')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
   @ApiOperation({
     summary: 'Yuklangan Excel ni tizimdagi joriy filial hisoboti bilan solishtirish',
   })

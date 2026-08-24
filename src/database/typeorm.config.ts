@@ -77,6 +77,9 @@ import { AddSafetyRecordsAndAuthMethod1748300000000 } from './migrations/0037-ad
 import { RenameDirectorToApprover1748400000000 } from './migrations/0038-rename-director-to-approver';
 import { NormalizeSingleCorrectOptions1748500000000 } from './migrations/0039-normalize-single-correct-options';
 import { AddLibraryDocuments1748600000000 } from './migrations/0040-add-library-documents';
+import { EnableSafetyRecordsForModerators1748700000000 } from './migrations/0041-enable-safety-records-for-moderators';
+import { AddTelegramReportChats1748800000000 } from './migrations/0042-add-telegram-report-chats';
+import { TelegramReportChat } from './entities/telegram-report-chat.entity';
 import { EmployeeSyncSetting } from './entities/employee-sync-setting.entity';
 import { TerminatedEmployee } from './entities/terminated-employee.entity';
 import { OAuthIntegrationSetting } from './entities/oauth-integration-setting.entity';
@@ -139,6 +142,7 @@ export const AppDataSource = new DataSource({
     SafetyRecordType,
     EmployeeSafetyRecord,
     EmployeeSafetyRecordChange,
+    TelegramReportChat,
   ],
   migrations: [
     Init1743074000000,
@@ -183,6 +187,8 @@ export const AppDataSource = new DataSource({
     RenameDirectorToApprover1748400000000,
     NormalizeSingleCorrectOptions1748500000000,
     AddLibraryDocuments1748600000000,
+    EnableSafetyRecordsForModerators1748700000000,
+    AddTelegramReportChats1748800000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

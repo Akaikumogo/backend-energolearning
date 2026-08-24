@@ -31,7 +31,7 @@ import { ReportingActivationService } from './reporting-activation.service';
 @ApiTags('Reporting activation')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+@Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
 @Controller('admin/reporting-activation')
 export class ReportingActivationController {
   constructor(

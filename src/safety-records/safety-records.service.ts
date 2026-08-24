@@ -212,6 +212,137 @@ export class SafetyRecordsService {
     };
   }
 
+  async listPending(actor: Actor) {
+    const allowed = await this.organizationsService.getAllowedOrgIds(
+      actor.role,
+      actor.organizationIds,
+    );
+    const qb = this.changeRepo
+      .createQueryBuilder('c')
+      .leftJoinAndSelect('c.user', 'u')
+      .leftJoinAndSelect('c.changedByUser', 'cb')
+      .leftJoinAndSelect('c.organization', 'org')
+      .where('c.approvalStatus = :status', { status: 'PENDING' })
+      .andWhere('c.action IN (:...actions)', { actions: ['CREATE', 'UPDATE'] })
+      .orderBy('c.changedAt', 'DESC');
+
+    if (allowed !== null) {
+      if (allowed.length === 0) {
+        return { total: 0, items: [] };
+      }
+      qb.andWhere('c.organizationId IN (:...orgIds)', { orgIds: allowed });
+    }
+
+    const changes = await qb.getMany();
+    const typeCodes = [...new Set(changes.map((c) => c.recordTypeCode))];
+    const types =
+      typeCodes.length > 0
+        ? await this.typeRepo.find({
+            where: { code: In(typeCodes) },
+          })
+        : [];
+    const typeByCode = new Map(types.map((t) => [t.code, t]));
+
+    const items = changes.map((c) => this.mapPendingItem(c, typeByCode.get(c.recordTypeCode)));
+    return { total: items.length, items };
+  }
+
+  async countPending(actor: Actor) {
+    const allowed = await this.organizationsService.getAllowedOrgIds(
+      actor.role,
+      actor.organizationIds,
+    );
+    const qb = this.changeRepo
+      .createQueryBuilder('c')
+      .where('c.approvalStatus = :status', { status: 'PENDING' })
+      .andWhere('c.action IN (:...actions)', { actions: ['CREATE', 'UPDATE'] });
+
+    if (allowed !== null) {
+      if (allowed.length === 0) return { total: 0 };
+      qb.andWhere('c.organizationId IN (:...orgIds)', { orgIds: allowed });
+    }
+
+    const total = await qb.getCount();
+    return { total };
+  }
+
+  async bulkApprove(changeIds: string[], actor: Actor) {
+    const results: Array<{
+      changeId: string;
+      ok: boolean;
+      error?: string;
+    }> = [];
+    for (const id of changeIds) {
+      try {
+        await this.approve(id, actor);
+        results.push({ changeId: id, ok: true });
+      } catch (e: unknown) {
+        const msg =
+          e instanceof Error ? e.message : 'Tasdiqlash muvaffaqiyatsiz';
+        results.push({ changeId: id, ok: false, error: msg });
+      }
+    }
+    return {
+      approved: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      results,
+    };
+  }
+
+  async bulkReject(
+    changeIds: string[],
+    dto: RejectSafetyChangeDto,
+    actor: Actor,
+  ) {
+    const results: Array<{
+      changeId: string;
+      ok: boolean;
+      error?: string;
+    }> = [];
+    for (const id of changeIds) {
+      try {
+        await this.reject(id, dto, actor);
+        results.push({ changeId: id, ok: true });
+      } catch (e: unknown) {
+        const msg =
+          e instanceof Error ? e.message : 'Rad etish muvaffaqiyatsiz';
+        results.push({ changeId: id, ok: false, error: msg });
+      }
+    }
+    return {
+      rejected: results.filter((r) => r.ok).length,
+      failed: results.filter((r) => !r.ok).length,
+      results,
+    };
+  }
+
+  private mapPendingItem(
+    change: EmployeeSafetyRecordChange,
+    type: SafetyRecordType | undefined,
+  ) {
+    const employee = change.user;
+    return {
+      change: this.mapChange(change),
+      employee: employee
+        ? {
+            id: employee.id,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            email: employee.email,
+          }
+        : {
+            id: change.userId,
+            firstName: null as string | null,
+            lastName: null as string | null,
+            email: null as string | null,
+          },
+      organization: change.organization
+        ? { id: change.organization.id, name: change.organization.name }
+        : { id: change.organizationId, name: null },
+      type: type ? this.mapType(type) : null,
+    };
+  }
+
   async approve(changeId: string, actor: Actor) {
     if (actor.role !== Role.APPROVER && actor.role !== Role.SUPERADMIN) {
       throw new ForbiddenException('Tasdiqlash huquqi yoʻq');
@@ -411,7 +542,7 @@ export class SafetyRecordsService {
       recordTypeCode: type.code,
       section: type.sectionSlug,
       organizationId: change.organizationId,
-      reviewPath: `/dashboard/employees/${employee.id}?section=${type.sectionSlug}&changeId=${change.id}`,
+      reviewPath: `/dashboard/approvals?changeId=${change.id}`,
     };
 
     let firstNotificationId: string | null = null;
