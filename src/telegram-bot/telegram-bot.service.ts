@@ -427,10 +427,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     if (isGroup) {
       await this.sendAndStore(
         chatRow,
-        `✅ <b>Электро Learn</b> — гуруҳ уланди!\n\n` +
-          `Ҳар куни <b>18:00</b> (Тошкент) шу гуруҳга ҳисобот юборади.\n\n` +
-          `Бугунги ҳисобот: /hisobot\n` +
-          `Ўчириш: /stop_report`,
+        `✅ <b>Elektro Learn</b>\n\n` +
+          `Men ishga tushdim.\n` +
+          `Endi sizlarga har kuni <b>18:00</b> da (Toshkent) hisobot topshiraman.\n\n` +
+          `📊 Kunlik + oylik jadval rasmlari\n` +
+          `⏱ Vaqt: har kuni 18:00\n\n` +
+          `Hozirgi hisobot: /hisobot\n` +
+          `Oʻchirish: /stop_report`,
       );
       return;
     }
@@ -552,26 +555,52 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private async deliverReportToChat(
     chat: TelegramReportChat,
     adminId?: string,
-    ready?: { png: Buffer; caption: string },
+    ready?: {
+      dailyPng: Buffer;
+      monthlyPng: Buffer;
+      dailyCaption: string;
+      monthlyCaption: string;
+    },
   ) {
     const payload = ready ?? (await this.buildReportPayload());
-    const sent = await this.apiSendPhoto(
-      Number(chat.chatId),
-      payload.png,
-      payload.caption,
+    const chatId = Number(chat.chatId);
+
+    const sentDaily = await this.apiSendPhoto(
+      chatId,
+      payload.dailyPng,
+      payload.dailyCaption,
+      'elektro-learn-kunlik.png',
     );
     await this.persistOutbound(chat, {
       kind: 'report',
-      text: payload.caption.replace(/<[^>]+>/g, ''),
-      caption: payload.caption,
-      telegramMessageId: sent?.message_id != null ? String(sent.message_id) : null,
+      text: payload.dailyCaption.replace(/<[^>]+>/g, ''),
+      caption: payload.dailyCaption,
+      telegramMessageId:
+        sentDaily?.message_id != null ? String(sentDaily.message_id) : null,
+      sentByAdminId: adminId ?? null,
+    });
+
+    const sentMonthly = await this.apiSendPhoto(
+      chatId,
+      payload.monthlyPng,
+      payload.monthlyCaption,
+      'elektro-learn-oylik.png',
+    );
+    await this.persistOutbound(chat, {
+      kind: 'report',
+      text: payload.monthlyCaption.replace(/<[^>]+>/g, ''),
+      caption: payload.monthlyCaption,
+      telegramMessageId:
+        sentMonthly?.message_id != null ? String(sentMonthly.message_id) : null,
       sentByAdminId: adminId ?? null,
     });
   }
 
   private async buildReportPayload(): Promise<{
-    png: Buffer;
-    caption: string;
+    dailyPng: Buffer;
+    monthlyPng: Buffer;
+    dailyCaption: string;
+    monthlyCaption: string;
   }> {
     const planDate = tashkentToday();
     const month = planDate.slice(0, 7);
@@ -579,6 +608,15 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.analytics.getDailyReport(planDate, null),
       this.analytics.getMonthlyReport(month, null),
     ]);
+
+    const monthlyAvgFromTrend =
+      monthly.trend.length > 0
+        ? Math.round(
+            (monthly.trend.reduce((s, p) => s + (p.percent ?? 0), 0) /
+              monthly.trend.length) *
+              10,
+          ) / 10
+        : 0;
 
     const monthlyAvg =
       monthly.branches.length > 0
@@ -590,51 +628,68 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
               monthly.branches.length) *
               10,
           ) / 10
-        : 0;
+        : monthlyAvgFromTrend;
 
-    const png = await this.imageService.buildCombinedReportPng(
-      {
-        planDate: daily.planDate,
-        completionPercent: daily.completionPercent,
-        completedTotal: daily.completedTotal,
-        totalPlan: daily.totalPlan,
-        totalEmployees: daily.totalEmployees,
-        completedEmployees: daily.completedEmployees,
-        extraCorrectTotal: daily.extraCorrectTotal,
-        branchCount: daily.branchCount,
-        branches: daily.branches.map((b) => ({
-          orgName: b.orgName,
-          percent: b.percent,
-          status: b.status,
-          completed: b.completed,
-          plan: b.plan,
-        })),
-      },
-      {
-        month: monthly.month,
-        averagePercent: monthlyAvg,
-        branchCount: monthly.branches.length,
-        branches: monthly.branches.map((b) => ({
-          orgName: b.orgName,
-          percent: b.averageMonthlyPercent,
-          averageMonthlyPercent: b.averageMonthlyPercent,
-          status: this.statusFromPercent(b.averageMonthlyPercent),
-        })),
-      },
-    );
+    const dailyInput = {
+      planDate: daily.planDate,
+      completionPercent: daily.completionPercent,
+      completedTotal: daily.completedTotal,
+      totalPlan: daily.totalPlan,
+      totalEmployees: daily.totalEmployees,
+      completedEmployees: daily.completedEmployees,
+      extraCorrectTotal: daily.extraCorrectTotal,
+      branchCount: daily.branchCount,
+      branches: daily.branches.map((b) => ({
+        orgName: b.orgName,
+        percent: b.percent,
+        status: b.status,
+        completed: b.completed,
+        plan: b.plan,
+      })),
+    };
+
+    const monthlyInput = {
+      month: monthly.month,
+      averagePercent: monthlyAvg,
+      branchCount: monthly.branches.length,
+      branches: monthly.branches.map((b) => ({
+        orgName: b.orgName,
+        percent: b.averageMonthlyPercent,
+        averageMonthlyPercent: b.averageMonthlyPercent,
+        status: this.statusFromPercent(b.averageMonthlyPercent),
+      })),
+      dailyPoints: monthly.trend.map((p) => ({
+        date: p.date,
+        percent: p.percent,
+        completed: p.completed,
+        plan: p.plan,
+      })),
+    };
+
+    const [dailyPng, monthlyPng] = await Promise.all([
+      this.imageService.buildDailyReportPng(dailyInput),
+      this.imageService.buildMonthlyReportPng(monthlyInput),
+    ]);
 
     const [y, m, d] = daily.planDate.split('-');
-    const caption =
-      `⚡ <b>Электро Learn</b> — кунлик ҳисобот\n\n` +
-      `📅 Сана: <b>${d}.${m}.${y}</b>\n` +
-      `🕐 Вақт: <b>18:00</b> (Тошкент)\n\n` +
-      `📈 Бугун: <b>${daily.completionPercent.toFixed(1)}%</b> ` +
-      `(${daily.completedTotal}/${daily.totalPlan})\n` +
-      `🗓 Жорий ой ўртача: <b>${monthlyAvg.toFixed(1)}%</b>\n` +
-      `🏢 Филиаллар: <b>${daily.branchCount}</b>\n\n` +
-      `❗️ <b>Илтимос, бугунги ҳисоботни топширинг!</b>`;
+    const dailyCaption =
+      `⚡ <b>Elektro Learn</b> — kunlik hisobot\n\n` +
+      `📅 Sana: <b>${d}.${m}.${y}</b>\n` +
+      `🕐 Vaqt: <b>18:00</b> (Toshkent)\n\n` +
+      `📈 Bugun (umumiy): <b>${daily.completionPercent.toFixed(1)}%</b>\n` +
+      `📋 Reja: <b>${daily.completedTotal}/${daily.totalPlan}</b>\n` +
+      `🏢 Filiallar: <b>${daily.branchCount}</b>\n\n` +
+      `❗️ <b>Iltimos, bugungi hisobotni topshiring!</b>`;
 
-    return { png, caption };
+    const [yy, mm] = monthly.month.split('-');
+    const monthlyCaption =
+      `🗓 <b>Elektro Learn</b> — oylik hisobot\n\n` +
+      `📅 Oy: <b>${mm}.${yy}</b>\n` +
+      `📊 Kunlik foizlar jadvali + yakuniy umumiy foiz\n\n` +
+      `📈 Oylik oʻrtacha: <b>${monthlyAvg.toFixed(1)}%</b>\n` +
+      `📆 Kunlar: <b>${monthly.trend.length}</b>`;
+
+    return { dailyPng, monthlyPng, dailyCaption, monthlyCaption };
   }
 
   // ─── Telegram API ────────────────────────────────────────
@@ -676,6 +731,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     chatId: number,
     png: Buffer,
     caption: string,
+    filename = 'elektro-learn-report.png',
   ): Promise<{ message_id?: number } | null> {
     const token = await this.resolveToken();
     if (!token) throw new BadRequestException('Bot token o‘rnatilmagan');
@@ -687,7 +743,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     form.append(
       'photo',
       new Blob([new Uint8Array(png)], { type: 'image/png' }),
-      'elektro-learn-report.png',
+      filename,
     );
 
     const res = await fetch(
