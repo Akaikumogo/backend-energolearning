@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
 } from '@nestjs/common';
@@ -8,37 +10,54 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BranchAnalyticsService } from '../branch-analytics/branch-analytics.service';
-import { TelegramReportChat } from '../database/entities/telegram-report-chat.entity';
 import { tashkentToday } from '../common/utils/tashkent-time.util';
+import { TelegramBotSetting } from '../database/entities/telegram-bot-setting.entity';
+import {
+  TelegramChatMessage,
+  TelegramMessageKind,
+} from '../database/entities/telegram-chat-message.entity';
+import { TelegramReportChat } from '../database/entities/telegram-report-chat.entity';
 import { TelegramReportImageService } from './telegram-report-image.service';
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
-const WEB_APP_URL =
+const ENV_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
+const ENV_WEB_APP =
   process.env.TELEGRAM_WEB_APP_URL ?? 'https://t.me/elektrolearnbot/Elektro_learn';
-const TELEGRAM_API = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
 
-interface TelegramUser {
+interface TgUser {
   id: number;
   first_name?: string;
+  last_name?: string;
   username?: string;
 }
 
-interface TelegramChat {
+interface TgChat {
   id: number;
   type: string;
   title?: string;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
 }
 
-interface TelegramMessage {
+interface TgPhotoSize {
+  file_id: string;
+  width: number;
+  height: number;
+}
+
+interface TgMessage {
   message_id: number;
-  from?: TelegramUser;
-  chat: TelegramChat;
+  from?: TgUser;
+  chat: TgChat;
   text?: string;
+  caption?: string;
+  photo?: TgPhotoSize[];
+  document?: { file_id: string; file_name?: string };
 }
 
-interface TelegramUpdate {
+interface TgUpdate {
   update_id: number;
-  message?: TelegramMessage;
+  message?: TgMessage;
 }
 
 @Injectable()
@@ -48,24 +67,28 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   private polling = false;
   private stopRequested = false;
   private sendingReport = false;
+  private cachedToken: string | null = null;
 
   constructor(
     @InjectRepository(TelegramReportChat)
     private readonly chatRepo: Repository<TelegramReportChat>,
+    @InjectRepository(TelegramChatMessage)
+    private readonly msgRepo: Repository<TelegramChatMessage>,
+    @InjectRepository(TelegramBotSetting)
+    private readonly settingsRepo: Repository<TelegramBotSetting>,
     private readonly analytics: BranchAnalyticsService,
     private readonly imageService: TelegramReportImageService,
   ) {}
 
   async onModuleInit() {
-    if (!TELEGRAM_BOT_TOKEN) {
+    const token = await this.resolveToken();
+    if (!token) {
       this.logger.warn(
-        'TELEGRAM_BOT_TOKEN o`rnatilmagan — telegram bot o`chirilgan.',
+        'Telegram bot token yo‘q — superadmin «Telegram Bot» sahifasidan kiriting.',
       );
       return;
     }
-    this.logger.log(
-      'Telegram bot ishga tushmoqda (hisobot 18:00 Asia/Tashkent)...',
-    );
+    this.logger.log('Telegram bot ishga tushmoqda (18:00 hisobot)...');
     void this.startPolling();
   }
 
@@ -73,11 +96,139 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     this.stopRequested = true;
   }
 
-  /** Har kuni 18:00 (Toshkent) — moderatorlar guruhiga hisobot. */
+  /** Token yangilanganda pollingni qayta boshlash. */
+  async restartPolling() {
+    this.stopRequested = true;
+    this.cachedToken = null;
+    // Polling loop chiqishini kutish
+    for (let i = 0; i < 40 && this.polling; i++) {
+      await this.sleep(250);
+    }
+    this.stopRequested = false;
+    this.offset = 0;
+    const token = await this.resolveToken();
+    if (!token) {
+      this.logger.warn('Token yo‘q — polling to‘xtatildi');
+      return;
+    }
+    this.logger.log('Telegram polling qayta boshlandi');
+    void this.startPolling();
+  }
+
+  async getSettingsView() {
+    const row = await this.ensureSettings();
+    const token = row.botToken?.trim() || ENV_TOKEN || null;
+    return {
+      hasToken: !!token,
+      tokenMasked: token ? this.maskToken(token) : null,
+      webAppUrl: row.webAppUrl || ENV_WEB_APP,
+      isEnabled: row.isEnabled,
+      polling: this.polling,
+      updatedAt: row.updatedAt,
+    };
+  }
+
+  async updateSettings(
+    input: { botToken?: string; webAppUrl?: string; isEnabled?: boolean },
+    adminId: string,
+  ) {
+    const row = await this.ensureSettings();
+    const prevToken = (row.botToken?.trim() || ENV_TOKEN || '').trim();
+
+    if (input.botToken !== undefined) {
+      const next = input.botToken.trim();
+      if (next) {
+        // Masked qiymatni qayta yozmaslik
+        if (!next.includes('…') && !next.includes('...')) {
+          row.botToken = next;
+        }
+      } else {
+        row.botToken = null;
+      }
+    }
+    if (input.webAppUrl !== undefined) {
+      row.webAppUrl = input.webAppUrl.trim() || null;
+    }
+    if (input.isEnabled !== undefined) {
+      row.isEnabled = input.isEnabled;
+    }
+    row.updatedBy = adminId;
+    await this.settingsRepo.save(row);
+
+    const newToken = (row.botToken?.trim() || ENV_TOKEN || '').trim();
+    if (newToken !== prevToken || input.isEnabled !== undefined) {
+      await this.restartPolling();
+    }
+
+    return this.getSettingsView();
+  }
+
+  async listChats() {
+    const rows = await this.chatRepo.find({
+      order: { lastMessageAt: 'DESC', updatedAt: 'DESC' },
+    });
+    return rows.map((c) => this.serializeChat(c));
+  }
+
+  async getChat(id: string) {
+    const chat = await this.chatRepo.findOne({ where: { id } });
+    if (!chat) throw new NotFoundException('Chat topilmadi');
+    return this.serializeChat(chat);
+  }
+
+  async listMessages(chatId: string, limit = 100) {
+    const chat = await this.chatRepo.findOne({ where: { id: chatId } });
+    if (!chat) throw new NotFoundException('Chat topilmadi');
+
+    const take = Math.min(Math.max(limit, 1), 300);
+    const latest = await this.msgRepo.find({
+      where: { chatRowId: chatId },
+      order: { createdAt: 'DESC' },
+      take,
+    });
+    const msgs = latest.reverse();
+
+    if (chat.unreadCount > 0) {
+      chat.unreadCount = 0;
+      await this.chatRepo.save(chat);
+    }
+
+    return {
+      chat: this.serializeChat(chat),
+      messages: msgs.map((m) => this.serializeMessage(m)),
+    };
+  }
+
+  async replyAsAdmin(chatId: string, text: string, adminId: string) {
+    const body = (text || '').trim();
+    if (!body) throw new BadRequestException('Matn bo‘sh');
+    const chat = await this.chatRepo.findOne({ where: { id: chatId } });
+    if (!chat) throw new NotFoundException('Chat topilmadi');
+
+    const sent = await this.apiSendMessage(Number(chat.chatId), body);
+    await this.persistOutbound(chat, {
+      kind: 'text',
+      text: body,
+      telegramMessageId: sent?.message_id != null ? String(sent.message_id) : null,
+      sentByAdminId: adminId,
+    });
+    return { ok: true };
+  }
+
+  async sendReportToChat(chatId: string, adminId?: string) {
+    const chat = await this.chatRepo.findOne({ where: { id: chatId } });
+    if (!chat) throw new NotFoundException('Chat topilmadi');
+    await this.deliverReportToChat(chat, adminId);
+    return { ok: true };
+  }
+
   @Cron('0 18 * * *', { timeZone: 'Asia/Tashkent' })
   async handleDailyReportCron() {
-    if (!TELEGRAM_BOT_TOKEN) return;
-    this.logger.log('Kunlik hisobot cron ishga tushdi (18:00 Asia/Tashkent)');
+    const token = await this.resolveToken();
+    if (!token) return;
+    const settings = await this.ensureSettings();
+    if (!settings.isEnabled) return;
+    this.logger.log('Kunlik hisobot cron (18:00 Asia/Tashkent)');
     await this.broadcastDailyReport();
   }
 
@@ -88,29 +239,30 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     }
     this.sendingReport = true;
     try {
-      const chats = await this.chatRepo.find({ where: { isActive: true } });
+      const chats = await this.chatRepo.find({
+        where: { reportEnabled: true, isActive: true },
+      });
       if (!chats.length) {
-        this.logger.warn(
-          'Faol telegram guruh yo‘q — /start ni moderatorlar guruhida bosing',
-        );
+        this.logger.warn('Hisobot uchun /start yoki /hisobot bosgan chat yo‘q');
         return;
       }
-
-      const { png, caption } = await this.buildReportPayload();
+      const payload = await this.buildReportPayload();
       for (const chat of chats) {
-        await this.sendPhoto(Number(chat.chatId), png, caption).catch((err) =>
+        await this.deliverReportToChat(chat, undefined, payload).catch((err) =>
           this.logger.error(
-            `chat ${chat.chatId} ga yuborish xato: ${err?.message || err}`,
+            `chat ${chat.chatId}: ${err?.message || err}`,
           ),
         );
       }
-      this.logger.log(`Hisobot ${chats.length} ta guruhga yuborildi`);
+      this.logger.log(`Hisobot ${chats.length} ta chatga yuborildi`);
     } catch (err: any) {
-      this.logger.error(`Hisobot yuborish xato: ${err?.message || err}`);
+      this.logger.error(`Hisobot xato: ${err?.message || err}`);
     } finally {
       this.sendingReport = false;
     }
   }
+
+  // ─── polling ─────────────────────────────────────────────
 
   private async startPolling() {
     if (this.polling) return;
@@ -118,15 +270,21 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     while (!this.stopRequested) {
       try {
-        const updates = await this.getUpdates();
+        const token = await this.resolveToken();
+        const settings = await this.ensureSettings();
+        if (!token || !settings.isEnabled) {
+          await this.sleep(5000);
+          continue;
+        }
+        const updates = await this.getUpdates(token);
         for (const update of updates) {
           this.offset = update.update_id + 1;
           await this.handleUpdate(update).catch((err) =>
-            this.logger.error(`Update ishlovida xato: ${err?.message || err}`),
+            this.logger.error(`Update: ${err?.message || err}`),
           );
         }
       } catch (err: any) {
-        this.logger.error(`Polling xatosi: ${err?.message || err}`);
+        this.logger.error(`Polling: ${err?.message || err}`);
         await this.sleep(3000);
       }
     }
@@ -134,135 +292,281 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     this.polling = false;
   }
 
-  private async getUpdates(): Promise<TelegramUpdate[]> {
-    const url = `${TELEGRAM_API}/getUpdates?timeout=30&offset=${this.offset}&allowed_updates=${encodeURIComponent(JSON.stringify(['message']))}`;
+  private async getUpdates(token: string): Promise<TgUpdate[]> {
+    const url =
+      `https://api.telegram.org/bot${token}/getUpdates` +
+      `?timeout=30&offset=${this.offset}` +
+      `&allowed_updates=${encodeURIComponent(JSON.stringify(['message']))}`;
     const res = await fetch(url);
     const data: any = await res.json();
-    if (!data.ok) {
-      throw new Error(`getUpdates xato: ${JSON.stringify(data)}`);
-    }
-    return data.result as TelegramUpdate[];
+    if (!data.ok) throw new Error(`getUpdates: ${JSON.stringify(data)}`);
+    return data.result as TgUpdate[];
   }
 
-  private async handleUpdate(update: TelegramUpdate) {
+  private async handleUpdate(update: TgUpdate) {
     const msg = update.message;
-    if (!msg || !msg.text) return;
+    if (!msg) return;
 
-    const text = msg.text.trim();
-    const chat = msg.chat;
-    const cmd = text.split(/\s+/)[0].split('@')[0].toLowerCase();
+    const chatRow = await this.upsertChat(msg.chat, msg.from);
+    const cmd = this.extractCommand(msg.text);
 
-    if (cmd === '/start') {
-      await this.handleStart(chat, msg.from);
+    // Har bir xabar shu chat threadiga yoziladi — boshqa chatlar bilan aralashmaydi
+    await this.persistInbound(chatRow, msg, cmd);
+
+    if (cmd === '/start' || cmd === '/hisobot') {
+      await this.enableReports(chatRow, msg.from);
+      if (cmd === '/start') {
+        await this.replyStart(chatRow, msg.chat, msg.from);
+      } else {
+        await this.apiSendMessage(
+          Number(chatRow.chatId),
+          '⏳ Ҳисобот тайёрланмоқда...',
+        );
+        await this.deliverReportToChat(chatRow);
+      }
       return;
     }
-    if (cmd === '/stop_report') {
-      await this.handleStopReport(chat);
+
+    if (cmd === '/stop_report' || cmd === '/stop') {
+      chatRow.reportEnabled = false;
+      await this.chatRepo.save(chatRow);
+      await this.sendAndStore(
+        chatRow,
+        '🛑 Кунлик ҳисобот ўчирилди.\nҚайта ёқиш: /start ёки /hisobot',
+      );
       return;
     }
+
     if (cmd === '/report_now') {
-      await this.handleReportNow(chat);
+      await this.enableReports(chatRow, msg.from);
+      await this.apiSendMessage(
+        Number(chatRow.chatId),
+        '⏳ Ҳисобот тайёрланмоқда...',
+      );
+      await this.deliverReportToChat(chatRow);
       return;
     }
+
+    // Oddiy xabar — faqat inboxga tushadi; avto-javob yo‘q (superadmin javob yozadi)
   }
 
-  private async handleStart(chat: TelegramChat, from?: TelegramUser) {
+  private extractCommand(text?: string): string | null {
+    if (!text) return null;
+    const raw = text.trim().split(/\s+/)[0] || '';
+    if (!raw.startsWith('/')) return null;
+    return raw.split('@')[0].toLowerCase();
+  }
+
+  private async upsertChat(chat: TgChat, from?: TgUser) {
+    let row = await this.chatRepo.findOne({
+      where: { chatId: String(chat.id) },
+    });
+    const isPrivate = chat.type === 'private';
+
+    if (!row) {
+      row = this.chatRepo.create({
+        chatId: String(chat.id),
+        chatType: chat.type,
+        chatTitle: isPrivate
+          ? [chat.first_name || from?.first_name, chat.last_name || from?.last_name]
+              .filter(Boolean)
+              .join(' ') || from?.username || `User ${chat.id}`
+          : chat.title ?? null,
+        peerUserId: isPrivate ? String(from?.id ?? chat.id) : null,
+        peerUsername: isPrivate
+          ? from?.username ?? chat.username ?? null
+          : null,
+        peerFirstName: isPrivate
+          ? from?.first_name ?? chat.first_name ?? null
+          : null,
+        peerLastName: isPrivate
+          ? from?.last_name ?? chat.last_name ?? null
+          : null,
+        reportEnabled: false,
+        isActive: true,
+        unreadCount: 0,
+      });
+    } else {
+      row.chatType = chat.type;
+      row.isActive = true;
+      if (!isPrivate && chat.title) row.chatTitle = chat.title;
+      if (isPrivate) {
+        row.peerUserId = String(from?.id ?? chat.id);
+        row.peerUsername = from?.username ?? chat.username ?? row.peerUsername;
+        row.peerFirstName =
+          from?.first_name ?? chat.first_name ?? row.peerFirstName;
+        row.peerLastName =
+          from?.last_name ?? chat.last_name ?? row.peerLastName;
+        row.chatTitle =
+          [row.peerFirstName, row.peerLastName].filter(Boolean).join(' ') ||
+          row.peerUsername ||
+          row.chatTitle;
+      }
+    }
+    return this.chatRepo.save(row);
+  }
+
+  private async enableReports(chat: TelegramReportChat, from?: TgUser) {
+    chat.reportEnabled = true;
+    chat.isActive = true;
+    if (from) {
+      chat.startedByUserId = String(from.id);
+      chat.startedByUsername = from.username ?? null;
+    }
+    await this.chatRepo.save(chat);
+  }
+
+  private async replyStart(
+    chatRow: TelegramReportChat,
+    chat: TgChat,
+    from?: TgUser,
+  ) {
+    const webApp = await this.resolveWebAppUrl();
     const isGroup = chat.type === 'group' || chat.type === 'supergroup';
 
     if (isGroup) {
-      await this.registerReportChat(chat, from);
-      await this.sendMessage(
-        chat.id,
+      await this.sendAndStore(
+        chatRow,
         `✅ <b>Электро Learn</b> — гуруҳ уланди!\n\n` +
-          `Ҳар куни соат <b>18:00</b> (Тошкент) шу гуруҳга:\n` +
-          `• GitHub Actions услубидаги ҳисобот расми\n` +
-          `• Бугунги ва жорий ой натижалари\n` +
-          `• Ҳисобот топшириш эслатмаси\n\n` +
-          `Бугунги ҳисоботни дарҳол олиш: /report_now\n` +
+          `Ҳар куни <b>18:00</b> (Тошкент) шу гуруҳга ҳисобот юборади.\n\n` +
+          `Бугунги ҳисобот: /hisobot\n` +
           `Ўчириш: /stop_report`,
       );
       return;
     }
 
     const name = from?.first_name ? `, ${from.first_name}` : '';
-    const text =
-      `👋 Assalomu alaykum${name}!\n\n` +
-      `⚡ <b>Elektro Learn</b> ga xush kelibsiz!\n\n` +
-      `Moderatorlar guruhida /start bosing — har kuni 18:00 da hisobot yuboriladi.\n\n` +
-      `Quyidagi tugmani bosib web ilovaga kiring 👇`;
-
-    await this.sendMessage(chat.id, text, {
-      inline_keyboard: [
-        [
-          {
-            text: '🚀 Elektro Learn Web App ga kirish',
-            url: WEB_APP_URL,
-          },
+    await this.sendAndStore(
+      chatRow,
+      `👋 Ассалому алайкум${name}!\n\n` +
+        `⚡ <b>Электро Learn</b> ботига хуш келибсиз!\n\n` +
+        `Ҳар куни <b>18:00</b> да ҳисобот олиб турасиз.\n` +
+        `Ҳозир олиш: /hisobot`,
+      {
+        inline_keyboard: [
+          [{ text: '🚀 Elektro Learn Web App', url: webApp }],
         ],
-      ],
-    });
+      },
+    );
   }
 
-  private async registerReportChat(chat: TelegramChat, from?: TelegramUser) {
-    const existing = await this.chatRepo.findOne({
-      where: { chatId: String(chat.id) },
-    });
-    if (existing) {
-      existing.isActive = true;
-      existing.chatType = chat.type;
-      existing.chatTitle = chat.title ?? existing.chatTitle;
-      existing.startedByUserId = from ? String(from.id) : existing.startedByUserId;
-      existing.startedByUsername = from?.username ?? existing.startedByUsername;
-      await this.chatRepo.save(existing);
-      return;
+  private async persistInbound(
+    chat: TelegramReportChat,
+    msg: TgMessage,
+    cmd: string | null,
+  ) {
+    const fromName = [msg.from?.first_name, msg.from?.last_name]
+      .filter(Boolean)
+      .join(' ');
+    let kind: TelegramMessageKind = 'text';
+    let text = msg.text ?? null;
+    let mediaFileId: string | null = null;
+
+    if (msg.photo?.length) {
+      kind = 'photo';
+      mediaFileId = msg.photo[msg.photo.length - 1].file_id;
+      text = msg.caption || '📷 Rasm';
+    } else if (msg.document) {
+      kind = 'document';
+      mediaFileId = msg.document.file_id;
+      text = msg.caption || `📄 ${msg.document.file_name || 'Fayl'}`;
+    } else if (cmd) {
+      kind = 'command';
+    } else if (!text) {
+      kind = 'other';
+      text = text || '[media]';
     }
-    await this.chatRepo.save(
-      this.chatRepo.create({
-        chatId: String(chat.id),
-        chatType: chat.type,
-        chatTitle: chat.title ?? null,
-        startedByUserId: from ? String(from.id) : null,
-        startedByUsername: from?.username ?? null,
-        isActive: true,
+
+    const preview = (text || msg.caption || '[xabar]').slice(0, 180);
+    await this.msgRepo.save(
+      this.msgRepo.create({
+        chatRowId: chat.id,
+        direction: 'in',
+        kind,
+        telegramMessageId: String(msg.message_id),
+        fromUserId: msg.from ? String(msg.from.id) : null,
+        fromUsername: msg.from?.username ?? null,
+        fromName: fromName || null,
+        text,
+        caption: msg.caption ?? null,
+        mediaFileId,
+        isCommand: !!cmd,
+        commandName: cmd,
       }),
     );
+
+    chat.lastMessageAt = new Date();
+    chat.lastMessagePreview = preview;
+    // Komanda emas — superadmin inbox uchun unread
+    if (!cmd) {
+      chat.unreadCount = (chat.unreadCount || 0) + 1;
+    }
+    await this.chatRepo.save(chat);
   }
 
-  private async handleStopReport(chat: TelegramChat) {
-    const row = await this.chatRepo.findOne({
-      where: { chatId: String(chat.id) },
-    });
-    if (!row) {
-      await this.sendMessage(
-        chat.id,
-        'ℹ️ Бу гуруҳ ҳали уланмаган. Аввал /start босинг.',
-      );
-      return;
-    }
-    row.isActive = false;
-    await this.chatRepo.save(row);
-    await this.sendMessage(
-      chat.id,
-      '🛑 Кунлик ҳисобот эслатмаси ўчирилди.\nҚайта ёқиш: /start',
+  private async persistOutbound(
+    chat: TelegramReportChat,
+    opts: {
+      kind: TelegramMessageKind;
+      text: string;
+      telegramMessageId?: string | null;
+      sentByAdminId?: string | null;
+      caption?: string | null;
+    },
+  ) {
+    await this.msgRepo.save(
+      this.msgRepo.create({
+        chatRowId: chat.id,
+        direction: 'out',
+        kind: opts.kind,
+        telegramMessageId: opts.telegramMessageId ?? null,
+        text: opts.text,
+        caption: opts.caption ?? null,
+        isCommand: false,
+        sentByAdminId: opts.sentByAdminId ?? null,
+        fromName: opts.sentByAdminId ? 'Superadmin' : 'Bot',
+      }),
     );
+    chat.lastMessageAt = new Date();
+    chat.lastMessagePreview = opts.text.slice(0, 180);
+    await this.chatRepo.save(chat);
   }
 
-  private async handleReportNow(chat: TelegramChat) {
-    const isGroup = chat.type === 'group' || chat.type === 'supergroup';
-    if (isGroup) {
-      await this.registerReportChat(chat);
-    }
-    await this.sendMessage(chat.id, '⏳ Ҳисобот тайёрланмоқда...');
-    try {
-      const { png, caption } = await this.buildReportPayload();
-      await this.sendPhoto(chat.id, png, caption);
-    } catch (err: any) {
-      this.logger.error(`report_now xato: ${err?.message || err}`);
-      await this.sendMessage(
-        chat.id,
-        `❌ Ҳисобот юбориб бўлмади: ${err?.message || 'ноноуш хато'}`,
-      );
-    }
+  private async sendAndStore(
+    chat: TelegramReportChat,
+    text: string,
+    replyMarkup?: unknown,
+  ) {
+    const sent = await this.apiSendMessage(
+      Number(chat.chatId),
+      text,
+      replyMarkup,
+    );
+    await this.persistOutbound(chat, {
+      kind: 'text',
+      text,
+      telegramMessageId: sent?.message_id != null ? String(sent.message_id) : null,
+    });
+  }
+
+  private async deliverReportToChat(
+    chat: TelegramReportChat,
+    adminId?: string,
+    ready?: { png: Buffer; caption: string },
+  ) {
+    const payload = ready ?? (await this.buildReportPayload());
+    const sent = await this.apiSendPhoto(
+      Number(chat.chatId),
+      payload.png,
+      payload.caption,
+    );
+    await this.persistOutbound(chat, {
+      kind: 'report',
+      text: payload.caption.replace(/<[^>]+>/g, ''),
+      caption: payload.caption,
+      telegramMessageId: sent?.message_id != null ? String(sent.message_id) : null,
+      sentByAdminId: adminId ?? null,
+    });
   }
 
   private async buildReportPayload(): Promise<{
@@ -271,7 +575,6 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   }> {
     const planDate = tashkentToday();
     const month = planDate.slice(0, 7);
-
     const [daily, monthly] = await Promise.all([
       this.analytics.getDailyReport(planDate, null),
       this.analytics.getMonthlyReport(month, null),
@@ -320,53 +623,30 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
-    const caption = this.buildCyrillicCaption(daily.planDate, {
-      completionPercent: daily.completionPercent,
-      completedTotal: daily.completedTotal,
-      totalPlan: daily.totalPlan,
-      monthlyAvg,
-      branchCount: daily.branchCount,
-    });
+    const [y, m, d] = daily.planDate.split('-');
+    const caption =
+      `⚡ <b>Электро Learn</b> — кунлик ҳисобот\n\n` +
+      `📅 Сана: <b>${d}.${m}.${y}</b>\n` +
+      `🕐 Вақт: <b>18:00</b> (Тошкент)\n\n` +
+      `📈 Бугун: <b>${daily.completionPercent.toFixed(1)}%</b> ` +
+      `(${daily.completedTotal}/${daily.totalPlan})\n` +
+      `🗓 Жорий ой ўртача: <b>${monthlyAvg.toFixed(1)}%</b>\n` +
+      `🏢 Филиаллар: <b>${daily.branchCount}</b>\n\n` +
+      `❗️ <b>Илтимос, бугунги ҳисоботни топширинг!</b>`;
 
     return { png, caption };
   }
 
-  private buildCyrillicCaption(
-    planDate: string,
-    stats: {
-      completionPercent: number;
-      completedTotal: number;
-      totalPlan: number;
-      monthlyAvg: number;
-      branchCount: number;
-    },
-  ): string {
-    const [y, m, d] = planDate.split('-');
-    const dateUz = `${d}.${m}.${y}`;
-    return (
-      `⚡ <b>Электро Learn</b> — кунлик ҳисобот\n\n` +
-      `📅 Сана: <b>${dateUz}</b>\n` +
-      `🕐 Вақт: <b>18:00</b> (Тошкент)\n\n` +
-      `📈 Бугун: <b>${stats.completionPercent.toFixed(1)}%</b> ` +
-      `(${stats.completedTotal}/${stats.totalPlan})\n` +
-      `🗓 Жорий ой ўртача: <b>${stats.monthlyAvg.toFixed(1)}%</b>\n` +
-      `🏢 Филиаллар: <b>${stats.branchCount}</b>\n\n` +
-      `❗️ <b>Илтимос, бугунги ҳисоботни топширинг!</b>\n` +
-      `Юқоридаги расмда — бугунги ва ойлик натижалар (GitHub Actions услубида).`
-    );
-  }
+  // ─── Telegram API ────────────────────────────────────────
 
-  private statusFromPercent(p: number): 'green' | 'yellow' | 'red' {
-    if (p >= 80) return 'green';
-    if (p >= 50) return 'yellow';
-    return 'red';
-  }
-
-  private async sendMessage(
+  private async apiSendMessage(
     chatId: number,
     text: string,
     replyMarkup?: unknown,
-  ) {
+  ): Promise<{ message_id?: number } | null> {
+    const token = await this.resolveToken();
+    if (!token) throw new BadRequestException('Bot token o‘rnatilmagan');
+
     const body: Record<string, unknown> = {
       chat_id: chatId,
       text,
@@ -374,18 +654,32 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     };
     if (replyMarkup) body.reply_markup = replyMarkup;
 
-    const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
     const data: any = await res.json();
     if (!data.ok) {
-      this.logger.error(`sendMessage xato: ${JSON.stringify(data)}`);
+      this.logger.error(`sendMessage: ${JSON.stringify(data)}`);
+      throw new BadRequestException(
+        data.description || 'Telegramga yuborib bo‘lmadi',
+      );
     }
+    return data.result ?? null;
   }
 
-  private async sendPhoto(chatId: number, png: Buffer, caption: string) {
+  private async apiSendPhoto(
+    chatId: number,
+    png: Buffer,
+    caption: string,
+  ): Promise<{ message_id?: number } | null> {
+    const token = await this.resolveToken();
+    if (!token) throw new BadRequestException('Bot token o‘rnatilmagan');
+
     const form = new FormData();
     form.append('chat_id', String(chatId));
     form.append('caption', caption.slice(0, 1024));
@@ -396,14 +690,101 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       'elektro-learn-report.png',
     );
 
-    const res = await fetch(`${TELEGRAM_API}/sendPhoto`, {
-      method: 'POST',
-      body: form,
-    });
+    const res = await fetch(
+      `https://api.telegram.org/bot${token}/sendPhoto`,
+      { method: 'POST', body: form },
+    );
     const data: any = await res.json();
     if (!data.ok) {
-      throw new Error(`sendPhoto xato: ${JSON.stringify(data)}`);
+      throw new Error(`sendPhoto: ${JSON.stringify(data)}`);
     }
+    return data.result ?? null;
+  }
+
+  // ─── helpers ─────────────────────────────────────────────
+
+  private async ensureSettings() {
+    let row = await this.settingsRepo.findOne({
+      where: { source: 'default' },
+    });
+    if (!row) {
+      row = await this.settingsRepo.save(
+        this.settingsRepo.create({
+          source: 'default',
+          botToken: ENV_TOKEN || null,
+          webAppUrl: ENV_WEB_APP,
+          isEnabled: true,
+        }),
+      );
+    }
+    return row;
+  }
+
+  private async resolveToken(): Promise<string | null> {
+    this.cachedToken = null;
+    const row = await this.ensureSettings();
+    const token = (row.botToken?.trim() || ENV_TOKEN || '').trim();
+    this.cachedToken = token || null;
+    return this.cachedToken;
+  }
+
+  private async resolveWebAppUrl(): Promise<string> {
+    const row = await this.ensureSettings();
+    return (row.webAppUrl?.trim() || ENV_WEB_APP).trim();
+  }
+
+  private maskToken(token: string): string {
+    if (token.length < 12) return '••••••••';
+    return `${token.slice(0, 6)}…${token.slice(-4)}`;
+  }
+
+  private statusFromPercent(p: number): 'green' | 'yellow' | 'red' {
+    if (p >= 80) return 'green';
+    if (p >= 50) return 'yellow';
+    return 'red';
+  }
+
+  private serializeChat(c: TelegramReportChat) {
+    return {
+      id: c.id,
+      chatId: c.chatId,
+      chatType: c.chatType,
+      chatTitle: c.chatTitle,
+      peerUsername: c.peerUsername,
+      peerFirstName: c.peerFirstName,
+      peerLastName: c.peerLastName,
+      reportEnabled: c.reportEnabled,
+      isActive: c.isActive,
+      unreadCount: c.unreadCount,
+      lastMessageAt: c.lastMessageAt,
+      lastMessagePreview: c.lastMessagePreview,
+      startedByUsername: c.startedByUsername,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+      displayName:
+        c.chatTitle ||
+        [c.peerFirstName, c.peerLastName].filter(Boolean).join(' ') ||
+        (c.peerUsername ? `@${c.peerUsername}` : `Chat ${c.chatId}`),
+    };
+  }
+
+  private serializeMessage(m: TelegramChatMessage) {
+    return {
+      id: m.id,
+      chatRowId: m.chatRowId,
+      direction: m.direction,
+      kind: m.kind,
+      telegramMessageId: m.telegramMessageId,
+      fromUserId: m.fromUserId,
+      fromUsername: m.fromUsername,
+      fromName: m.fromName,
+      text: m.text,
+      caption: m.caption,
+      isCommand: m.isCommand,
+      commandName: m.commandName,
+      sentByAdminId: m.sentByAdminId,
+      createdAt: m.createdAt,
+    };
   }
 
   private sleep(ms: number) {

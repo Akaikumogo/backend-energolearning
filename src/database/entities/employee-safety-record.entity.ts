@@ -102,6 +102,29 @@ export class EmployeeSafetyRecord {
   @Column({ type: 'timestamptz', name: 'approved_at', nullable: true })
   approvedAt: Date | null;
 
+  @Column({ type: 'uuid', name: 'rejected_by', nullable: true })
+  rejectedBy: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'rejected_by' })
+  rejectedByUser: User | null;
+
+  @Column({ type: 'timestamptz', name: 'rejected_at', nullable: true })
+  rejectedAt: Date | null;
+
+  @Column({ type: 'timestamptz', name: 'deleted_at', nullable: true })
+  deletedAt: Date | null;
+
+  @Column({ type: 'uuid', name: 'deleted_by', nullable: true })
+  deletedBy: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'deleted_by' })
+  deletedByUser: User | null;
+
+  @Column({ type: 'timestamptz', name: 'archived_at', nullable: true })
+  archivedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

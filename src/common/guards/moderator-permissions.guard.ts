@@ -112,6 +112,9 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   ) {
     return null;
   }
+  if (/^\/admin\/safety-records\/[^/]+\/delete$/.test(path) && m === 'POST') {
+    return { module: 'safetyRecords', action: 'update' };
+  }
 
   // Users / Moderators management
   if (path === '/admin/users/moderators' && m === 'POST') return { module: 'moderators', action: 'create' };

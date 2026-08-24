@@ -96,6 +96,8 @@ import { EmployeeSafetyRecordChange } from './database/entities/employee-safety-
 import { LibraryDocumentsModule } from './library-documents/library-documents.module';
 import { LibraryDocument } from './database/entities/library-document.entity';
 import { TelegramReportChat } from './database/entities/telegram-report-chat.entity';
+import { TelegramBotSetting } from './database/entities/telegram-bot-setting.entity';
+import { TelegramChatMessage } from './database/entities/telegram-chat-message.entity';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -155,6 +157,8 @@ import { TelegramReportChat } from './database/entities/telegram-report-chat.ent
         EmployeeSafetyRecordChange,
         LibraryDocument,
         TelegramReportChat,
+        TelegramBotSetting,
+        TelegramChatMessage,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
