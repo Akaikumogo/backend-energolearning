@@ -40,6 +40,8 @@ export type ModeratorPermissions = {
   aiAssistant: CrudPermissions;
   /** Xavfsizlik / texnik sinov ma'lumotlari (manual entry) */
   safetyRecords: CrudPermissions;
+  /** Telegram bot: sozlamalar, chatlar, hisobot yuborish */
+  telegramBot: CrudPermissions;
 };
 
 const DEFAULT_CRUD: CrudPermissions = {
@@ -75,6 +77,7 @@ export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   nesSync: DEFAULT_CRUD,
   aiAssistant: DEFAULT_CRUD,
   safetyRecords: DEFAULT_SAFETY_RECORDS_CRUD,
+  telegramBot: DEFAULT_CRUD,
 };
 
 export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
@@ -95,6 +98,7 @@ export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
   'nesSync',
   'aiAssistant',
   'safetyRecords',
+  'telegramBot',
 ];
 
 /** Eski jsonb qatorlarida yangi modullar bo‘lmasa, default bilan to‘ldiradi. */
