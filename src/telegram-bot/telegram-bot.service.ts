@@ -10,13 +10,17 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BranchAnalyticsService } from '../branch-analytics/branch-analytics.service';
+import { Role } from '../common/enums/role.enum';
 import { tashkentToday } from '../common/utils/tashkent-time.util';
+import { ModeratorPermission } from '../database/entities/moderator-permission.entity';
 import { TelegramBotSetting } from '../database/entities/telegram-bot-setting.entity';
 import {
   TelegramChatMessage,
   TelegramMessageKind,
 } from '../database/entities/telegram-chat-message.entity';
 import { TelegramReportChat } from '../database/entities/telegram-report-chat.entity';
+import { User } from '../database/entities/user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 import { TelegramReportImageService } from './telegram-report-image.service';
 
 const ENV_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
@@ -76,8 +80,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     private readonly msgRepo: Repository<TelegramChatMessage>,
     @InjectRepository(TelegramBotSetting)
     private readonly settingsRepo: Repository<TelegramBotSetting>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    @InjectRepository(ModeratorPermission)
+    private readonly modPermRepo: Repository<ModeratorPermission>,
     private readonly analytics: BranchAnalyticsService,
     private readonly imageService: TelegramReportImageService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async onModuleInit() {
@@ -500,11 +509,56 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     chat.lastMessageAt = new Date();
     chat.lastMessagePreview = preview;
-    // Komanda emas — superadmin inbox uchun unread
-    if (!cmd) {
-      chat.unreadCount = (chat.unreadCount || 0) + 1;
-    }
+    chat.unreadCount = (chat.unreadCount || 0) + 1;
     await this.chatRepo.save(chat);
+
+    void this.notifyAdminsAboutInbound(chat, preview, cmd).catch((err) =>
+      this.logger.warn(`Telegram notify: ${err?.message || err}`),
+    );
+  }
+
+  private async notifyAdminsAboutInbound(
+    chat: TelegramReportChat,
+    preview: string,
+    cmd: string | null,
+  ) {
+    const title =
+      cmd === '/start'
+        ? 'Telegram: /start'
+        : cmd
+          ? `Telegram: ${cmd}`
+          : 'Telegram: yangi xabar';
+    const body = `${chat.chatTitle || chat.peerUsername || chat.chatId}: ${preview}`;
+    const data = {
+      type: 'telegram_bot',
+      chatRowId: chat.id,
+      reviewPath: '/dashboard/telegram-bot',
+      command: cmd,
+    };
+
+    const recipientIds = new Set<string>();
+
+    const supers = await this.userRepo.find({
+      where: { role: Role.SUPERADMIN },
+      select: ['id'],
+    });
+    for (const u of supers) recipientIds.add(u.id);
+
+    const modPerms = await this.modPermRepo.find();
+    for (const row of modPerms) {
+      if (row.permissions?.telegramBot?.view) {
+        recipientIds.add(row.moderatorUserId);
+      }
+    }
+
+    for (const userId of recipientIds) {
+      await this.notifications.create({
+        userId,
+        title,
+        body,
+        data,
+      });
+    }
   }
 
   private async persistOutbound(
