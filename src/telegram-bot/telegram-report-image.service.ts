@@ -10,6 +10,13 @@ export type ReportBranchRow = {
   averageMonthlyPercent?: number;
 };
 
+export type DailyTrendPoint = {
+  date: string;
+  percent: number;
+  completed?: number;
+  plan?: number;
+};
+
 export type DailyReportImageInput = {
   planDate: string;
   completionPercent: number;
@@ -27,178 +34,248 @@ export type MonthlyReportImageInput = {
   averagePercent: number;
   branchCount: number;
   branches: ReportBranchRow[];
+  /** Oy ichidagi har kun foizi */
+  dailyPoints: DailyTrendPoint[];
 };
+
+const BLUE = '#2563eb';
+const BLUE_SOFT = '#dbeafe';
+const BLUE_LINE = '#93c5fd';
+const INK = '#0f172a';
+const MUTED = '#64748b';
+const WHITE = '#ffffff';
+const GREEN = '#16a34a';
+const YELLOW = '#ca8a04';
+const RED = '#dc2626';
 
 @Injectable()
 export class TelegramReportImageService {
+  /** @deprecated use buildDailyReportPng + buildMonthlyReportPng */
   async buildCombinedReportPng(
     daily: DailyReportImageInput,
     monthly: MonthlyReportImageInput,
   ): Promise<Buffer> {
-    const svg = this.buildSvg(daily, monthly);
+    return this.buildDailyReportPng(daily);
+  }
+
+  async buildDailyReportPng(daily: DailyReportImageInput): Promise<Buffer> {
+    const svg = this.buildDailySvg(daily);
     return sharp(Buffer.from(svg)).png().toBuffer();
   }
 
-  private buildSvg(
-    daily: DailyReportImageInput,
+  async buildMonthlyReportPng(
     monthly: MonthlyReportImageInput,
-  ): string {
-    const width = 920;
-    const rowH = 44;
-    const headerH = 88;
-    const summaryH = 168;
-    const pad = 28;
-    const maxBranches = 12;
-    const dailyBranches = daily.branches.slice(0, maxBranches);
-    const monthlyBranches = monthly.branches.slice(0, maxBranches);
-    const jobsLabelH = 36;
-    const sectionGap = 18;
+  ): Promise<Buffer> {
+    const svg = this.buildMonthlySvg(monthly);
+    return sharp(Buffer.from(svg)).png().toBuffer();
+  }
+
+  private buildDailySvg(daily: DailyReportImageInput): string {
+    const width = 1280;
+    const pad = 40;
+    const headerH = 128;
+    const summaryH = 120;
+    const tableHeadH = 48;
+    const rowH = 48;
+    const footerH = 80;
+    const maxBranches = 20;
+    const branches = daily.branches.slice(0, maxBranches);
     const height =
       pad +
       headerH +
+      16 +
       summaryH +
-      sectionGap +
-      jobsLabelH +
-      dailyBranches.length * rowH +
-      sectionGap +
-      jobsLabelH +
-      monthlyBranches.length * rowH +
-      pad +
-      24;
+      20 +
+      tableHeadH +
+      branches.length * rowH +
+      footerH +
+      pad;
 
-    const dailyJobs = dailyBranches
-      .map((b, i) =>
-        this.jobRow(
-          pad,
-          pad + headerH + summaryH + sectionGap + jobsLabelH + i * rowH,
-          width - pad * 2,
-          rowH,
-          b.orgName,
-          `${this.fmt(b.percent)}%`,
-          b.status,
+    const tableY = pad + headerH + 16 + summaryH + 20;
+    const tableW = width - pad * 2;
+    const cols = {
+      n: 48,
+      name: tableW * 0.48,
+      plan: tableW * 0.22,
+      pct: tableW * 0.18,
+    };
+
+    const rows = branches
+      .map((b, i) => {
+        const y = tableY + tableHeadH + i * rowH;
+        const bg = i % 2 === 0 ? WHITE : '#f8fbff';
+        const short =
+          b.orgName.length > 48 ? `${b.orgName.slice(0, 46)}…` : b.orgName;
+        const plan =
           b.plan != null && b.completed != null
-            ? `${b.completed}/${b.plan}`
-            : undefined,
-        ),
-      )
+            ? `${b.completed} / ${b.plan}`
+            : '—';
+        const pctColor = this.statusColor(b.status);
+        return `
+        <rect x="${pad}" y="${y}" width="${tableW}" height="${rowH}" fill="${bg}"/>
+        <line x1="${pad}" y1="${y + rowH}" x2="${pad + tableW}" y2="${y + rowH}" stroke="${BLUE_SOFT}" stroke-width="1"/>
+        <text x="${pad + 18}" y="${y + 27}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">${i + 1}</text>
+        <text x="${pad + cols.n}" y="${y + 27}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">${this.esc(short)}</text>
+        <text x="${pad + cols.n + cols.name}" y="${y + 27}" fill="${MUTED}" font-family="Consolas, monospace" font-size="13">${this.esc(plan)}</text>
+        <text x="${pad + tableW - 24}" y="${y + 27}" text-anchor="end" fill="${pctColor}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">${this.fmt(b.percent)}%</text>`;
+      })
       .join('');
 
-    const monthlyJobs = monthlyBranches
-      .map((b, i) =>
-        this.jobRow(
-          pad,
-          pad +
-            headerH +
-            summaryH +
-            sectionGap +
-            jobsLabelH +
-            dailyBranches.length * rowH +
-            sectionGap +
-            jobsLabelH +
-            i * rowH,
-          width - pad * 2,
-          rowH,
-          b.orgName,
-          `${this.fmt(b.averageMonthlyPercent ?? b.percent)}%`,
-          b.status,
-        ),
-      )
-      .join('');
-
-    const dailyY = pad + headerH + summaryH + sectionGap;
-    const monthlyY =
-      dailyY + jobsLabelH + dailyBranches.length * rowH + sectionGap;
+    const footerY = tableY + tableHeadH + branches.length * rowH;
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+    <linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#eff6ff"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#f0f7ff"/>
     </linearGradient>
   </defs>
-  <rect width="100%" height="100%" fill="url(#bg)"/>
-  <rect x="16" y="16" width="${width - 32}" height="${height - 32}" rx="12" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <rect width="100%" height="100%" fill="#f8fafc"/>
+  <rect x="18" y="18" width="${width - 36}" height="${height - 36}" rx="20" fill="${WHITE}" stroke="${BLUE}" stroke-width="2.5"/>
+  <rect x="18" y="18" width="8" height="${height - 36}" rx="4" fill="${BLUE}"/>
 
   <!-- Header -->
-  <circle cx="48" cy="52" r="7" fill="#3fb950"/>
-  <text x="68" y="48" fill="#e6edf3" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">Elektro Learn · workflow</text>
-  <text x="68" y="72" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="13">daily-report.yml · #${this.esc(daily.planDate)} · Asia/Tashkent</text>
-  <text x="${width - 40}" y="58" text-anchor="end" fill="#3fb950" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">success</text>
+  <rect x="${pad}" y="${pad}" width="${width - pad * 2}" height="${headerH - 12}" rx="16" fill="url(#hdr)" stroke="${BLUE_LINE}" stroke-width="1.5"/>
+  <circle cx="${pad + 36}" cy="${pad + 48}" r="14" fill="${BLUE}"/>
+  <text x="${pad + 36}" y="${pad + 53}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">EL</text>
+  <text x="${pad + 64}" y="${pad + 42}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="800">Elektro Learn</text>
+  <text x="${pad + 64}" y="${pad + 68}" fill="${BLUE}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">KUNLIK HISOBOT · TABLE</text>
+  <text x="${width - pad - 20}" y="${pad + 42}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">Asia/Tashkent · 18:00</text>
+  <text x="${width - pad - 20}" y="${pad + 68}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">${this.esc(this.dateLabel(daily.planDate))}</text>
 
-  <!-- Summary cards -->
-  ${this.summaryCard(pad, pad + headerH - 8, (width - pad * 2 - 16) / 2, 140, 'Daily job', daily.planDate, [
-    ['Completion', `${this.fmt(daily.completionPercent)}%`],
-    ['Plan', `${daily.completedTotal} / ${daily.totalPlan}`],
-    ['Employees', `${daily.completedEmployees} / ${daily.totalEmployees}`],
-    ['Extra+', String(daily.extraCorrectTotal)],
-  ], this.statusFromPercent(daily.completionPercent))}
+  <!-- Summary strip -->
+  ${this.kpiCard(pad, pad + headerH + 4, (width - pad * 2 - 36) / 4, summaryH - 8, 'Umumiy foiz', `${this.fmt(daily.completionPercent)}%`, BLUE)}
+  ${this.kpiCard(pad + (width - pad * 2 - 36) / 4 + 12, pad + headerH + 4, (width - pad * 2 - 36) / 4, summaryH - 8, 'Reja', `${daily.completedTotal} / ${daily.totalPlan}`, INK)}
+  ${this.kpiCard(pad + 2 * ((width - pad * 2 - 36) / 4 + 12), pad + headerH + 4, (width - pad * 2 - 36) / 4, summaryH - 8, 'Xodimlar', `${daily.completedEmployees} / ${daily.totalEmployees}`, INK)}
+  ${this.kpiCard(pad + 3 * ((width - pad * 2 - 36) / 4 + 12), pad + headerH + 4, (width - pad * 2 - 36) / 4, summaryH - 8, 'Filiallar', String(daily.branchCount), INK)}
 
-  ${this.summaryCard(pad + (width - pad * 2 - 16) / 2 + 16, pad + headerH - 8, (width - pad * 2 - 16) / 2, 140, 'Monthly job', monthly.month, [
-    ['Avg %', `${this.fmt(monthly.averagePercent)}%`],
-    ['Branches', String(monthly.branchCount)],
-    ['Period', this.monthLabel(monthly.month)],
-    ['Goal', 'daily plan'],
-  ], this.statusFromPercent(monthly.averagePercent))}
+  <!-- Table head -->
+  <rect x="${pad}" y="${tableY}" width="${tableW}" height="${tableHeadH}" fill="${BLUE}"/>
+  <text x="${pad + 18}" y="${tableY + 28}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">#</text>
+  <text x="${pad + cols.n}" y="${tableY + 28}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">FILIAL</text>
+  <text x="${pad + cols.n + cols.name}" y="${tableY + 28}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">BAJARILDI / REJA</text>
+  <text x="${pad + tableW - 24}" y="${tableY + 28}" text-anchor="end" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">FOIZ</text>
+  <rect x="${pad}" y="${tableY}" width="${tableW}" height="${tableHeadH + branches.length * rowH}" fill="none" stroke="${BLUE}" stroke-width="1.5" rx="0"/>
 
-  <text x="${pad}" y="${dailyY + 22}" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600">JOBS · TODAY</text>
-  ${dailyJobs}
+  ${rows}
 
-  <text x="${pad}" y="${monthlyY + 22}" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600">JOBS · THIS MONTH</text>
-  ${monthlyJobs}
+  <!-- Footer overall -->
+  <rect x="${pad}" y="${footerY}" width="${tableW}" height="${footerH - 12}" fill="#eff6ff" stroke="${BLUE}" stroke-width="1.5"/>
+  <text x="${pad + 24}" y="${footerY + 38}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">YAKUNIY UMUMIY FOIZ</text>
+  <text x="${pad + tableW - 24}" y="${footerY + 40}" text-anchor="end" fill="${BLUE}" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">${this.fmt(daily.completionPercent)}%</text>
 </svg>`;
   }
 
-  private summaryCard(
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    title: string,
-    subtitle: string,
-    rows: [string, string][],
-    status: 'green' | 'yellow' | 'red',
-  ): string {
-    const color = this.statusColor(status);
-    const icon = this.statusIcon(status);
-    const lines = rows
-      .map(
-        ([k, v], i) => `
-      <text x="${x + 18}" y="${y + 70 + i * 18}" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="12">${this.esc(k)}</text>
-      <text x="${x + w - 18}" y="${y + 70 + i * 18}" text-anchor="end" fill="#e6edf3" font-family="Consolas, monospace" font-size="12">${this.esc(v)}</text>`,
-      )
+  private buildMonthlySvg(monthly: MonthlyReportImageInput): string {
+    const width = 1280;
+    const pad = 40;
+    const headerH = 128;
+    const summaryH = 112;
+    const tableHeadH = 48;
+    const rowH = 42;
+    const footerH = 80;
+    const points = monthly.dailyPoints.slice(-31);
+    const height =
+      pad +
+      headerH +
+      16 +
+      summaryH +
+      20 +
+      tableHeadH +
+      Math.max(points.length, 1) * rowH +
+      footerH +
+      pad +
+      24;
+
+    const tableY = pad + headerH + 16 + summaryH + 20;
+    const tableW = width - pad * 2;
+
+    const rows = points
+      .map((p, i) => {
+        const y = tableY + tableHeadH + i * rowH;
+        const bg = i % 2 === 0 ? WHITE : '#f8fbff';
+        const status = this.statusFromPercent(p.percent);
+        const pctColor = this.statusColor(status);
+        const dayLabel = this.dateLabel(p.date);
+        const plan =
+          p.plan != null && p.completed != null
+            ? `${p.completed} / ${p.plan}`
+            : '—';
+        return `
+        <rect x="${pad}" y="${y}" width="${tableW}" height="${rowH}" fill="${bg}"/>
+        <line x1="${pad}" y1="${y + rowH}" x2="${pad + tableW}" y2="${y + rowH}" stroke="${BLUE_SOFT}" stroke-width="1"/>
+        <text x="${pad + 24}" y="${y + 25}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">${i + 1}</text>
+        <text x="${pad + 70}" y="${y + 25}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">${this.esc(dayLabel)}</text>
+        <text x="${pad + 280}" y="${y + 25}" fill="${MUTED}" font-family="Consolas, monospace" font-size="13">${this.esc(plan)}</text>
+        <text x="${pad + tableW - 24}" y="${y + 25}" text-anchor="end" fill="${pctColor}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="700">${this.fmt(p.percent)}%</text>`;
+      })
       .join('');
 
-    return `
-    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#161b22" stroke="#30363d"/>
-    <circle cx="${x + 28}" cy="${y + 28}" r="8" fill="${color}"/>
-    <text x="${x + 28}" y="${y + 32}" text-anchor="middle" fill="#0d1117" font-family="Segoe UI, Arial, sans-serif" font-size="11" font-weight="700">${icon}</text>
-    <text x="${x + 46}" y="${y + 24}" fill="#e6edf3" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">${this.esc(title)}</text>
-    <text x="${x + 46}" y="${y + 42}" fill="#8b949e" font-family="Segoe UI, Arial, sans-serif" font-size="12">${this.esc(subtitle)}</text>
-    ${lines}`;
+    const emptyRow =
+      points.length === 0
+        ? `<text x="${width / 2}" y="${tableY + tableHeadH + 28}" text-anchor="middle" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="14">Maʼlumot yoʻq</text>`
+        : '';
+
+    const footerY = tableY + tableHeadH + Math.max(points.length, 1) * rowH;
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+  <defs>
+    <linearGradient id="hdrM" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#eff6ff"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <rect width="100%" height="100%" fill="#f8fafc"/>
+  <rect x="18" y="18" width="${width - 36}" height="${height - 36}" rx="20" fill="${WHITE}" stroke="${BLUE}" stroke-width="2.5"/>
+  <rect x="18" y="18" width="8" height="${height - 36}" rx="4" fill="${BLUE}"/>
+
+  <rect x="${pad}" y="${pad}" width="${width - pad * 2}" height="${headerH - 12}" rx="16" fill="url(#hdrM)" stroke="${BLUE_LINE}" stroke-width="1.5"/>
+  <circle cx="${pad + 36}" cy="${pad + 48}" r="14" fill="${BLUE}"/>
+  <text x="${pad + 36}" y="${pad + 53}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">EL</text>
+  <text x="${pad + 64}" y="${pad + 42}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="800">Elektro Learn</text>
+  <text x="${pad + 64}" y="${pad + 68}" fill="${BLUE}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">OYLIK HISOBOT · KUNLIK FOIZLAR</text>
+  <text x="${width - pad - 20}" y="${pad + 42}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">Asia/Tashkent</text>
+  <text x="${width - pad - 20}" y="${pad + 68}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">${this.esc(this.monthLabel(monthly.month))}</text>
+
+  ${this.kpiCard(pad, pad + headerH + 4, (width - pad * 2 - 24) / 3, summaryH - 8, 'Oylik oʻrtacha', `${this.fmt(monthly.averagePercent)}%`, BLUE)}
+  ${this.kpiCard(pad + (width - pad * 2 - 24) / 3 + 12, pad + headerH + 4, (width - pad * 2 - 24) / 3, summaryH - 8, 'Kunlar', String(points.length), INK)}
+  ${this.kpiCard(pad + 2 * ((width - pad * 2 - 24) / 3 + 12), pad + headerH + 4, (width - pad * 2 - 24) / 3, summaryH - 8, 'Filiallar', String(monthly.branchCount), INK)}
+
+  <rect x="${pad}" y="${tableY}" width="${tableW}" height="${tableHeadH}" fill="${BLUE}"/>
+  <text x="${pad + 24}" y="${tableY + 28}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">#</text>
+  <text x="${pad + 70}" y="${tableY + 28}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">SANA</text>
+  <text x="${pad + 280}" y="${tableY + 28}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">BAJARILDI / REJA</text>
+  <text x="${pad + tableW - 24}" y="${tableY + 28}" text-anchor="end" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="700">KUNLIK FOIZ</text>
+  <rect x="${pad}" y="${tableY}" width="${tableW}" height="${tableHeadH + Math.max(points.length, 1) * rowH}" fill="none" stroke="${BLUE}" stroke-width="1.5"/>
+
+  ${rows}
+  ${emptyRow}
+
+  <rect x="${pad}" y="${footerY}" width="${tableW}" height="${footerH - 12}" fill="#eff6ff" stroke="${BLUE}" stroke-width="1.5"/>
+  <text x="${pad + 24}" y="${footerY + 38}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">OYLIK UMUMIY FOIZ (OʻRTACHA)</text>
+  <text x="${pad + tableW - 24}" y="${footerY + 40}" text-anchor="end" fill="${BLUE}" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">${this.fmt(monthly.averagePercent)}%</text>
+</svg>`;
   }
 
-  private jobRow(
+  private kpiCard(
     x: number,
     y: number,
     w: number,
     h: number,
-    name: string,
+    label: string,
     value: string,
-    status: 'green' | 'yellow' | 'red',
-    detail?: string,
+    valueColor: string,
   ): string {
-    const color = this.statusColor(status);
-    const label = this.statusLabel(status);
-    const icon = this.statusIcon(status);
-    const short = name.length > 42 ? `${name.slice(0, 40)}…` : name;
     return `
-    <rect x="${x}" y="${y}" width="${w}" height="${h - 6}" rx="8" fill="#161b22" stroke="#21262d"/>
-    <circle cx="${x + 22}" cy="${y + (h - 6) / 2}" r="7" fill="${color}"/>
-    <text x="${x + 22}" y="${y + (h - 6) / 2 + 4}" text-anchor="middle" fill="#0d1117" font-family="Segoe UI, Arial, sans-serif" font-size="10" font-weight="700">${icon}</text>
-    <text x="${x + 40}" y="${y + 20}" fill="#e6edf3" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">${this.esc(short)}</text>
-    <text x="${x + 40}" y="${y + 36}" fill="#8b949e" font-family="Consolas, monospace" font-size="11">${detail ? this.esc(detail) + ' · ' : ''}${label}</text>
-    <text x="${x + w - 16}" y="${y + (h - 6) / 2 + 5}" text-anchor="end" fill="${color}" font-family="Consolas, monospace" font-size="14" font-weight="700">${this.esc(value)}</text>`;
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${WHITE}" stroke="${BLUE_LINE}" stroke-width="1.5"/>
+    <text x="${x + 20}" y="${y + 36}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">${this.esc(label)}</text>
+    <text x="${x + 20}" y="${y + 72}" fill="${valueColor}" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">${this.esc(value)}</text>`;
   }
 
   private statusFromPercent(p: number): 'green' | 'yellow' | 'red' {
@@ -208,21 +285,15 @@ export class TelegramReportImageService {
   }
 
   private statusColor(status: 'green' | 'yellow' | 'red'): string {
-    if (status === 'green') return '#3fb950';
-    if (status === 'yellow') return '#d29922';
-    return '#f85149';
+    if (status === 'green') return GREEN;
+    if (status === 'yellow') return YELLOW;
+    return RED;
   }
 
-  private statusIcon(status: 'green' | 'yellow' | 'red'): string {
-    if (status === 'green') return '✓';
-    if (status === 'yellow') return '!';
-    return '✗';
-  }
-
-  private statusLabel(status: 'green' | 'yellow' | 'red'): string {
-    if (status === 'green') return 'success';
-    if (status === 'yellow') return 'warning';
-    return 'failure';
+  private dateLabel(iso: string): string {
+    const [y, m, d] = iso.split('-');
+    if (!y || !m || !d) return iso;
+    return `${d}.${m}.${y}`;
   }
 
   private monthLabel(month: string): string {
