@@ -32,6 +32,7 @@ interface TgUser {
   first_name?: string;
   last_name?: string;
   username?: string;
+  is_bot?: boolean;
 }
 
 interface TgChat {
@@ -512,6 +513,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     chat.unreadCount = (chat.unreadCount || 0) + 1;
     await this.chatRepo.save(chat);
 
+    // Botning o'zi yozgan xabarlar — web notificationga tushmasin
+    if (msg.from?.is_bot) return;
+
     void this.notifyAdminsAboutInbound(chat, preview, cmd).catch((err) =>
       this.logger.warn(`Telegram notify: ${err?.message || err}`),
     );
@@ -581,11 +585,14 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         caption: opts.caption ?? null,
         isCommand: false,
         sentByAdminId: opts.sentByAdminId ?? null,
-        fromName: opts.sentByAdminId ? 'Superadmin' : 'Bot',
+        fromName: opts.sentByAdminId ? 'Admin' : 'Bot',
       }),
     );
+    // Preview faqat odam xabarlari uchun — bot javobi notification/previewni bosib ketmasin
     chat.lastMessageAt = new Date();
-    chat.lastMessagePreview = opts.text.slice(0, 180);
+    if (opts.sentByAdminId) {
+      chat.lastMessagePreview = opts.text.slice(0, 180);
+    }
     await this.chatRepo.save(chat);
   }
 
