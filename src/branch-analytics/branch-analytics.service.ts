@@ -2115,6 +2115,82 @@ export class BranchAnalyticsService {
     return { dailyGoalCorrect: DAILY_GOAL_CORRECT, points };
   }
 
+  /**
+   * Har filial uchun kunlik foiz seriyasi (oy boshidan toStr gacha).
+   * Telegram oylik card sparkline uchun.
+   */
+  async getBranchDailySeries(
+    fromStr: string,
+    toStr: string,
+    orgIds: string[],
+  ): Promise<Map<string, Array<{ date: string; percent: number }>>> {
+    const out = new Map<string, Array<{ date: string; percent: number }>>();
+    for (const id of orgIds) out.set(id, []);
+    if (!orgIds.length) return out;
+
+    const days = this.listDays(fromStr, toStr);
+    for (const day of days) {
+      const empMap = await this.countEmployeesByOrg(orgIds, day);
+      const orgCorrect = await this.getOrgPlanCorrectMap(orgIds, day);
+      for (const orgId of orgIds) {
+        const emp = empMap.get(orgId) ?? 0;
+        const completed = orgCorrect.get(orgId) ?? 0;
+        const plan = emp * DAILY_GOAL_CORRECT;
+        const percent =
+          plan > 0 ? Math.round((completed / plan) * 1000) / 10 : 0;
+        out.get(orgId)!.push({ date: day, percent });
+      }
+    }
+    return out;
+  }
+
+  /** Kunlik: orgId -> jami planCorrect (har xodim max DAILY_GOAL_CORRECT). */
+  private async getOrgPlanCorrectMap(
+    orgIds: string[],
+    planDate: string,
+  ): Promise<Map<string, number>> {
+    if (!orgIds.length) return new Map();
+    const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
+
+    const qb = this.attemptRepo
+      .createQueryBuilder('a')
+      .innerJoin(User, 'u', 'u.id = a.user_id')
+      .select('a.organization_id', 'orgId')
+      .addSelect('a.user_id', 'userId')
+      .addSelect(
+        'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
+        'rawCorrect',
+      )
+      .where('a.organization_id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
+        from: dayStart,
+        to: dayEnd,
+      })
+      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
+      .groupBy('a.organization_id')
+      .addGroupBy('a.user_id');
+
+    this.reportingActivation.applyEmployeeReportActiveFilter(qb, {
+      asOfDate: planDate,
+    });
+
+    const rows = await qb.getRawMany<{
+      orgId: string;
+      userId: string;
+      rawCorrect: number;
+    }>();
+
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      const planCorrect = Math.min(Number(r.rawCorrect) || 0, DAILY_GOAL_CORRECT);
+      map.set(r.orgId, (map.get(r.orgId) ?? 0) + planCorrect);
+    }
+    return map;
+  }
+
   /** Filiallar × hafta kuni heatmap (barcha xodimlar asosida, faqat faollar emas). */
   async getBranchWeekdayHeatmap(
     from?: string,

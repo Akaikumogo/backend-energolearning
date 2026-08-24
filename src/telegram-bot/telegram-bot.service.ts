@@ -682,6 +682,18 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     // Bitta metrika: real kunlar bo'yicha trend o'rtachasi
     const monthlyAvg = monthlyAvgFromTrend;
 
+    const monthStart = `${month}-01`;
+    const lastTrendDay =
+      monthly.trend.length > 0
+        ? monthly.trend[monthly.trend.length - 1]!.date
+        : planDate;
+    const orgIds = monthly.branches.map((b) => b.orgId);
+    const branchSeries = await this.analytics.getBranchDailySeries(
+      monthStart,
+      lastTrendDay,
+      orgIds,
+    );
+
     const dailyInput = {
       planDate: daily.planDate,
       completionPercent: daily.completionPercent,
@@ -705,12 +717,30 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       averagePercent: monthlyAvg,
       branchCount: monthly.branches.length,
       daysInMonth: monthly.daysInMonth,
-      branches: monthly.branches.map((b) => ({
-        orgName: b.orgName,
-        percent: b.averageMonthlyPercent,
-        averageMonthlyPercent: b.averageMonthlyPercent,
-        status: this.statusFromPercent(b.averageMonthlyPercent),
-      })),
+      branches: monthly.branches.map((b) => {
+        const series = branchSeries.get(b.orgId) ?? [];
+        const dailyPercents = Array.from(
+          { length: monthly.daysInMonth },
+          (_, i) => {
+            const dayNum = i + 1;
+            const iso = `${month}-${String(dayNum).padStart(2, '0')}`;
+            const hit = series.find((p) => p.date === iso);
+            if (!hit) {
+              // kelajak yoki ma'lumot yo'q
+              return iso > lastTrendDay ? -1 : 0;
+            }
+            return hit.percent;
+          },
+        );
+        return {
+          orgId: b.orgId,
+          orgName: b.orgName,
+          percent: b.averageMonthlyPercent,
+          averageMonthlyPercent: b.averageMonthlyPercent,
+          status: this.statusFromPercent(b.averageMonthlyPercent),
+          dailyPercents,
+        };
+      }),
       dailyPoints: monthly.trend.map((p) => ({
         date: p.date,
         percent: p.percent,
