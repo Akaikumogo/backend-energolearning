@@ -9,7 +9,7 @@ import { Role } from '../enums/role.enum';
 import { ModeratorPermissionsService } from '../../moderator-permissions/moderator-permissions.service';
 import type { ModeratorPermissions } from '../../database/entities/moderator-permission.entity';
 
-type CrudAction = 'create' | 'update' | 'delete';
+type CrudAction = 'view' | 'create' | 'update' | 'delete';
 type ModuleKey = keyof ModeratorPermissions;
 
 function normalizePath(originalUrl: string) {
@@ -19,6 +19,29 @@ function normalizePath(originalUrl: string) {
 
 function resolveAction(method: string, path: string): { module: ModuleKey; action: CrudAction } | null {
   const m = method.toUpperCase();
+
+  // Telegram bot — view + mutations
+  if (path === '/admin/telegram-bot/settings' || path.startsWith('/admin/telegram-bot/')) {
+    if (m === 'GET' || m === 'HEAD') {
+      return { module: 'telegramBot', action: 'view' };
+    }
+    if (path === '/admin/telegram-bot/settings' && m === 'PATCH') {
+      return { module: 'telegramBot', action: 'update' };
+    }
+    if (/^\/admin\/telegram-bot\/chats\/[^/]+\/reply$/.test(path) && m === 'POST') {
+      return { module: 'telegramBot', action: 'create' };
+    }
+    if (
+      /^\/admin\/telegram-bot\/chats\/[^/]+\/send-report$/.test(path) &&
+      m === 'POST'
+    ) {
+      return { module: 'telegramBot', action: 'create' };
+    }
+    if (path === '/admin/telegram-bot/broadcast-report' && m === 'POST') {
+      return { module: 'telegramBot', action: 'create' };
+    }
+  }
+
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return null;
 
   // Content

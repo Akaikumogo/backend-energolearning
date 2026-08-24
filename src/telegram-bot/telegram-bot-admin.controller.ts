@@ -28,7 +28,7 @@ import { TelegramBotService } from './telegram-bot.service';
 @ApiTags('Admin Telegram Bot')
 @Controller('admin/telegram-bot')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN)
+@Roles(Role.SUPERADMIN, Role.MODERATOR)
 @ApiBearerAuth('bearer')
 export class TelegramBotAdminController {
   constructor(private readonly bot: TelegramBotService) {}
@@ -70,7 +70,7 @@ export class TelegramBotAdminController {
   }
 
   @Post('chats/:id/reply')
-  @ApiOperation({ summary: 'Superadmin javob yozadi' })
+  @ApiOperation({ summary: 'Admin / moderator javob yozadi' })
   reply(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: TelegramReplyDto,
