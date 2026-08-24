@@ -33,16 +33,13 @@ export type MonthlyReportImageInput = {
   month: string;
   averagePercent: number;
   branchCount: number;
-  /** Oy kunlari soni (31 / 30 / 28) */
   daysInMonth: number;
   branches: ReportBranchRow[];
-  /** Faqat real (bugungacha) kunlar */
   dailyPoints: DailyTrendPoint[];
 };
 
 const BLUE = '#2563eb';
-const BLUE_SOFT = '#dbeafe';
-const BLUE_LINE = '#93c5fd';
+const BLUE_DEEP = '#1d4ed8';
 const INK = '#0f172a';
 const MUTED = '#64748b';
 const WHITE = '#ffffff';
@@ -50,10 +47,11 @@ const GREEN = '#16a34a';
 const YELLOW = '#ca8a04';
 const RED = '#dc2626';
 const TRACK = '#e2e8f0';
+const BG = '#eef2f7';
 
 @Injectable()
 export class TelegramReportImageService {
-  /** @deprecated use buildDailyReportPng + buildMonthlyReportPng */
+  /** @deprecated */
   async buildCombinedReportPng(
     daily: DailyReportImageInput,
     _monthly: MonthlyReportImageInput,
@@ -62,137 +60,171 @@ export class TelegramReportImageService {
   }
 
   async buildDailyReportPng(daily: DailyReportImageInput): Promise<Buffer> {
-    const svg = this.buildDailySvg(daily);
-    return sharp(Buffer.from(svg)).png().toBuffer();
+    return sharp(Buffer.from(this.buildDailySvg(daily))).png().toBuffer();
   }
 
   async buildMonthlyReportPng(
     monthly: MonthlyReportImageInput,
   ): Promise<Buffer> {
-    const svg = this.buildMonthlySvg(monthly);
-    return sharp(Buffer.from(svg)).png().toBuffer();
+    return sharp(Buffer.from(this.buildMonthlySvg(monthly))).png().toBuffer();
   }
 
   // ─── Daily ───────────────────────────────────────────────
 
   private buildDailySvg(daily: DailyReportImageInput): string {
-    const width = 1280;
-    const pad = 40;
-    const headerH = 100;
-    const heroH = 140;
-    const statsH = 72;
-    const rowH = 44;
-    const zeroBlockH = 88;
-    const maxBranches = 20;
+    const width = 1080;
+    const pad = 28;
+    const maxBranches = 17;
 
     const sorted = [...daily.branches]
       .sort((a, b) => b.percent - a.percent)
       .slice(0, maxBranches);
     const shortNames = this.shortenOrgNames(sorted.map((b) => b.orgName));
-    const submitted = sorted.filter((b) => (b.completed ?? 0) > 0 || b.percent > 0);
+    const submitted = sorted.filter(
+      (b) => (b.completed ?? 0) > 0 || b.percent > 0,
+    );
     const missing = sorted.filter(
       (b) => (b.completed ?? 0) === 0 && b.percent <= 0,
     );
     const missingNames = this.shortenOrgNames(missing.map((b) => b.orgName));
 
+    const heroH = 168;
+    const statsH = 88;
+    const gridRows = Math.ceil(Math.min(sorted.length, 8) / 2);
+    const gridCardH = 92;
+    const gridGap = 12;
+    const gridH = gridRows * gridCardH + (gridRows - 1) * gridGap;
+    const listTitleH = 36;
+    const rowH = 40;
+    const listBranches = sorted;
+    const zeroH = missing.length > 0 ? 78 : 0;
+
+    const contentW = width - pad * 2;
     const height =
       pad +
-      headerH +
-      12 +
       heroH +
-      12 +
+      14 +
       statsH +
       16 +
-      sorted.length * rowH +
-      16 +
-      (missing.length > 0 ? zeroBlockH : 0) +
+      (gridH > 0 ? gridH + 16 : 0) +
+      listTitleH +
+      listBranches.length * rowH +
+      (zeroH ? 14 + zeroH : 0) +
       pad;
 
-    const heroY = pad + headerH + 12;
-    const statsY = heroY + heroH + 12;
-    const listY = statsY + statsH + 16;
-    const zeroY = listY + sorted.length * rowH + 16;
-    const tableW = width - pad * 2;
+    let y = pad;
     const heroColor = this.statusColor(
       this.statusFromPercent(daily.completionPercent),
     );
 
-    const rows = sorted
+    // Top 8 as colored cards (2-col), rest only in list — or all in list with cards for first 6
+    const gridItems = sorted.slice(0, 8);
+    const gridShort = shortNames.slice(0, 8);
+
+    const hero = `
+    <defs>
+      <linearGradient id="heroG" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${BLUE}"/>
+        <stop offset="100%" stop-color="${BLUE_DEEP}"/>
+      </linearGradient>
+      <filter id="soft" x="-5%" y="-5%" width="110%" height="120%">
+        <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.12"/>
+      </filter>
+    </defs>
+    <rect x="${pad}" y="${y}" width="${contentW}" height="${heroH}" rx="28" fill="url(#heroG)" filter="url(#soft)"/>
+    <text x="${pad + 32}" y="${y + 42}" fill="#bfdbfe" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">Elektro Learn · Kunlik hisobot</text>
+    <text x="${pad + 32}" y="${y + 68}" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(this.dateLabel(daily.planDate))} · Asia/Tashkent 18:00</text>
+    <text x="${pad + 32}" y="${y + 130}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="56" font-weight="800">${this.fmt(daily.completionPercent)}%</text>
+    <rect x="${pad + contentW - 220}" y="${y + 28}" width="188" height="72" rx="18" fill="rgba(255,255,255,0.18)"/>
+    <text x="${pad + contentW - 126}" y="${y + 54}" text-anchor="middle" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="12">Reja</text>
+    <text x="${pad + contentW - 126}" y="${y + 82}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">${daily.completedTotal}/${daily.totalPlan}</text>
+    `;
+
+    y += heroH + 14;
+    const sw = (contentW - 36) / 4;
+    const stats = [
+      this.statPill(pad, y, sw, statsH, 'Filiallar', String(daily.branchCount), INK, '#eff6ff'),
+      this.statPill(pad + sw + 12, y, sw, statsH, 'Topshirgan', String(submitted.length), GREEN, '#ecfdf5'),
+      this.statPill(pad + 2 * (sw + 12), y, sw, statsH, 'Topshirmagan', String(missing.length), missing.length ? RED : GREEN, missing.length ? '#fef2f2' : '#ecfdf5'),
+      this.statPill(pad + 3 * (sw + 12), y, sw, statsH, 'Xodimlar', `${daily.completedEmployees}/${daily.totalEmployees}`, INK, '#f8fafc'),
+    ].join('');
+
+    y += statsH + 16;
+    let gridSvg = '';
+    if (gridItems.length) {
+      const cw = (contentW - gridGap) / 2;
+      gridSvg = gridItems
+        .map((b, i) => {
+          const col = i % 2;
+          const row = Math.floor(i / 2);
+          const cx = pad + col * (cw + gridGap);
+          const cy = y + row * (gridCardH + gridGap);
+          const name = gridShort[i] ?? this.shortOrgName(b.orgName);
+          const st = b.status;
+          const accent = this.statusColor(st);
+          const tint =
+            st === 'green' ? '#ecfdf5' : st === 'yellow' ? '#fffbeb' : '#fef2f2';
+          return `
+          <rect x="${cx}" y="${cy}" width="${cw}" height="${gridCardH}" rx="20" fill="${tint}" filter="url(#soft)"/>
+          <circle cx="${cx + 28}" cy="${cy + 28}" r="10" fill="${accent}"/>
+          <text x="${cx + 48}" y="${cy + 34}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13" font-weight="600">${this.esc(name)}</text>
+          <text x="${cx + 24}" y="${cy + 74}" fill="${accent}" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">${this.fmt(b.percent)}%</text>
+          <text x="${cx + cw - 20}" y="${cy + 74}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">${b.completed ?? 0}/${b.plan ?? 0}</text>`;
+        })
+        .join('');
+      y += gridH + 16;
+    }
+
+    const listTitle = `
+    <text x="${pad}" y="${y + 22}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">Filial reytingi</text>`;
+    y += listTitleH;
+
+    const rows = listBranches
       .map((b, i) => {
-        const y = listY + i * rowH;
-        const bg = i % 2 === 0 ? WHITE : '#f8fbff';
+        const ry = y + i * rowH;
         const name = shortNames[i] ?? this.shortOrgName(b.orgName);
         const pctColor = this.statusColor(b.status);
-        const barX = pad + 220;
-        const barW = tableW - 220 - 100;
+        const barX = pad + 200;
+        const barW = contentW - 200 - 90;
         const fillW = Math.max(0, Math.min(barW, (b.percent / 100) * barW));
         return `
-        <rect x="${pad}" y="${y}" width="${tableW}" height="${rowH}" fill="${bg}"/>
-        <text x="${pad + 16}" y="${y + 28}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">${i + 1}</text>
-        <text x="${pad + 44}" y="${y + 28}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">${this.esc(name)}</text>
-        <rect x="${barX}" y="${y + 14}" width="${barW}" height="16" rx="8" fill="${TRACK}"/>
-        <rect x="${barX}" y="${y + 14}" width="${fillW}" height="16" rx="8" fill="${pctColor}"/>
-        <text x="${pad + tableW - 16}" y="${y + 28}" text-anchor="end" fill="${pctColor}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">${this.fmt(b.percent)}%</text>`;
+        <rect x="${pad}" y="${ry}" width="${contentW}" height="${rowH - 4}" rx="12" fill="${i % 2 === 0 ? WHITE : '#f8fafc'}"/>
+        <text x="${pad + 14}" y="${ry + 24}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">${i + 1}</text>
+        <text x="${pad + 36}" y="${ry + 24}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">${this.esc(name)}</text>
+        <rect x="${barX}" y="${ry + 12}" width="${barW}" height="12" rx="6" fill="${TRACK}"/>
+        <rect x="${barX}" y="${ry + 12}" width="${fillW}" height="12" rx="6" fill="${pctColor}"/>
+        <text x="${pad + contentW - 14}" y="${ry + 24}" text-anchor="end" fill="${pctColor}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">${this.fmt(b.percent)}%</text>`;
       })
       .join('');
 
-    const zeroBlock =
-      missing.length > 0
-        ? `
-      <rect x="${pad}" y="${zeroY}" width="${tableW}" height="${zeroBlockH - 12}" rx="14" fill="#fef2f2" stroke="${RED}" stroke-width="1.5"/>
-      <text x="${pad + 24}" y="${zeroY + 32}" fill="${RED}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">Hisobot topshirmagan filiallar — ${missing.length} ta</text>
-      <text x="${pad + 24}" y="${zeroY + 58}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="14">${this.esc(missingNames.join(' · ') || '—')}</text>`
-        : '';
-
-    const statW = (tableW - 36) / 4;
+    y += listBranches.length * rowH;
+    let zero = '';
+    if (missing.length > 0) {
+      y += 14;
+      zero = `
+      <rect x="${pad}" y="${y}" width="${contentW}" height="${zeroH}" rx="20" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="${pad + 22}" y="${y + 32}" fill="${RED}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="700">Hisobot topshirmagan — ${missing.length} ta</text>
+      <text x="${pad + 22}" y="${y + 56}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(missingNames.join(' · '))}</text>`;
+    }
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#eff6ff"/>
-      <stop offset="100%" stop-color="#ffffff"/>
-    </linearGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="#f8fafc"/>
-  <rect x="18" y="18" width="${width - 36}" height="${height - 36}" rx="20" fill="${WHITE}" stroke="${BLUE}" stroke-width="2.5"/>
-  <rect x="18" y="18" width="8" height="${height - 36}" rx="4" fill="${BLUE}"/>
-
-  <rect x="${pad}" y="${pad}" width="${tableW}" height="${headerH - 12}" rx="16" fill="url(#hdr)" stroke="${BLUE_LINE}" stroke-width="1.5"/>
-  <circle cx="${pad + 36}" cy="${pad + 44}" r="14" fill="${BLUE}"/>
-  <text x="${pad + 36}" y="${pad + 49}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">EL</text>
-  <text x="${pad + 64}" y="${pad + 38}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="800">Elektro Learn</text>
-  <text x="${pad + 64}" y="${pad + 64}" fill="${BLUE}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">KUNLIK HISOBOT</text>
-  <text x="${width - pad - 20}" y="${pad + 38}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">Asia/Tashkent · 18:00</text>
-  <text x="${width - pad - 20}" y="${pad + 64}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">${this.esc(this.dateLabel(daily.planDate))}</text>
-
-  <rect x="${pad}" y="${heroY}" width="${tableW}" height="${heroH}" rx="16" fill="#f8fafc" stroke="${BLUE_LINE}" stroke-width="1.5"/>
-  <text x="${pad + 32}" y="${heroY + 42}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">BUGUN</text>
-  <text x="${pad + 32}" y="${heroY + 108}" fill="${heroColor}" font-family="Segoe UI, Arial, sans-serif" font-size="64" font-weight="800">${this.fmt(daily.completionPercent)}%</text>
-  <text x="${pad + tableW - 32}" y="${heroY + 50}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">Reja</text>
-  <text x="${pad + tableW - 32}" y="${heroY + 88}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">${daily.completedTotal} / ${daily.totalPlan}</text>
-
-  ${this.miniStat(pad, statsY, statW, statsH - 8, 'Filiallar', String(daily.branchCount))}
-  ${this.miniStat(pad + statW + 12, statsY, statW, statsH - 8, 'Topshirgan', String(submitted.length), GREEN)}
-  ${this.miniStat(pad + 2 * (statW + 12), statsY, statW, statsH - 8, 'Topshirmagan', String(missing.length), missing.length ? RED : GREEN)}
-  ${this.miniStat(pad + 3 * (statW + 12), statsY, statW, statsH - 8, 'Xodimlar', `${daily.completedEmployees}/${daily.totalEmployees}`)}
-
+  <rect width="100%" height="100%" fill="${BG}"/>
+  ${hero}
+  ${stats}
+  ${gridSvg}
+  ${listTitle}
   ${rows}
-  ${zeroBlock}
+  ${zero}
 </svg>`;
   }
 
   // ─── Monthly ─────────────────────────────────────────────
 
   private buildMonthlySvg(monthly: MonthlyReportImageInput): string {
-    const width = 1280;
-    const pad = 40;
-    const headerH = 100;
-    const heroH = 120;
-    const chartH = 200;
-    const rowH = 42;
-    const maxBranches = 20;
-
+    const width = 1080;
+    const pad = 28;
+    const contentW = width - pad * 2;
     const points = monthly.dailyPoints;
     const daysElapsed = points.length;
     const daysInMonth = monthly.daysInMonth || 31;
@@ -203,90 +235,74 @@ export class TelegramReportImageService {
           (b.averageMonthlyPercent ?? b.percent) -
           (a.averageMonthlyPercent ?? a.percent),
       )
-      .slice(0, maxBranches);
+      .slice(0, 17);
     const shortNames = this.shortenOrgNames(ranked.map((b) => b.orgName));
 
+    const heroH = 160;
+    const chartH = 180;
+    const rowH = 38;
     const height =
-      pad +
-      headerH +
-      12 +
-      heroH +
-      16 +
-      chartH +
-      24 +
-      36 +
-      ranked.length * rowH +
-      pad;
+      pad + heroH + 14 + chartH + 20 + 32 + ranked.length * rowH + pad;
 
-    const heroY = pad + headerH + 12;
-    const chartY = heroY + heroH + 16;
-    const rankTitleY = chartY + chartH + 24;
-    const listY = rankTitleY + 36;
-    const tableW = width - pad * 2;
     const heroColor = this.statusColor(
       this.statusFromPercent(monthly.averagePercent),
     );
 
-    const chart = this.buildTrendChart(
-      pad,
-      chartY,
-      tableW,
-      chartH,
-      points,
-    );
+    let y = pad;
+    const hero = `
+    <defs>
+      <linearGradient id="heroM" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="${BLUE}"/>
+        <stop offset="100%" stop-color="${BLUE_DEEP}"/>
+      </linearGradient>
+      <filter id="softM" x="-5%" y="-5%" width="110%" height="120%">
+        <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.12"/>
+      </filter>
+    </defs>
+    <rect x="${pad}" y="${y}" width="${contentW}" height="${heroH}" rx="28" fill="url(#heroM)" filter="url(#softM)"/>
+    <text x="${pad + 32}" y="${y + 40}" fill="#bfdbfe" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">Elektro Learn · Oylik hisobot</text>
+    <text x="${pad + 32}" y="${y + 64}" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(this.monthLabel(monthly.month))} · Asia/Tashkent</text>
+    <text x="${pad + 32}" y="${y + 126}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">${this.fmt(monthly.averagePercent)}%</text>
+    <rect x="${pad + contentW - 200}" y="${y + 36}" width="168" height="88" rx="18" fill="rgba(255,255,255,0.18)"/>
+    <text x="${pad + contentW - 116}" y="${y + 68}" text-anchor="middle" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="12">Kunlar</text>
+    <text x="${pad + contentW - 116}" y="${y + 100}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="700">${daysElapsed}/${daysInMonth}</text>
+    `;
+    // note: heroColor unused in blue hero by design (like expense app - white on blue); keep semantic in ranking
+    void heroColor;
+
+    y += heroH + 14;
+    const chart = this.buildTrendChart(pad, y, contentW, chartH, points);
+    y += chartH + 20;
+
+    const title = `<text x="${pad}" y="${y + 20}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="800">Filial reytingi</text>
+    <text x="${pad + contentW}" y="${y + 20}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">OYLIK %</text>`;
+    y += 32;
 
     const rows = ranked
       .map((b, i) => {
-        const y = listY + i * rowH;
-        const bg = i % 2 === 0 ? WHITE : '#f8fbff';
+        const ry = y + i * rowH;
         const name = shortNames[i] ?? this.shortOrgName(b.orgName);
         const pct = b.averageMonthlyPercent ?? b.percent;
-        const status = this.statusFromPercent(pct);
-        const pctColor = this.statusColor(status);
-        const barX = pad + 240;
-        const barW = tableW - 240 - 100;
+        const pctColor = this.statusColor(this.statusFromPercent(pct));
+        const barX = pad + 200;
+        const barW = contentW - 200 - 90;
         const fillW = Math.max(0, Math.min(barW, (pct / 100) * barW));
         return `
-        <rect x="${pad}" y="${y}" width="${tableW}" height="${rowH}" fill="${bg}"/>
-        <text x="${pad + 16}" y="${y + 27}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">${i + 1}</text>
-        <text x="${pad + 48}" y="${y + 27}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">${this.esc(name)}</text>
-        <rect x="${barX}" y="${y + 13}" width="${barW}" height="16" rx="8" fill="${TRACK}"/>
-        <rect x="${barX}" y="${y + 13}" width="${fillW}" height="16" rx="8" fill="${pctColor}"/>
-        <text x="${pad + tableW - 16}" y="${y + 27}" text-anchor="end" fill="${pctColor}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="700">${this.fmt(pct)}%</text>`;
+        <rect x="${pad}" y="${ry}" width="${contentW}" height="${rowH - 4}" rx="12" fill="${i % 2 === 0 ? WHITE : '#f8fafc'}"/>
+        <text x="${pad + 14}" y="${ry + 22}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">${i + 1}</text>
+        <text x="${pad + 36}" y="${ry + 22}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">${this.esc(name)}</text>
+        <rect x="${barX}" y="${ry + 11}" width="${barW}" height="12" rx="6" fill="${TRACK}"/>
+        <rect x="${barX}" y="${ry + 11}" width="${fillW}" height="12" rx="6" fill="${pctColor}"/>
+        <text x="${pad + contentW - 14}" y="${ry + 22}" text-anchor="end" fill="${pctColor}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">${this.fmt(pct)}%</text>`;
       })
       .join('');
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <defs>
-    <linearGradient id="hdrM" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#eff6ff"/>
-      <stop offset="100%" stop-color="#ffffff"/>
-    </linearGradient>
-  </defs>
-  <rect width="100%" height="100%" fill="#f8fafc"/>
-  <rect x="18" y="18" width="${width - 36}" height="${height - 36}" rx="20" fill="${WHITE}" stroke="${BLUE}" stroke-width="2.5"/>
-  <rect x="18" y="18" width="8" height="${height - 36}" rx="4" fill="${BLUE}"/>
-
-  <rect x="${pad}" y="${pad}" width="${tableW}" height="${headerH - 12}" rx="16" fill="url(#hdrM)" stroke="${BLUE_LINE}" stroke-width="1.5"/>
-  <circle cx="${pad + 36}" cy="${pad + 44}" r="14" fill="${BLUE}"/>
-  <text x="${pad + 36}" y="${pad + 49}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">EL</text>
-  <text x="${pad + 64}" y="${pad + 38}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="800">Elektro Learn</text>
-  <text x="${pad + 64}" y="${pad + 64}" fill="${BLUE}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">OYLIK HISOBOT</text>
-  <text x="${width - pad - 20}" y="${pad + 38}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">Asia/Tashkent</text>
-  <text x="${width - pad - 20}" y="${pad + 64}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="700">${this.esc(this.monthLabel(monthly.month))}</text>
-
-  <rect x="${pad}" y="${heroY}" width="${tableW}" height="${heroH}" rx="16" fill="#f8fafc" stroke="${BLUE_LINE}" stroke-width="1.5"/>
-  <text x="${pad + 32}" y="${heroY + 36}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600">OYLIK OʻRTACHA</text>
-  <text x="${pad + 32}" y="${heroY + 96}" fill="${heroColor}" font-family="Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">${this.fmt(monthly.averagePercent)}%</text>
-  <text x="${pad + tableW - 32}" y="${heroY + 50}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">Kunlar</text>
-  <text x="${pad + tableW - 32}" y="${heroY + 92}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="700">${daysElapsed} / ${daysInMonth}</text>
-
+  <rect width="100%" height="100%" fill="${BG}"/>
+  ${hero}
   ${chart}
-
-  <text x="${pad}" y="${rankTitleY + 20}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="800">FILIAL REYTINGI</text>
-  <text x="${pad + tableW}" y="${rankTitleY + 20}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">OYLIK %</text>
-
+  ${title}
   ${rows}
 </svg>`;
   }
@@ -298,134 +314,140 @@ export class TelegramReportImageService {
     h: number,
     points: DailyTrendPoint[],
   ): string {
-    const innerPadL = 48;
-    const innerPadR = 16;
-    const innerPadT = 28;
-    const innerPadB = 36;
-    const plotX = x + innerPadL;
-    const plotY = y + innerPadT;
-    const plotW = w - innerPadL - innerPadR;
-    const plotH = h - innerPadT - innerPadB;
+    const padL = 44;
+    const padR = 16;
+    const padT = 36;
+    const padB = 32;
+    const plotX = x + padL;
+    const plotY = y + padT;
+    const plotW = w - padL - padR;
+    const plotH = h - padT - padB;
 
-    if (points.length === 0) {
-      return `
-      <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${WHITE}" stroke="${BLUE_LINE}" stroke-width="1.5"/>
-      <text x="${x + w / 2}" y="${y + h / 2}" text-anchor="middle" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="14">Trend maʼlumoti yoʻq</text>`;
+    if (!points.length) {
+      return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="${WHITE}"/>
+      <text x="${x + w / 2}" y="${y + h / 2}" text-anchor="middle" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="14">Trend yoʻq</text>`;
     }
 
     const maxPct = Math.max(10, ...points.map((p) => p.percent));
     const niceMax = Math.ceil(maxPct / 2) * 2;
     const n = points.length;
     const gap = 2;
-    const barW = Math.max(4, (plotW - gap * (n - 1)) / n);
+    const barW = Math.max(3, (plotW - gap * (n - 1)) / n);
 
     const bars = points
       .map((p, i) => {
         const bh = Math.max(1, (p.percent / niceMax) * plotH);
         const bx = plotX + i * (barW + gap);
         const by = plotY + plotH - bh;
-        const color = this.statusColor(this.statusFromPercent(p.percent));
-        return `<rect x="${bx}" y="${by}" width="${barW}" height="${bh}" rx="2" fill="${color}" opacity="0.85"/>`;
+        return `<rect x="${bx}" y="${by}" width="${barW}" height="${bh}" rx="3" fill="${BLUE}" opacity="0.9"/>`;
       })
       .join('');
 
     const yTicks = [0, niceMax / 2, niceMax]
       .map((v) => {
         const ty = plotY + plotH - (v / niceMax) * plotH;
-        return `
-        <line x1="${plotX}" y1="${ty}" x2="${plotX + plotW}" y2="${ty}" stroke="${BLUE_SOFT}" stroke-width="1"/>
-        <text x="${plotX - 8}" y="${ty + 4}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="11">${v}%</text>`;
+        return `<text x="${plotX - 8}" y="${ty + 4}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="11">${v}%</text>
+        <line x1="${plotX}" y1="${ty}" x2="${plotX + plotW}" y2="${ty}" stroke="#e2e8f0" stroke-width="1"/>`;
       })
       .join('');
 
-    const labelIdx = [
-      0,
-      Math.floor((n - 1) / 2),
-      n - 1,
-    ].filter((v, i, a) => a.indexOf(v) === i);
-
+    const labelIdx = [0, Math.floor((n - 1) / 2), n - 1].filter(
+      (v, i, a) => a.indexOf(v) === i,
+    );
     const xLabels = labelIdx
       .map((i) => {
         const p = points[i];
         if (!p) return '';
         const day = p.date.split('-')[2] ?? '';
         const bx = plotX + i * (barW + gap) + barW / 2;
-        return `<text x="${bx}" y="${y + h - 12}" text-anchor="middle" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="11">${day}</text>`;
+        return `<text x="${bx}" y="${y + h - 10}" text-anchor="middle" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="11">${day}</text>`;
       })
       .join('');
 
     return `
-    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${WHITE}" stroke="${BLUE_LINE}" stroke-width="1.5"/>
-    <text x="${x + 16}" y="${y + 22}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600">KUNLIK TREND</text>
-    ${yTicks}
-    ${bars}
-    ${xLabels}`;
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="24" fill="${WHITE}"/>
+    <text x="${x + 20}" y="${y + 26}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="700">KUNLIK TREND</text>
+    ${yTicks}${bars}${xLabels}`;
   }
 
-  // ─── Helpers ─────────────────────────────────────────────
-
-  private miniStat(
+  private statPill(
     x: number,
     y: number,
     w: number,
     h: number,
     label: string,
     value: string,
-    valueColor = INK,
+    valueColor: string,
+    bg: string,
   ): string {
     return `
-    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="${WHITE}" stroke="${BLUE_LINE}" stroke-width="1.5"/>
-    <text x="${x + 16}" y="${y + 26}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600">${this.esc(label)}</text>
-    <text x="${x + 16}" y="${y + 52}" fill="${valueColor}" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="800">${this.esc(value)}</text>`;
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="20" fill="${bg}"/>
+    <text x="${x + 18}" y="${y + 32}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600">${this.esc(label)}</text>
+    <text x="${x + 18}" y="${y + 62}" fill="${valueColor}" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="800">${this.esc(value)}</text>`;
   }
 
-  /** Barcha qatorlar uchun qisqa nomlar (umumiy prefiks ham kesiladi). */
+  // ─── Name helpers ────────────────────────────────────────
+
   shortenOrgNames(names: string[]): string[] {
     const cleaned = names.map((n) => this.shortOrgName(n));
     if (cleaned.length < 2) return cleaned;
-
     const common = this.longestCommonPrefix(cleaned);
     if (common.length < 4) return cleaned;
-
     return cleaned.map((n) => {
-      if (!n.startsWith(common)) return n;
+      if (!n.toLowerCase().startsWith(common.toLowerCase())) return n;
       const rest = n.slice(common.length).replace(/^[\s\-–—,.:]+/, '').trim();
       return rest || n;
     });
   }
 
+  /**
+   * AJ "O'ZBEKISTON MILLIY ELEKTR TARMOQLARI" FARG'ONA ...
+   * → Farg'ona
+   * Apostrof holding ichida bo'lgani uchun oddiy quote-regex ishlamaydi.
+   */
   shortOrgName(raw: string): string {
     let s = String(raw || '').trim();
     if (!s) return '—';
 
-    // Boshidagi tashkiliy shakl
-    s = s.replace(/^(AJ|AO|MChJ|MCHJ|XK|ЧП|ООО)\s*/i, '');
-
-    // Holding nomi qo'shtirnoq ichida: '...' "..." «...» ʻ...ʼ
+    // Holding iborasini butunlay olib tashlash (apostrof/backtick/turli belgilar)
     s = s.replace(
-      /^(['"«“ʻʼ‘’])([^'"»”ʻʼ‘’]+)\1\s*/u,
-      '',
+      /O['ʼʻ`ʹ′]?\s*ZBEKISTON\s+MILLIY\s+ELEKTR\s+TARMOQLARI/gi,
+      ' ',
     );
-    // Ba'zan ochuvchi/yopuvchi turli belgilar
-    s = s.replace(/^['"«“ʻʼ‘’][^'"»”ʻʼ‘’]+['"»”ʻʼ‘’]\s*/u, '');
-
-    // Holding nomi qo'shtirnoqsiz ham uchrashi mumkin
     s = s.replace(
-      /^O['ʼʻ`]?ZBEKISTON\s+MILLIY\s+ELEKTR\s+TARMOQLARI\s*/iu,
-      '',
+      /ЎЗБЕКИСТОН\s+МИЛЛИЙ\s+ЭЛЕКТР\s+ТАРМОҚЛАРИ/gi,
+      ' ',
     );
 
-    s = s.replace(/^[\s\-–—,.:]+/, '').trim();
+    // Tashkiliy shakl
+    s = s.replace(/^(AJ|AO|MChJ|MCHJ|XK|ЧП|ООО)\b[\s.]*/i, '');
+
+    // Qolgan qo'shtirnoqlar (apostrof Farg'ona uchun saqlanadi)
+    s = s.replace(/["«»“”„]+/g, ' ');
+    s = s.replace(/^['ʼʻ`ʹ′\s]+|['ʼʻ`ʹ′\s]+$/g, '');
+
+    // Takroriy "ELEKTR TARMOQLARI" / "filiali" oxirida
+    s = s.replace(/\bELEKTR\s+TARMOQLARI\b/gi, ' ');
+    s = s.replace(/\bFILIALI?\b/gi, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+
     if (!s) return 'Bosh tashkilot';
 
-    // Title-ish: birinchi harf katta (lotin/kirill)
-    if (s === s.toUpperCase() && s.length > 3) {
+    // Title case agar hammasi katta
+    const letters = s.replace(/[^a-zA-ZА-Яа-яЁёЎўҚқҒғҲҳ]/g, '');
+    if (letters.length > 2 && letters === letters.toUpperCase()) {
       s = s
         .toLowerCase()
         .replace(/(^|[\s\-])(\S)/g, (_, a, b) => a + String(b).toUpperCase());
     }
 
-    if (s.length > 28) s = `${s.slice(0, 26)}…`;
+    // Birinchi 2 so'zni olish (viloyat nomi odatda boshida)
+    const parts = s.split(/\s+/).filter(Boolean);
+    if (parts.length > 2) {
+      s = parts.slice(0, 2).join(' ');
+    }
+
+    if (s.length > 22) s = `${s.slice(0, 20)}…`;
     return s;
   }
 
@@ -445,7 +467,6 @@ export class TelegramReportImageService {
       prefix = prefix.slice(0, j);
       if (!prefix) break;
     }
-    // So'z chegarasigacha (bo'shliq/tire)
     const m = prefix.match(/^(.+[\s\-–—])/);
     return m ? m[1] : prefix.length >= 8 ? prefix : '';
   }
