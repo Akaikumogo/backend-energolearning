@@ -672,17 +672,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
           ) / 10
         : 0;
 
-    const monthlyAvg =
-      monthly.branches.length > 0
-        ? Math.round(
-            (monthly.branches.reduce(
-              (s, b) => s + (b.averageMonthlyPercent ?? 0),
-              0,
-            ) /
-              monthly.branches.length) *
-              10,
-          ) / 10
-        : monthlyAvgFromTrend;
+    // Bitta metrika: real kunlar bo'yicha trend o'rtachasi
+    const monthlyAvg = monthlyAvgFromTrend;
 
     const dailyInput = {
       planDate: daily.planDate,
@@ -706,6 +697,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       month: monthly.month,
       averagePercent: monthlyAvg,
       branchCount: monthly.branches.length,
+      daysInMonth: monthly.daysInMonth,
       branches: monthly.branches.map((b) => ({
         orgName: b.orgName,
         percent: b.averageMonthlyPercent,
@@ -725,23 +717,24 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.imageService.buildMonthlyReportPng(monthlyInput),
     ]);
 
+    const missingCount = daily.branches.filter(
+      (b) => (b.completed ?? 0) === 0 && (b.percent ?? 0) <= 0,
+    ).length;
+
     const [y, m, d] = daily.planDate.split('-');
     const dailyCaption =
-      `⚡ <b>Elektro Learn</b> — kunlik hisobot\n\n` +
-      `📅 Sana: <b>${d}.${m}.${y}</b>\n` +
-      `🕐 Vaqt: <b>18:00</b> (Toshkent)\n\n` +
-      `📈 Bugun (umumiy): <b>${daily.completionPercent.toFixed(1)}%</b>\n` +
-      `📋 Reja: <b>${daily.completedTotal}/${daily.totalPlan}</b>\n` +
-      `🏢 Filiallar: <b>${daily.branchCount}</b>\n\n` +
-      `❗️ <b>Iltimos, bugungi hisobotni topshiring!</b>`;
+      `⚡ <b>Elektro Learn</b> — kunlik hisobot\n` +
+      `${d}.${m}.${y} · 18:00\n` +
+      `Bugun: <b>${daily.completionPercent.toFixed(1)}%</b>` +
+      (missingCount > 0
+        ? ` · <b>${missingCount}</b> filial hisobot bermadi`
+        : '');
 
     const [yy, mm] = monthly.month.split('-');
     const monthlyCaption =
-      `🗓 <b>Elektro Learn</b> — oylik hisobot\n\n` +
-      `📅 Oy: <b>${mm}.${yy}</b>\n` +
-      `📊 Kunlik foizlar jadvali + yakuniy umumiy foiz\n\n` +
-      `📈 Oylik oʻrtacha: <b>${monthlyAvg.toFixed(1)}%</b>\n` +
-      `📆 Kunlar: <b>${monthly.trend.length}</b>`;
+      `🗓 <b>Elektro Learn</b> — oylik hisobot\n` +
+      `${mm}.${yy} · ${monthly.trend.length} kun\n` +
+      `Oylik oʻrtacha: <b>${monthlyAvg.toFixed(1)}%</b>`;
 
     return { dailyPng, monthlyPng, dailyCaption, monthlyCaption };
   }

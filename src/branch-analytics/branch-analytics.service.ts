@@ -2082,7 +2082,8 @@ export class BranchAnalyticsService {
     allowedOrgIds: string[] | null = null,
   ) {
     const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
-    const days = this.listDays(fromStr, toStr).slice(-30);
+    // 31 kunlik oyda 1-kun tushib qolmasin
+    const days = this.listDays(fromStr, toStr).slice(-31);
 
     let orgIds: string[];
     if (orgId) {
@@ -2396,7 +2397,10 @@ export class BranchAnalyticsService {
     const scope = this.narrowOrgScope(allowedOrgIds, orgId);
     const comparison = await this.getBranchComparison(month, scope);
     const { month: m, daysInMonth } = tashkentMonthBounds(month);
-    const lastDay = `${m}-${String(daysInMonth).padStart(2, '0')}`;
+    const monthEnd = `${m}-${String(daysInMonth).padStart(2, '0')}`;
+    const today = tashkentToday();
+    // Kelajak kunlari 0% bo'lib chiqmasin — faqat bugungacha
+    const lastDay = today < monthEnd ? today : monthEnd;
     const trend = await this.getDailyTrend(`${m}-01`, lastDay, undefined, scope);
 
     const branchRows: Array<{
