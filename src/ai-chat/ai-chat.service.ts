@@ -50,7 +50,11 @@ export class AiChatService {
 
   normalizeScope(role: Role | undefined, requestedScope?: string): AiChatScope {
     if (role === Role.USER) return 'mobile';
-    if (role === Role.MODERATOR || role === Role.SUPERADMIN) {
+    if (
+      role === Role.MODERATOR ||
+      role === Role.SUPERADMIN ||
+      role === Role.APPROVER
+    ) {
       return requestedScope === 'mobile' ? 'mobile' : 'admin';
     }
     return requestedScope === 'admin' ? 'admin' : 'mobile';

@@ -105,6 +105,14 @@ export class OrganizationsService {
     if (role === Role.SUPERADMIN) {
       return req && req !== 'all' ? req : 'all';
     }
+    if (role === Role.APPROVER) {
+      const allowed = await this.getAllowedOrgIds(role, organizationIds);
+      if (!allowed?.length) {
+        throw new ForbiddenException('Filial ruxsati yo‘q');
+      }
+      if (req && req !== 'all' && allowed.includes(req)) return req;
+      return allowed[0];
+    }
     const scope = await this.resolveModeratorScope(organizationIds);
     if (scope === undefined) {
       return req && req !== 'all' ? req : 'all';

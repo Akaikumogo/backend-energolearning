@@ -21,6 +21,8 @@ import { Role } from '../common/enums/role.enum';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
+  BulkRejectSafetyChangeDto,
+  BulkSafetyChangeIdsDto,
   RejectSafetyChangeDto,
   UpsertSafetyRecordDto,
 } from './dto/safety-record.dto';
@@ -39,9 +41,37 @@ export class SafetyRecordsController {
 
   @Get('safety-record-types')
   @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER, Role.ACCOUNTING)
-  @ApiOperation({ summary: 'Sertifikat / xavfsizlik turlari' })
+  @ApiOperation({ summary: 'Texnik sinov / xavfsizlik turlari' })
   listTypes() {
     return this.safetyRecordsService.listTypes();
+  }
+
+  @Get('safety-changes/pending')
+  @Roles(Role.SUPERADMIN, Role.APPROVER)
+  @ApiOperation({ summary: 'Tasdiq kutilayotgan o‘zgarishlar ro‘yxati' })
+  listPending(@Req() req: Authed) {
+    return this.safetyRecordsService.listPending(req.user);
+  }
+
+  @Get('safety-changes/pending/count')
+  @Roles(Role.SUPERADMIN, Role.APPROVER)
+  @ApiOperation({ summary: 'Tasdiq kutilayotganlar soni (badge)' })
+  countPending(@Req() req: Authed) {
+    return this.safetyRecordsService.countPending(req.user);
+  }
+
+  @Post('safety-changes/bulk-approve')
+  @Roles(Role.SUPERADMIN, Role.APPROVER)
+  @ApiOperation({ summary: 'Bir nechta o‘zgarishni birga tasdiqlash' })
+  bulkApprove(@Req() req: Authed, @Body() dto: BulkSafetyChangeIdsDto) {
+    return this.safetyRecordsService.bulkApprove(dto.changeIds, req.user);
+  }
+
+  @Post('safety-changes/bulk-reject')
+  @Roles(Role.SUPERADMIN, Role.APPROVER)
+  @ApiOperation({ summary: 'Bir nechta o‘zgarishni birga rad etish' })
+  bulkReject(@Req() req: Authed, @Body() dto: BulkRejectSafetyChangeDto) {
+    return this.safetyRecordsService.bulkReject(dto.changeIds, dto, req.user);
   }
 
   @Get('students/:userId/safety-records')

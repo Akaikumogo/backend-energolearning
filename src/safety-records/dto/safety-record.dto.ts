@@ -1,4 +1,12 @@
-import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsDateString,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 
 export class UpsertSafetyRecordDto {
   @IsOptional()
@@ -50,6 +58,20 @@ export class UpsertSafetyRecordDto {
 }
 
 export class RejectSafetyChangeDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  reviewNote?: string;
+}
+
+export class BulkSafetyChangeIdsDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('4', { each: true })
+  changeIds: string[];
+}
+
+export class BulkRejectSafetyChangeDto extends BulkSafetyChangeIdsDto {
   @IsOptional()
   @IsString()
   @MaxLength(1000)

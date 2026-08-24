@@ -122,7 +122,7 @@ export class AnalyticsController {
   }
 
   @Get('hearts-lost')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
   @ApiOperation({
     summary: 'Yurak yo`qotish (noto`g`ri javoblar) statistikasi',
     description: 'range=today|month|year, orgId=all faqat SUPERADMIN uchun.',

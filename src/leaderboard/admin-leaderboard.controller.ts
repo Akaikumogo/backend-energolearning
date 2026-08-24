@@ -21,7 +21,7 @@ export class AdminLeaderboardController {
   ) {}
 
   @Get('global')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
   @ApiOperation({ summary: 'Global reyting (Admin) — top + men nechinchiman' })
   @ApiQuery({ name: 'limit', required: false, example: 50 })
   @ApiOkResponse({ description: 'Leaderboard response' })
@@ -36,7 +36,7 @@ export class AdminLeaderboardController {
   }
 
   @Get('organization')
-  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
   @ApiOperation({
     summary:
       'Organization reytingi (Admin). SUPERADMIN va asosiy boshqarma MODERATORi orgId tanlaydi.',
@@ -52,7 +52,7 @@ export class AdminLeaderboardController {
     const requestedOrgId = orgId?.trim() || null;
     let effectiveOrgId = requestedOrgId;
 
-    if (req.user.role === Role.MODERATOR) {
+    if (req.user.role === Role.MODERATOR || req.user.role === Role.APPROVER) {
       const allowedOrgIds = await this.organizationsService.getAllowedOrgIds(
         req.user.role,
         req.user.organizationIds,

@@ -38,7 +38,7 @@ export type ModeratorPermissions = {
   logs: CrudPermissions;
   nesSync: CrudPermissions;
   aiAssistant: CrudPermissions;
-  /** Xavfsizlik / sertifikat ma'lumotlari (manual entry) */
+  /** Xavfsizlik / texnik sinov ma'lumotlari (manual entry) */
   safetyRecords: CrudPermissions;
 };
 
@@ -46,6 +46,14 @@ const DEFAULT_CRUD: CrudPermissions = {
   view: false,
   create: false,
   update: false,
+  delete: false,
+};
+
+/** Safety yozuvlari: barcha moderatorlarga ochiq (faqat o‘z filiali xodimlari). */
+const DEFAULT_SAFETY_RECORDS_CRUD: CrudPermissions = {
+  view: true,
+  create: true,
+  update: true,
   delete: false,
 };
 
@@ -66,7 +74,7 @@ export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   logs: DEFAULT_CRUD,
   nesSync: DEFAULT_CRUD,
   aiAssistant: DEFAULT_CRUD,
-  safetyRecords: DEFAULT_CRUD,
+  safetyRecords: DEFAULT_SAFETY_RECORDS_CRUD,
 };
 
 export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
