@@ -353,13 +353,13 @@ export class TelegramReportImageService {
       ' ',
     );
     s = s.replace(/ЎЗБЕКИСТОН\s+МИЛЛИЙ\s+ЭЛЕКТР\s+ТАРМОҚЛАРИ/gi, ' ');
-    s = s.replace(/^(AJ|AO|MChJ|MCHJ|XK|ЧП|ООО)\b[\s.]*/i, '');
-    s = s.replace(/\b(AJ|AO)\b/gi, ' ');
     s = s.replace(/["«»“”„]+/g, ' ');
-    s = s.replace(/^['ʼʻ`ʹ′\s]+|['ʼʻ`ʹ′\s]+$/g, '');
     s = s.replace(/\bELEKTR\s+TARMOQLARI\b/gi, ' ');
     s = s.replace(/\bFILIALI?\b/gi, ' ');
     s = s.replace(/\s+/g, ' ').trim();
+
+    // AJ / AO — boshida va istalgan joyda (Aj, AJ, ao, …)
+    s = this.stripAjAo(s);
 
     if (!s) return 'Bosh tashkilot';
 
@@ -370,12 +370,36 @@ export class TelegramReportImageService {
         .replace(/(^|[\s\-])(\S)/g, (_, a, b) => a + String(b).toUpperCase());
     }
 
+    // Title case dan keyin yana bir marta (Aj → olib tashlash)
+    s = this.stripAjAo(s);
+    if (!s) return 'Bosh tashkilot';
+
     // Max ~36 belgi, so'z chegarasida
     if (s.length > 36) {
       const cut = s.slice(0, 36);
       const sp = cut.lastIndexOf(' ');
       s = `${(sp > 20 ? cut.slice(0, sp) : cut).trim()}…`;
     }
+    return s;
+  }
+
+  /** AJ / AO prefiksini to'liq olib tashlash (takroriy). */
+  private stripAjAo(raw: string): string {
+    let s = raw.trim();
+    // Boshidagi: AJ, AO, MChJ, …
+    for (let i = 0; i < 5; i++) {
+      const next = s
+        .replace(/^(aj|ao|mchj|mchj|xk|чп|ооо)([.\s\-–—]|$)/i, '$2')
+        .replace(/^['ʼʻ`ʹ′\s.]+/, '')
+        .trim();
+      if (next === s) break;
+      s = next;
+    }
+    // Ichidagi alohida AJ/AO tokenlari
+    s = s
+      .replace(/(^|\s)(aj|ao)(?=\s|$)/gi, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
     return s;
   }
 
