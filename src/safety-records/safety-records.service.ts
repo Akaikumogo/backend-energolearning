@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { EmployeeSafetyRecord } from '../database/entities/employee-safety-record.entity';
 import { EmployeeSafetyRecordChange } from '../database/entities/employee-safety-record-change.entity';
@@ -13,6 +13,7 @@ import { SafetyRecordType } from '../database/entities/safety-record-type.entity
 import { User } from '../database/entities/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { ModeratorPermissionsService } from '../moderator-permissions/moderator-permissions.service';
 import {
   RejectSafetyChangeDto,
   UpsertSafetyRecordDto,
@@ -52,6 +53,7 @@ export class SafetyRecordsService {
     private readonly nesRepo: Repository<NesEmployee>,
     private readonly organizationsService: OrganizationsService,
     private readonly notificationsService: NotificationsService,
+    private readonly moderatorPermissionsService: ModeratorPermissionsService,
   ) {}
 
   async listTypes() {
@@ -61,16 +63,22 @@ export class SafetyRecordsService {
   async listForEmployee(employeeUserId: string, actor: Actor) {
     await this.assertEmployeeAccess(employeeUserId, actor);
     const types = await this.listTypes();
-    const records = await this.recordRepo.find({
+    let records = await this.recordRepo.find({
       where: { userId: employeeUserId },
       relations: [
         'recordType',
         'createdByUser',
         'updatedByUser',
         'approvedByUser',
+        'rejectedByUser',
+        'deletedByUser',
       ],
       order: { createdAt: 'DESC' },
     });
+    // Arxiv (asosiy filial o‘chirishi) — faqat SUPERADMIN
+    if (actor.role !== Role.SUPERADMIN) {
+      records = records.filter((r) => !r.archivedAt);
+    }
     const pendingChanges = await this.changeRepo.find({
       where: {
         userId: employeeUserId,
@@ -79,13 +87,20 @@ export class SafetyRecordsService {
       },
       order: { changedAt: 'DESC' },
     });
+    const deletedIds = new Set(
+      records.filter((r) => r.deletedAt).map((r) => r.id),
+    );
+    const activePending = pendingChanges.filter(
+      (c) => !deletedIds.has(c.recordId),
+    );
     const pendingByType = new Map(
-      pendingChanges.map((c) => [c.recordTypeCode, c]),
+      activePending.map((c) => [c.recordTypeCode, c]),
     );
 
     return types.map((type) => {
       const typeRecords = records.filter((r) => r.recordTypeId === type.id);
-      const record = typeRecords.find((r) => r.isLatest) ?? null;
+      const record =
+        typeRecords.find((r) => r.isLatest && !r.deletedAt) ?? null;
       const pending = pendingByType.get(type.code) ?? null;
       return {
         type: this.mapType(type),
@@ -103,12 +118,22 @@ export class SafetyRecordsService {
   ) {
     await this.assertEmployeeAccess(employeeUserId, actor);
     const type = await this.requireType(typeCode);
-    const records = await this.recordRepo.find({
+    let records = await this.recordRepo.find({
       where: { userId: employeeUserId, recordTypeId: type.id },
-      relations: ['recordType', 'createdByUser', 'updatedByUser', 'approvedByUser'],
+      relations: [
+        'recordType',
+        'createdByUser',
+        'updatedByUser',
+        'approvedByUser',
+        'rejectedByUser',
+        'deletedByUser',
+      ],
       order: { createdAt: 'DESC' },
       take: 50,
     });
+    if (actor.role !== Role.SUPERADMIN) {
+      records = records.filter((r) => !r.archivedAt);
+    }
     const changes = await this.changeRepo.find({
       where: { userId: employeeUserId, recordTypeCode: type.code },
       relations: ['changedByUser', 'reviewedByUser'],
@@ -140,6 +165,7 @@ export class SafetyRecordsService {
         userId: employeeUserId,
         recordTypeId: type.id,
         isLatest: true,
+        deletedAt: IsNull(),
       },
     });
 
@@ -356,6 +382,8 @@ export class SafetyRecordsService {
     record.approvalStatus = 'APPROVED';
     record.approvedBy = actor.id;
     record.approvedAt = new Date();
+    record.rejectedBy = null;
+    record.rejectedAt = null;
     if (change.newData) {
       this.applySnapshot(record, change.newData);
     }
@@ -413,6 +441,8 @@ export class SafetyRecordsService {
       // CREATE rad etilgan — yozuvni arxivlash
       record.isLatest = false;
       record.approvalStatus = 'REJECTED';
+      record.rejectedBy = actor.id;
+      record.rejectedAt = new Date();
     }
     record.updatedBy = actor.id;
     await this.recordRepo.save(record);
@@ -449,6 +479,110 @@ export class SafetyRecordsService {
     return {
       record: this.mapRecord(record),
       change: this.mapChange(change),
+    };
+  }
+
+  /**
+   * Soft-delete. Oddiy filial moderatori → "o‘chirilgan" izi ko‘rinadi.
+   * Asosiy filial moderatori (delete ruxsati) yoki SUPERADMIN → arxiv (faqat SUPERADMIN).
+   */
+  async softDelete(recordId: string, actor: Actor) {
+    if (actor.role !== Role.SUPERADMIN && actor.role !== Role.MODERATOR) {
+      throw new ForbiddenException('Oʻchirish huquqi yoʻq');
+    }
+    const record = await this.recordRepo.findOne({
+      where: { id: recordId },
+      relations: [
+        'recordType',
+        'createdByUser',
+        'updatedByUser',
+        'approvedByUser',
+        'rejectedByUser',
+        'deletedByUser',
+      ],
+    });
+    if (!record || record.deletedAt) {
+      throw new NotFoundException('Yozuv topilmadi');
+    }
+    await this.assertOrgAccess(record.organizationId, actor);
+
+    let archive = actor.role === Role.SUPERADMIN;
+    if (actor.role === Role.MODERATOR) {
+      const isDefault = await this.organizationsService.isDefaultModerator(
+        actor.organizationIds ?? [],
+      );
+      if (isDefault) {
+        const perms = await this.moderatorPermissionsService.getOrCreate(
+          actor.id,
+        );
+        if (perms.permissions.safetyRecords?.delete) {
+          archive = true;
+        }
+      }
+    }
+
+    const now = new Date();
+    const oldData = this.snapshot(record);
+    record.deletedAt = now;
+    record.deletedBy = actor.id;
+    record.isLatest = false;
+    record.updatedBy = actor.id;
+    if (archive) {
+      record.archivedAt = now;
+    }
+    const saved = await this.recordRepo.save(record);
+
+    const pending = await this.changeRepo.find({
+      where: {
+        recordId: record.id,
+        approvalStatus: 'PENDING',
+        action: In(['CREATE', 'UPDATE']),
+      },
+    });
+    for (const p of pending) {
+      p.approvalStatus = 'REJECTED';
+      p.reviewedBy = actor.id;
+      p.reviewedAt = now;
+      p.reviewNote = 'Yozuv o‘chirildi';
+      await this.changeRepo.save(p);
+      if (p.notificationId) {
+        await this.notificationsService.resolve(p.notificationId);
+      }
+      await this.notificationsService.resolveByChangeId(p.id);
+    }
+
+    const typeCode = record.recordType?.code ?? '';
+    const sectionSlug = record.recordType?.sectionSlug ?? '';
+    await this.changeRepo.save(
+      this.changeRepo.create({
+        recordId: record.id,
+        userId: record.userId,
+        organizationId: record.organizationId,
+        recordTypeCode: typeCode,
+        sectionSlug,
+        action: 'DELETE',
+        oldData,
+        newData: {
+          deletedAt: now.toISOString(),
+          archived: archive,
+        },
+        changedBy: actor.id,
+        approvalStatus: 'APPROVED',
+        reviewedBy: actor.id,
+        reviewedAt: now,
+        reviewNote: archive
+          ? 'Arxivga o‘tkazildi (faqat SUPERADMIN)'
+          : 'Soft-delete',
+      }),
+    );
+
+    // relations for map
+    saved.deletedByUser =
+      (await this.userRepo.findOne({ where: { id: actor.id } })) ?? null;
+
+    return {
+      record: this.mapRecord(saved),
+      archived: archive,
     };
   }
 
@@ -648,6 +782,11 @@ export class SafetyRecordsService {
       updatedBy: this.mapUserBrief(record.updatedByUser),
       approvedBy: this.mapUserBrief(record.approvedByUser),
       approvedAt: record.approvedAt,
+      rejectedBy: this.mapUserBrief(record.rejectedByUser),
+      rejectedAt: record.rejectedAt,
+      deletedBy: this.mapUserBrief(record.deletedByUser),
+      deletedAt: record.deletedAt,
+      archivedAt: record.archivedAt,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };

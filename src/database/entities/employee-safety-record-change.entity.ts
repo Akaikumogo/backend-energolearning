@@ -11,7 +11,12 @@ import { EmployeeSafetyRecord } from './employee-safety-record.entity';
 import { Organization } from './organization.entity';
 import { User } from './user.entity';
 
-export type SafetyChangeAction = 'CREATE' | 'UPDATE' | 'APPROVE' | 'REJECT';
+export type SafetyChangeAction =
+  | 'CREATE'
+  | 'UPDATE'
+  | 'APPROVE'
+  | 'REJECT'
+  | 'DELETE';
 export type SafetyChangeApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 @Entity({ name: 'employee_safety_record_changes' })

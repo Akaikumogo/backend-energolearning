@@ -115,6 +115,19 @@ export class SafetyRecordsController {
     );
   }
 
+  @Post('safety-records/:recordId/delete')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'Safety yozuvini o‘chirish (soft). Asosiy filial + delete ruxsati → arxiv (faqat SUPERADMIN)',
+  })
+  softDelete(
+    @Req() req: Authed,
+    @Param('recordId', ParseUUIDPipe) recordId: string,
+  ) {
+    return this.safetyRecordsService.softDelete(recordId, req.user);
+  }
+
   @Post('safety-changes/:changeId/approve')
   @Roles(Role.SUPERADMIN, Role.APPROVER)
   @ApiOperation({ summary: 'Safety o‘zgarishini tasdiqlash' })
