@@ -2155,6 +2155,7 @@ export class BranchAnalyticsService {
     const qb = this.attemptRepo
       .createQueryBuilder('a')
       .innerJoin(User, 'u', 'u.id = a.user_id')
+      .innerJoin(Organization, 'org', 'org.id = a.organization_id')
       .select('a.organization_id', 'orgId')
       .addSelect('a.user_id', 'userId')
       .addSelect(
