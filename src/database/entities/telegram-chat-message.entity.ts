@@ -14,6 +14,8 @@ export type TelegramMessageKind =
   | 'text'
   | 'photo'
   | 'document'
+  | 'video'
+  | 'audio'
   | 'command'
   | 'report'
   | 'other';
@@ -58,6 +60,16 @@ export class TelegramChatMessage {
 
   @Column({ type: 'text', name: 'media_file_id', nullable: true })
   mediaFileId: string | null;
+
+  /** Lokal saqlangan fayl: `/uploads/telegram/...` */
+  @Column({ type: 'text', name: 'media_url', nullable: true })
+  mediaUrl: string | null;
+
+  @Column({ type: 'text', name: 'media_file_name', nullable: true })
+  mediaFileName: string | null;
+
+  @Column({ type: 'text', name: 'media_mime', nullable: true })
+  mediaMime: string | null;
 
   @Column({ type: 'boolean', name: 'is_command', default: false })
   isCommand: boolean;
