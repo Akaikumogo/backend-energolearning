@@ -285,9 +285,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       const payload = await this.buildReportPayload();
       for (const chat of chats) {
         await this.deliverReportToChat(chat, undefined, payload).catch((err) =>
-          this.logger.error(
-            `chat ${chat.chatId}: ${err?.message || err}`,
-          ),
+          this.handleChatDeliveryError(chat, err),
         );
       }
       this.logger.log(`Hisobot ${chats.length} ta chatga yuborildi`);
@@ -296,6 +294,29 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.sendingReport = false;
     }
+  }
+
+  /** Foydalanuvchi botni block qilgan / chat yo‘q — hisobotni o‘chiramiz */
+  private async handleChatDeliveryError(
+    chat: TelegramReportChat,
+    err: unknown,
+  ) {
+    const msg = String((err as Error)?.message || err || '');
+    const blocked =
+      /403/.test(msg) &&
+      /blocked by the user|user is deactivated|chat not found|bot was kicked/i.test(
+        msg,
+      );
+    if (blocked) {
+      chat.reportEnabled = false;
+      chat.isActive = false;
+      await this.chatRepo.save(chat).catch(() => undefined);
+      this.logger.warn(
+        `chat ${chat.chatId}: bot block/kick — hisobot o‘chirildi`,
+      );
+      return;
+    }
+    this.logger.error(`chat ${chat.chatId}: ${msg}`);
   }
 
   // ─── polling ─────────────────────────────────────────────
