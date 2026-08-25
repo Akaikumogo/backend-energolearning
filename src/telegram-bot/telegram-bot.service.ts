@@ -8,7 +8,10 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
+import { promises as fs } from 'fs';
+import { extname, join } from 'path';
 import { Repository } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { BranchAnalyticsService } from '../branch-analytics/branch-analytics.service';
 import { Role } from '../common/enums/role.enum';
 import { tashkentToday } from '../common/utils/tashkent-time.util';
@@ -57,7 +60,13 @@ interface TgMessage {
   text?: string;
   caption?: string;
   photo?: TgPhotoSize[];
-  document?: { file_id: string; file_name?: string };
+  document?: { file_id: string; file_name?: string; mime_type?: string };
+  video?: { file_id: string; file_name?: string; mime_type?: string };
+  animation?: { file_id: string; file_name?: string; mime_type?: string };
+  voice?: { file_id: string; mime_type?: string };
+  audio?: { file_id: string; file_name?: string; mime_type?: string; title?: string };
+  video_note?: { file_id: string };
+  sticker?: { file_id: string; emoji?: string; is_animated?: boolean; is_video?: boolean };
 }
 
 interface TgUpdate {
@@ -198,6 +207,23 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     });
     const msgs = latest.reverse();
 
+    // Eski xabarlar: faqat file_id bor — bir marta yuklab saqlaymiz
+    for (const m of msgs) {
+      if (m.mediaFileId && !m.mediaUrl) {
+        const saved = await this.downloadTelegramMedia(
+          m.mediaFileId,
+          m.mediaFileName || undefined,
+          m.mediaMime || undefined,
+        ).catch(() => null);
+        if (saved) {
+          m.mediaUrl = saved.mediaUrl;
+          m.mediaFileName = saved.mediaFileName;
+          m.mediaMime = saved.mediaMime;
+          await this.msgRepo.save(m);
+        }
+      }
+    }
+
     if (chat.unreadCount > 0) {
       chat.unreadCount = 0;
       await this.chatRepo.save(chat);
@@ -337,6 +363,33 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (cmd === '/history') {
+      const isoDate = this.parseHistoryDate(msg.text);
+      if (!isoDate) {
+        await this.sendAndStore(
+          chatRow,
+          '📅 Format: <code>/history dd.mm.yyyy</code>\n' +
+            'Masalan: <code>/history 25.08.2026</code>',
+        );
+        return;
+      }
+      const today = tashkentToday();
+      if (isoDate > today) {
+        await this.sendAndStore(
+          chatRow,
+          '⚠️ Kelajak sanasi uchun hisobot yo‘q.\n' +
+            'Format: <code>/history dd.mm.yyyy</code>',
+        );
+        return;
+      }
+      await this.apiSendMessage(
+        Number(chatRow.chatId),
+        `⏳ ${isoDate.split('-').reverse().join('.')} hisoboti tayyorlanmoqda...`,
+      );
+      await this.deliverDailyHistoryToChat(chatRow, isoDate);
+      return;
+    }
+
     if (cmd === '/stop_report' || cmd === '/stop') {
       chatRow.reportEnabled = false;
       await this.chatRepo.save(chatRow);
@@ -365,6 +418,31 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const raw = text.trim().split(/\s+/)[0] || '';
     if (!raw.startsWith('/')) return null;
     return raw.split('@')[0].toLowerCase();
+  }
+
+  /** `/history 25.08.2026` → `2026-08-25` yoki null */
+  private parseHistoryDate(text?: string): string | null {
+    if (!text) return null;
+    const token = text
+      .trim()
+      .split(/\s+/)
+      .slice(1)
+      .find((p) => /^\d{2}\.\d{2}\.\d{4}$/.test(p));
+    if (!token) return null;
+    const [ddS, mmS, yyyyS] = token.split('.');
+    const dd = Number(ddS);
+    const mm = Number(mmS);
+    const yyyy = Number(yyyyS);
+    if (!dd || !mm || !yyyy) return null;
+    const probe = new Date(Date.UTC(yyyy, mm - 1, dd));
+    if (
+      probe.getUTCFullYear() !== yyyy ||
+      probe.getUTCMonth() !== mm - 1 ||
+      probe.getUTCDate() !== dd
+    ) {
+      return null;
+    }
+    return `${yyyy}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
   }
 
   private async upsertChat(chat: TgChat, from?: TgUser) {
@@ -443,6 +521,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
           `📊 Kunlik + oylik jadval rasmlari\n` +
           `⏱ Vaqt: har kuni 18:00\n\n` +
           `Hozirgi hisobot: /hisobot\n` +
+          `Arxiv: /history dd.mm.yyyy\n` +
           `Oʻchirish: /stop_report`,
       );
       return;
@@ -454,7 +533,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       `👋 Ассалому алайкум${name}!\n\n` +
         `⚡ <b>Электро Learn</b> ботига хуш келибсиз!\n\n` +
         `Ҳар куни <b>18:00</b> да ҳисобот олиб турасиз.\n` +
-        `Ҳозир олиш: /hisobot`,
+        `Ҳозир олиш: /hisobot\n` +
+        `Архив: /history dd.mm.yyyy`,
       {
         inline_keyboard: [
           [{ text: '🚀 Elektro Learn Web App', url: webApp }],
@@ -474,20 +554,94 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     let kind: TelegramMessageKind = 'text';
     let text = msg.text ?? null;
     let mediaFileId: string | null = null;
+    let preferredName: string | undefined;
+    let preferredMime: string | undefined;
 
     if (msg.photo?.length) {
       kind = 'photo';
-      mediaFileId = msg.photo[msg.photo.length - 1].file_id;
+      mediaFileId = msg.photo[msg.photo.length - 1]!.file_id;
       text = msg.caption || '📷 Rasm';
+      preferredName = 'photo.jpg';
+      preferredMime = 'image/jpeg';
+    } else if (msg.video) {
+      kind = 'video';
+      mediaFileId = msg.video.file_id;
+      text = msg.caption || '🎬 Video';
+      preferredName = msg.video.file_name || 'video.mp4';
+      preferredMime = msg.video.mime_type;
+    } else if (msg.animation) {
+      kind = 'video';
+      mediaFileId = msg.animation.file_id;
+      text = msg.caption || '🎞️ GIF';
+      preferredName = msg.animation.file_name || 'animation.mp4';
+      preferredMime = msg.animation.mime_type;
+    } else if (msg.video_note) {
+      kind = 'video';
+      mediaFileId = msg.video_note.file_id;
+      text = '⏺ Video xabar';
+      preferredName = 'video_note.mp4';
+      preferredMime = 'video/mp4';
+    } else if (msg.voice) {
+      kind = 'audio';
+      mediaFileId = msg.voice.file_id;
+      text = '🎤 Ovozli xabar';
+      preferredName = 'voice.ogg';
+      preferredMime = msg.voice.mime_type || 'audio/ogg';
+    } else if (msg.audio) {
+      kind = 'audio';
+      mediaFileId = msg.audio.file_id;
+      text =
+        msg.caption ||
+        `🎵 ${msg.audio.title || msg.audio.file_name || 'Audio'}`;
+      preferredName = msg.audio.file_name || 'audio.mp3';
+      preferredMime = msg.audio.mime_type;
+    } else if (msg.sticker) {
+      kind = 'photo';
+      mediaFileId = msg.sticker.file_id;
+      text = msg.sticker.emoji
+        ? `Sticker ${msg.sticker.emoji}`
+        : 'Sticker';
+      preferredName = msg.sticker.is_video
+        ? 'sticker.webm'
+        : msg.sticker.is_animated
+          ? 'sticker.tgs'
+          : 'sticker.webp';
+      preferredMime = msg.sticker.is_video
+        ? 'video/webm'
+        : 'image/webp';
     } else if (msg.document) {
       kind = 'document';
       mediaFileId = msg.document.file_id;
       text = msg.caption || `📄 ${msg.document.file_name || 'Fayl'}`;
+      preferredName = msg.document.file_name || 'file';
+      preferredMime = msg.document.mime_type;
     } else if (cmd) {
       kind = 'command';
     } else if (!text) {
       kind = 'other';
       text = text || '[media]';
+    }
+
+    let mediaUrl: string | null = null;
+    let mediaFileName: string | null = null;
+    let mediaMime: string | null = preferredMime ?? null;
+
+    if (mediaFileId) {
+      const saved = await this.downloadTelegramMedia(
+        mediaFileId,
+        preferredName,
+        preferredMime,
+      ).catch((err) => {
+        this.logger.warn(
+          `Telegram media yuklab bo‘lmadi: ${err?.message || err}`,
+        );
+        return null;
+      });
+      if (saved) {
+        mediaUrl = saved.mediaUrl;
+        mediaFileName = saved.mediaFileName;
+        mediaMime = saved.mediaMime;
+      }
     }
 
     const preview = (text || msg.caption || '[xabar]').slice(0, 180);
@@ -503,6 +657,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         text,
         caption: msg.caption ?? null,
         mediaFileId,
+        mediaUrl,
+        mediaFileName,
+        mediaMime,
         isCommand: !!cmd,
         commandName: cmd,
       }),
@@ -519,6 +676,59 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     void this.notifyAdminsAboutInbound(chat, preview, cmd).catch((err) =>
       this.logger.warn(`Telegram notify: ${err?.message || err}`),
     );
+  }
+
+  /** Telegram file_id → `uploads/telegram/...` */
+  private async downloadTelegramMedia(
+    fileId: string,
+    preferredName?: string,
+    preferredMime?: string,
+  ): Promise<{
+    mediaUrl: string;
+    mediaFileName: string | null;
+    mediaMime: string | null;
+  } | null> {
+    const token = await this.resolveToken();
+    if (!token) return null;
+
+    const metaRes = await fetch(
+      `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
+    );
+    const meta: any = await metaRes.json();
+    if (!meta?.ok || !meta.result?.file_path) {
+      this.logger.warn(`getFile failed: ${JSON.stringify(meta)}`);
+      return null;
+    }
+
+    const remotePath = String(meta.result.file_path);
+    const fileRes = await fetch(
+      `https://api.telegram.org/file/bot${token}/${remotePath}`,
+    );
+    if (!fileRes.ok) {
+      this.logger.warn(`file download HTTP ${fileRes.status}`);
+      return null;
+    }
+
+    const remoteExt = extname(remotePath);
+    const nameExt = preferredName ? extname(preferredName) : '';
+    const ext = remoteExt || nameExt || '';
+    const safeBase = (preferredName || 'media')
+      .replace(/[^\w.\-()+ ]+/g, '_')
+      .slice(0, 80);
+    const filename = `${Date.now()}-${randomUUID().slice(0, 8)}${ext || ''}`;
+    const absDir = join(process.cwd(), 'uploads', 'telegram');
+    await fs.mkdir(absDir, { recursive: true });
+    const absPath = join(absDir, filename);
+
+    // Buffer orqali — Node/undici stream farqlaridan qochish
+    const buf = Buffer.from(await fileRes.arrayBuffer());
+    await fs.writeFile(absPath, buf);
+
+    return {
+      mediaUrl: `/uploads/telegram/${filename}`,
+      mediaFileName: preferredName || safeBase || filename,
+      mediaMime: preferredMime ?? null,
+    };
   }
 
   private async notifyAdminsAboutInbound(
@@ -657,6 +867,91 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** `/history` — faqat tanlangan kunlik hisobot */
+  private async deliverDailyHistoryToChat(
+    chat: TelegramReportChat,
+    planDate: string,
+  ) {
+    const { dailyPng, dailyCaption } =
+      await this.buildDailyHistoryPayload(planDate);
+    const chatId = Number(chat.chatId);
+    const sentDaily = await this.apiSendPhoto(
+      chatId,
+      dailyPng,
+      dailyCaption,
+      `elektro-learn-${planDate}.png`,
+    );
+    await this.persistOutbound(chat, {
+      kind: 'report',
+      text: dailyCaption.replace(/<[^>]+>/g, ''),
+      caption: dailyCaption,
+      telegramMessageId:
+        sentDaily?.message_id != null ? String(sentDaily.message_id) : null,
+    });
+  }
+
+  private async buildDailyHistoryPayload(planDate: string): Promise<{
+    dailyPng: Buffer;
+    dailyCaption: string;
+  }> {
+    const daily = await this.analytics.getDailyReport(planDate, null);
+    const dailyBranches = daily.branches.filter((b) => !b.isDefault);
+
+    const completedTotal = dailyBranches.reduce(
+      (s, b) => s + (b.completed ?? 0),
+      0,
+    );
+    const totalPlan = dailyBranches.reduce((s, b) => s + (b.plan ?? 0), 0);
+    const totalEmployees = dailyBranches.reduce(
+      (s, b) => s + (b.totalEmployees ?? 0),
+      0,
+    );
+    const completedEmployees = dailyBranches.reduce(
+      (s, b) => s + (b.completedEmployees ?? 0),
+      0,
+    );
+    const extraCorrectTotal = dailyBranches.reduce(
+      (s, b) => s + (b.extraCorrect ?? 0),
+      0,
+    );
+    const completionPercent =
+      totalPlan > 0
+        ? Math.round((completedTotal / totalPlan) * 1000) / 10
+        : 0;
+
+    const dailyPng = await this.imageService.buildDailyReportPng({
+      planDate: daily.planDate,
+      completionPercent,
+      completedTotal,
+      totalPlan,
+      totalEmployees,
+      completedEmployees,
+      extraCorrectTotal,
+      branchCount: dailyBranches.length,
+      branches: dailyBranches.map((b) => ({
+        orgName: b.orgName,
+        percent: b.percent,
+        status: b.status,
+        completed: b.completed,
+        plan: b.plan,
+      })),
+    });
+
+    const missingCount = dailyBranches.filter(
+      (b) => (b.completed ?? 0) === 0 && (b.percent ?? 0) <= 0,
+    ).length;
+    const [y, m, d] = daily.planDate.split('-');
+    const dailyCaption =
+      `⚡ <b>Elektro Learn</b> — kunlik hisobot\n` +
+      `${d}.${m}.${y} · arxiv\n` +
+      `Natija: <b>${completionPercent.toFixed(1)}%</b>` +
+      (missingCount > 0
+        ? ` · <b>${missingCount}</b> filial hisobot bermadi`
+        : '');
+
+    return { dailyPng, dailyCaption };
+  }
+
   private async buildReportPayload(): Promise<{
     dailyPng: Buffer;
     monthlyPng: Buffer;
@@ -670,24 +965,51 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.analytics.getMonthlyReport(month, null),
     ]);
 
-    const monthlyAvgFromTrend =
-      monthly.trend.length > 0
+    // Asosiy / main branch (isDefault) hisobot cardlariga kirmaydi
+    const dailyBranches = daily.branches.filter((b) => !b.isDefault);
+    const monthlyBranches = monthly.branches.filter((b) => !b.isDefault);
+
+    const completedTotal = dailyBranches.reduce(
+      (s, b) => s + (b.completed ?? 0),
+      0,
+    );
+    const totalPlan = dailyBranches.reduce((s, b) => s + (b.plan ?? 0), 0);
+    const totalEmployees = dailyBranches.reduce(
+      (s, b) => s + (b.totalEmployees ?? 0),
+      0,
+    );
+    const completedEmployees = dailyBranches.reduce(
+      (s, b) => s + (b.completedEmployees ?? 0),
+      0,
+    );
+    const extraCorrectTotal = dailyBranches.reduce(
+      (s, b) => s + (b.extraCorrect ?? 0),
+      0,
+    );
+    const completionPercent =
+      totalPlan > 0
+        ? Math.round((completedTotal / totalPlan) * 1000) / 10
+        : 0;
+
+    // Bitta metrika: filiallar o'rtachasi (main branch siz)
+    const monthlyAvg =
+      monthlyBranches.length > 0
         ? Math.round(
-            (monthly.trend.reduce((s, p) => s + (p.percent ?? 0), 0) /
-              monthly.trend.length) *
+            (monthlyBranches.reduce(
+              (s, b) => s + (b.averageMonthlyPercent ?? 0),
+              0,
+            ) /
+              monthlyBranches.length) *
               10,
           ) / 10
         : 0;
-
-    // Bitta metrika: real kunlar bo'yicha trend o'rtachasi
-    const monthlyAvg = monthlyAvgFromTrend;
 
     const monthStart = `${month}-01`;
     const lastTrendDay =
       monthly.trend.length > 0
         ? monthly.trend[monthly.trend.length - 1]!.date
         : planDate;
-    const orgIds = monthly.branches.map((b) => b.orgId);
+    const orgIds = monthlyBranches.map((b) => b.orgId);
     const branchSeries = await this.analytics.getBranchDailySeries(
       monthStart,
       lastTrendDay,
@@ -696,14 +1018,14 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     const dailyInput = {
       planDate: daily.planDate,
-      completionPercent: daily.completionPercent,
-      completedTotal: daily.completedTotal,
-      totalPlan: daily.totalPlan,
-      totalEmployees: daily.totalEmployees,
-      completedEmployees: daily.completedEmployees,
-      extraCorrectTotal: daily.extraCorrectTotal,
-      branchCount: daily.branchCount,
-      branches: daily.branches.map((b) => ({
+      completionPercent,
+      completedTotal,
+      totalPlan,
+      totalEmployees,
+      completedEmployees,
+      extraCorrectTotal,
+      branchCount: dailyBranches.length,
+      branches: dailyBranches.map((b) => ({
         orgName: b.orgName,
         percent: b.percent,
         status: b.status,
@@ -715,9 +1037,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const monthlyInput = {
       month: monthly.month,
       averagePercent: monthlyAvg,
-      branchCount: monthly.branches.length,
+      branchCount: monthlyBranches.length,
       daysInMonth: monthly.daysInMonth,
-      branches: monthly.branches.map((b) => {
+      branches: monthlyBranches.map((b) => {
         const series = branchSeries.get(b.orgId) ?? [];
         const dailyPercents = Array.from(
           { length: monthly.daysInMonth },
@@ -754,7 +1076,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.imageService.buildMonthlyReportPng(monthlyInput),
     ]);
 
-    const missingCount = daily.branches.filter(
+    const missingCount = dailyBranches.filter(
       (b) => (b.completed ?? 0) === 0 && (b.percent ?? 0) <= 0,
     ).length;
 
@@ -762,7 +1084,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const dailyCaption =
       `⚡ <b>Elektro Learn</b> — kunlik hisobot\n` +
       `${d}.${m}.${y} · 18:00\n` +
-      `Bugun: <b>${daily.completionPercent.toFixed(1)}%</b>` +
+      `Bugun: <b>${completionPercent.toFixed(1)}%</b>` +
       (missingCount > 0
         ? ` · <b>${missingCount}</b> filial hisobot bermadi`
         : '');
@@ -920,6 +1242,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       fromName: m.fromName,
       text: m.text,
       caption: m.caption,
+      mediaFileId: m.mediaFileId,
+      mediaUrl: m.mediaUrl,
+      mediaFileName: m.mediaFileName,
+      mediaMime: m.mediaMime,
       isCommand: m.isCommand,
       commandName: m.commandName,
       sentByAdminId: m.sentByAdminId,
