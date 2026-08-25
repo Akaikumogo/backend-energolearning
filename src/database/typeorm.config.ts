@@ -81,6 +81,7 @@ import { EnableSafetyRecordsForModerators1748700000000 } from './migrations/0041
 import { AddTelegramReportChats1748800000000 } from './migrations/0042-add-telegram-report-chats';
 import { ExpandTelegramBotInbox1748900000000 } from './migrations/0043-expand-telegram-bot-inbox';
 import { SafetyRecordDeleteArchive1749000000000 } from './migrations/0044-safety-record-delete-archive';
+import { TelegramMessageMediaUrl1749100000000 } from './migrations/0045-telegram-message-media-url';
 import { TelegramReportChat } from './entities/telegram-report-chat.entity';
 import { TelegramBotSetting } from './entities/telegram-bot-setting.entity';
 import { TelegramChatMessage } from './entities/telegram-chat-message.entity';
@@ -197,6 +198,7 @@ export const AppDataSource = new DataSource({
     AddTelegramReportChats1748800000000,
     ExpandTelegramBotInbox1748900000000,
     SafetyRecordDeleteArchive1749000000000,
+    TelegramMessageMediaUrl1749100000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

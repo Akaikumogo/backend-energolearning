@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class TelegramMessageMediaUrl1749000000000 implements MigrationInterface {
-  name = 'TelegramMessageMediaUrl1749000000000';
+export class TelegramMessageMediaUrl1749100000000 implements MigrationInterface {
+  name = 'TelegramMessageMediaUrl1749100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
