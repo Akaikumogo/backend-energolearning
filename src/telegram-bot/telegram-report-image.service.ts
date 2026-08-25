@@ -79,7 +79,9 @@ export class TelegramReportImageService {
     const pad = 28;
     const contentW = width - pad * 2;
 
-    const sorted = [...daily.branches].sort((a, b) => b.percent - a.percent);
+    const sorted = [...daily.branches]
+      .filter((b) => !this.isHeadOfficeOrg(b.orgName))
+      .sort((a, b) => b.percent - a.percent);
     const names = sorted.map((b) => this.displayOrgName(b.orgName));
     const submitted = sorted.filter(
       (b) => (b.completed ?? 0) > 0 || b.percent > 0,
@@ -157,7 +159,9 @@ export class TelegramReportImageService {
     const contentW = width - pad * 2;
     const daysInMonth = monthly.daysInMonth || 31;
 
-    const ranked = [...monthly.branches].sort(
+    const ranked = [...monthly.branches]
+      .filter((b) => !this.isHeadOfficeOrg(b.orgName))
+      .sort(
       (a, b) =>
         (b.averageMonthlyPercent ?? b.percent) -
         (a.averageMonthlyPercent ?? a.percent),
@@ -382,6 +386,30 @@ export class TelegramReportImageService {
       s = `${(sp > 24 ? cut.slice(0, sp) : cut).trim()}…`;
     }
     return s;
+  }
+
+  /** Bosh tashkilot / markaziy apparat — hisobot cardlariga kirmaydi */
+  isHeadOfficeOrg(raw: string | null | undefined, isDefault?: boolean): boolean {
+    if (isDefault) return true;
+    const rawName = String(raw || '').trim();
+    if (!rawName) return true;
+    const display = this.displayOrgName(rawName);
+    if (
+      !display ||
+      display === '—' ||
+      /^bosh\s+tashkilot$/i.test(display) ||
+      /^бош\s+ташкилот$/i.test(display) ||
+      /^markaziy\s+apparat/i.test(display)
+    ) {
+      return true;
+    }
+    // Holdingning o'zi (filial so'zi yo'q) — bosh tashkilot
+    const hasFilial = /filial|филиал/i.test(rawName);
+    const isHoldingOnly =
+      /milliy\s+elektr|миллий\s+электр|o['ʼʻ`]?zbekiston\s+milliy/i.test(
+        rawName,
+      ) && !hasFilial;
+    return isHoldingOnly;
   }
 
   /**

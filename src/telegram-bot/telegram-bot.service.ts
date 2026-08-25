@@ -895,7 +895,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     dailyCaption: string;
   }> {
     const daily = await this.analytics.getDailyReport(planDate, null);
-    const dailyBranches = daily.branches.filter((b) => !b.isDefault);
+    const dailyBranches = daily.branches.filter(
+      (b) => !this.imageService.isHeadOfficeOrg(b.orgName, b.isDefault),
+    );
 
     const completedTotal = dailyBranches.reduce(
       (s, b) => s + (b.completed ?? 0),
@@ -965,9 +967,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       this.analytics.getMonthlyReport(month, null),
     ]);
 
-    // Asosiy / main branch (isDefault) hisobot cardlariga kirmaydi
-    const dailyBranches = daily.branches.filter((b) => !b.isDefault);
-    const monthlyBranches = monthly.branches.filter((b) => !b.isDefault);
+    // Bosh tashkilot / asosiy (isDefault) hisobot cardlariga kirmaydi
+    const dailyBranches = daily.branches.filter(
+      (b) => !this.imageService.isHeadOfficeOrg(b.orgName, b.isDefault),
+    );
+    const monthlyBranches = monthly.branches.filter(
+      (b) => !this.imageService.isHeadOfficeOrg(b.orgName, b.isDefault),
+    );
 
     const completedTotal = dailyBranches.reduce(
       (s, b) => s + (b.completed ?? 0),
