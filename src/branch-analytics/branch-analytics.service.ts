@@ -2483,6 +2483,7 @@ export class BranchAnalyticsService {
     const branchRows: Array<{
       orgId: string;
       orgName: string;
+      isDefault: boolean;
       totalEmployees: number;
       averageMonthlyPercent: number;
       extraCorrectTotal: number;
@@ -2511,6 +2512,7 @@ export class BranchAnalyticsService {
       branchRows.push({
         orgId: branch.orgId,
         orgName: branch.orgName,
+        isDefault: !!branch.isDefault,
         totalEmployees: branch.totalEmployees,
         averageMonthlyPercent: branch.averageMonthlyPercent,
         extraCorrectTotal,
