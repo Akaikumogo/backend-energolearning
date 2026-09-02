@@ -30,6 +30,11 @@ export type EnergoIdUser = {
   personnelNumber?: string | null;
   division?: string;
   post?: string;
+  firstName1c?: string;
+  lastName1c?: string;
+  middleName1c?: string;
+  division1c?: string;
+  post1c?: string;
   lastSyncedAt?: string | null;
   initialPassword?: string | null;
   avatarUrl?: string | null;
@@ -55,11 +60,15 @@ type EnergoIdBranch = {
 
 type EnergoIdDepartment = {
   name: string;
+  name1c?: string;
+  sourceName?: string;
   employeeCount?: number;
 };
 
 type EnergoIdPosition = {
   name: string;
+  name1c?: string;
+  sourceName?: string;
   employeeCount?: number;
 };
 
@@ -373,6 +382,14 @@ export class EnergoIdAuthClient {
       firstName: row.firstName ?? '',
       lastName: row.lastName ?? '',
       middleName,
+      firstName1c:
+        (row as EnergoIdUser).firstName1c ?? row.firstName ?? '',
+      lastName1c: (row as EnergoIdUser).lastName1c ?? row.lastName ?? '',
+      middleName1c:
+        (row as EnergoIdUser).middleName1c ?? middleName ?? '',
+      division1c:
+        (row as EnergoIdUser).division1c ?? row.division ?? '',
+      post1c: (row as EnergoIdUser).post1c ?? row.post ?? '',
       role: row.role ?? 'USER',
       permissions: row.permissions ?? [],
       mustChangePassword: row.mustChangePassword ?? false,
@@ -522,6 +539,66 @@ export class EnergoIdAuthClient {
       throw new ServiceUnavailableException('Energo ID rasm ID qaytarmadi');
     }
     return payload;
+  }
+
+  async patchEmployeeFields(
+    energoUserId: string,
+    fields: Partial<{
+      firstName: string | null;
+      lastName: string | null;
+      middleName: string | null;
+      division: string | null;
+      post: string | null;
+    }>,
+    changedByUserId?: string,
+  ) {
+    const config = this.getConfig();
+    const response = await this.request(
+      `${config.baseUrl}/internal/v1/field-overrides/employees`,
+      {
+        method: 'POST',
+        headers: config.headers,
+        body: JSON.stringify({
+          energoUserId,
+          fields,
+          changedByUserId,
+        }),
+      },
+      config.timeoutMs,
+    );
+    if (!response.ok) {
+      await this.throwMappedError(response);
+    }
+    return response.json();
+  }
+
+  async patchCatalogField(
+    entityType: 'department' | 'position',
+    sourceName: string,
+    value: string | null,
+    changedByUserId?: string,
+  ) {
+    const config = this.getConfig();
+    const response = await this.request(
+      `${config.baseUrl}/internal/v1/field-overrides`,
+      {
+        method: 'POST',
+        headers: config.headers,
+        body: JSON.stringify({
+          entityType,
+          entityId: sourceName,
+          field: 'name',
+          sourceName,
+          value,
+          changedByUserId,
+        }),
+      },
+      config.timeoutMs,
+    );
+    if (!response.ok) {
+      await this.throwMappedError(response);
+    }
+    return response.json();
   }
 
   private async platformSync(

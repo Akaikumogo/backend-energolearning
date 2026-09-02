@@ -23,6 +23,10 @@ import { Department } from '../database/entities/department.entity';
 import { Position } from '../database/entities/position.entity';
 import { NesSyncGateway } from './nes-sync.gateway';
 import {
+  normalizeOrganizationName,
+  organizationNamesEquivalent,
+} from '../common/utils/organization-name.normalize';
+import {
   resolvePersonnelNumber,
   withPersonnelNumberSuffix,
 } from '../common/utils/personnel-number.util';
@@ -922,7 +926,14 @@ export class NesEmployeesService {
         login: employee.login,
         initialPassword:
           employee.initialPassword ?? existing?.initialPassword ?? null,
-        rawPayload: employee as unknown as Record<string, unknown>,
+        rawPayload: {
+          ...(employee as unknown as Record<string, unknown>),
+          firstName1c: employee.firstName1c ?? employee.firstName ?? '',
+          lastName1c: employee.lastName1c ?? employee.lastName ?? '',
+          middleName1c: employee.middleName1c ?? employee.middleName ?? '',
+          division1c: employee.division1c ?? employee.division ?? '',
+          post1c: employee.post1c ?? employee.post ?? '',
+        },
         lastSyncedAt: new Date(),
       },
       existing,
@@ -1336,19 +1347,29 @@ export class NesEmployeesService {
       const now = new Date();
       let upserted = 0;
       for (const row of departments) {
-        const name = String(row.name ?? '').trim();
-        if (!name) continue;
-        const existing = await this.departmentRepo.findOne({ where: { name } });
+        const displayName = String(row.name ?? '').trim();
+        const sourceName = String(
+          row.name1c ?? row.sourceName ?? row.name ?? '',
+        ).trim();
+        if (!displayName && !sourceName) continue;
+        const existing =
+          (sourceName
+            ? await this.departmentRepo.findOne({ where: { name1c: sourceName } })
+            : null) ??
+          (await this.departmentRepo.findOne({ where: { name: displayName } }));
         const employeeCount = Number(row.employeeCount ?? 0) || 0;
         if (existing) {
           await this.departmentRepo.update(existing.id, {
+            name: displayName || existing.name,
+            name1c: sourceName || existing.name1c,
             employeeCount,
             lastSyncedAt: now,
           });
         } else {
           await this.departmentRepo.save(
             this.departmentRepo.create({
-              name,
+              name: displayName || sourceName,
+              name1c: sourceName || displayName,
               employeeCount,
               lastSyncedAt: now,
             }),
@@ -1371,18 +1392,37 @@ export class NesEmployeesService {
       const positions = await this.energoIdAuthClient.listPositions();
       let upserted = 0;
       for (const row of positions) {
-        const title = String(row.name ?? '').trim();
-        if (!title) continue;
-        const existing = await this.positionRepo.findOne({
-          where: { title },
-          withDeleted: true,
-        });
+        const displayTitle = String(row.name ?? '').trim();
+        const sourceTitle = String(
+          row.name1c ?? row.sourceName ?? row.name ?? '',
+        ).trim();
+        if (!displayTitle && !sourceTitle) continue;
+        const existing =
+          (sourceTitle
+            ? await this.positionRepo.findOne({
+                where: { title1c: sourceTitle },
+                withDeleted: true,
+              })
+            : null) ??
+          (await this.positionRepo.findOne({
+            where: { title: displayTitle },
+            withDeleted: true,
+          }));
         if (existing) {
           if (existing.deletedAt) {
             await this.positionRepo.recover(existing);
           }
+          await this.positionRepo.update(existing.id, {
+            title: displayTitle || existing.title,
+            title1c: sourceTitle || existing.title1c,
+          });
         } else {
-          await this.positionRepo.save(this.positionRepo.create({ title }));
+          await this.positionRepo.save(
+            this.positionRepo.create({
+              title: displayTitle || sourceTitle,
+              title1c: sourceTitle || displayTitle,
+            }),
+          );
         }
         upserted += 1;
       }
@@ -1410,7 +1450,8 @@ export class NesEmployeesService {
   }
 
   private async resolveEmployeeOrganization(employee: EnergoIdUser) {
-    const name = employee.organization?.name?.trim() || 'Unknown';
+    const rawName = employee.organization?.name?.trim() || 'Unknown';
+    const name = normalizeOrganizationName(rawName) || rawName;
     const externalId = employee.organization?.externalId?.trim() || null;
     return this.upsertOrganizationMirror({ name, externalId });
   }
@@ -1421,7 +1462,8 @@ export class NesEmployeesService {
     externalId?: string | null;
     code?: string | null;
   }) {
-    const name = input.name.trim() || 'Unknown';
+    const rawName = input.name.trim() || 'Unknown';
+    const name = normalizeOrganizationName(rawName) || rawName;
     let org: Organization | null = null;
 
     if (input.energoBranchId) {
@@ -1436,6 +1478,19 @@ export class NesEmployeesService {
     }
     if (!org) {
       org = await this.orgRepo.findOne({ where: { name } });
+    }
+    if (!org && rawName !== name) {
+      org = await this.orgRepo.findOne({ where: { name: rawName } });
+    }
+    if (!org) {
+      const candidates = await this.orgRepo
+        .createQueryBuilder('o')
+        .where('o.archived_at IS NULL')
+        .getMany();
+      org =
+        candidates.find((candidate) =>
+          organizationNamesEquivalent(candidate.name, name),
+        ) ?? null;
     }
 
     if (!org) {
@@ -1503,5 +1558,109 @@ export class NesEmployeesService {
       month: '2-digit',
       day: '2-digit',
     }).format(new Date());
+  }
+
+  async patchEmployeeFields(
+    userId: string,
+    fields: Partial<{
+      firstName: string | null;
+      lastName: string | null;
+      middleName: string | null;
+      division: string | null;
+      post: string | null;
+    }>,
+    changedByUserId: string,
+  ) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user?.energoId) {
+      throw new BadRequestException('Energo ID bilan bog`langan xodim topilmadi');
+    }
+
+    const resolved = (await this.energoIdAuthClient.patchEmployeeFields(
+      user.energoId,
+      fields,
+      changedByUserId,
+    )) as {
+      firstName: string;
+      lastName: string;
+      middleName: string;
+      division: string;
+      post: string;
+      firstName1c: string;
+      lastName1c: string;
+      middleName1c: string;
+      division1c: string;
+      post1c: string;
+    };
+
+    await this.userRepo.update(userId, {
+      firstName: resolved.firstName,
+      lastName: resolved.lastName,
+    });
+
+    const mirror = await this.employeeRepo.findOne({ where: { userId } });
+    if (mirror) {
+      await this.employeeRepo.update(mirror.id, {
+        firstName: resolved.firstName,
+        lastName: resolved.lastName,
+        middleName: resolved.middleName,
+        division: resolved.division,
+        post: resolved.post,
+        fullName: [resolved.lastName, resolved.firstName, resolved.middleName]
+          .map((p) => p.trim())
+          .filter(Boolean)
+          .join(' '),
+        rawPayload: {
+          ...(mirror.rawPayload ?? {}),
+          firstName1c: resolved.firstName1c,
+          lastName1c: resolved.lastName1c,
+          middleName1c: resolved.middleName1c,
+          division1c: resolved.division1c,
+          post1c: resolved.post1c,
+        },
+      });
+    }
+
+    return resolved;
+  }
+
+  async patchCatalogField(
+    kind: 'department' | 'position',
+    sourceName: string,
+    name: string | null,
+    changedByUserId: string,
+  ) {
+    await this.energoIdAuthClient.patchCatalogField(
+      kind,
+      sourceName,
+      name,
+      changedByUserId,
+    );
+
+    if (kind === 'department') {
+      const existing = await this.departmentRepo.findOne({
+        where: { name1c: sourceName },
+      });
+      if (existing) {
+        await this.departmentRepo.update(existing.id, {
+          name: name ?? sourceName,
+          name1c: sourceName,
+        });
+      }
+    } else {
+      const existing = await this.positionRepo.findOne({
+        where: { title1c: sourceName },
+        withDeleted: true,
+      });
+      if (existing) {
+        if (existing.deletedAt) await this.positionRepo.recover(existing);
+        await this.positionRepo.update(existing.id, {
+          title: name ?? sourceName,
+          title1c: sourceName,
+        });
+      }
+    }
+
+    return { sourceName, name: name ?? sourceName };
   }
 }

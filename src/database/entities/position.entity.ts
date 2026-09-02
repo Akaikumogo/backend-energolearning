@@ -19,6 +19,9 @@ export class Position {
   @Column({ type: 'text', unique: true })
   title: string;
 
+  @Column({ type: 'text', name: 'title_1c', nullable: true })
+  title1c: string | null;
+
   @OneToMany(() => UserPosition, (up) => up.position)
   users: UserPosition[];
 

@@ -15,6 +15,9 @@ export class Department {
   @Column({ type: 'text', unique: true })
   name: string;
 
+  @Column({ type: 'text', name: 'name_1c', nullable: true })
+  name1c: string | null;
+
   @Column({ type: 'int', name: 'employee_count', default: 0 })
   employeeCount: number;
 
