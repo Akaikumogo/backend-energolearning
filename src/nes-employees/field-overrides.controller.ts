@@ -7,6 +7,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -20,15 +21,33 @@ type AuthedRequest = Request & {
 };
 
 class PatchEmployeeFieldsBody {
+  @IsOptional()
+  @IsString()
   firstName?: string | null;
+
+  @IsOptional()
+  @IsString()
   lastName?: string | null;
+
+  @IsOptional()
+  @IsString()
   middleName?: string | null;
+
+  @IsOptional()
+  @IsString()
   division?: string | null;
+
+  @IsOptional()
+  @IsString()
   post?: string | null;
 }
 
 class PatchCatalogFieldBody {
+  @IsString()
   sourceName: string;
+
+  @IsOptional()
+  @IsString()
   name?: string | null;
 }
 

@@ -378,6 +378,84 @@ export class ContentService {
 
   // ─── Levels ──────────────────────────────────────────
 
+  private async getLevelEntity(
+    id: string,
+    relations: string[] = ['createdBy', 'positionLinks', 'positionLinks.position'],
+  ): Promise<Level> {
+    const level = await this.levelRepo.findOne({ where: { id }, relations });
+    if (!level) throw new NotFoundException('Daraja topilmadi');
+    return level;
+  }
+
+  /** TypeORM relationlaridagi aylana havolalarni JSON uchun xavfsiz qilib qaytaradi. */
+  private serializeLevel(
+    level: Level,
+    opts?: { includeTheories?: boolean; includeQuestions?: boolean },
+  ) {
+    const payload: Record<string, unknown> = {
+      id: level.id,
+      title: level.title,
+      orderIndex: level.orderIndex,
+      isActive: level.isActive,
+      createdById: level.createdById,
+      createdAt: level.createdAt,
+      updatedAt: level.updatedAt,
+      createdBy: level.createdBy
+        ? {
+            id: level.createdBy.id,
+            firstName: level.createdBy.firstName,
+            lastName: level.createdBy.lastName,
+          }
+        : null,
+      positionLinks: (level.positionLinks ?? []).map((link) => ({
+        id: link.id,
+        levelId: link.levelId,
+        positionId: link.positionId,
+        createdAt: link.createdAt,
+        position: link.position
+          ? {
+              id: link.position.id,
+              title: link.position.title,
+              title1c: link.position.title1c ?? null,
+            }
+          : undefined,
+      })),
+    };
+
+    if (opts?.includeTheories && level.theories) {
+      payload.theories = level.theories.map((theory) => ({
+        id: theory.id,
+        levelId: theory.levelId,
+        parentTheoryId: theory.parentTheoryId,
+        title: theory.title,
+        orderIndex: theory.orderIndex,
+        content: theory.content,
+        slides: theory.slides,
+        theoryRole: theory.theoryRole,
+        createdById: theory.createdById,
+        createdAt: theory.createdAt,
+        updatedAt: theory.updatedAt,
+      }));
+    }
+
+    if (opts?.includeQuestions && level.questions) {
+      payload.questions = level.questions.map((question) => ({
+        id: question.id,
+        levelId: question.levelId,
+        theoryId: question.theoryId,
+        type: question.type,
+        prompt: question.prompt,
+        orderIndex: question.orderIndex,
+        isActive: question.isActive,
+        createdById: question.createdById,
+        createdAt: question.createdAt,
+        updatedAt: question.updatedAt,
+      }));
+    }
+
+    return payload;
+  }
+
   async findAllLevels(filters?: { search?: string }): Promise<Level[]> {
     const qb = this.levelRepo
       .createQueryBuilder('l')
@@ -396,22 +474,22 @@ export class ContentService {
         .distinct(true);
     }
 
-    return qb.getMany();
+    const levels = await qb.getMany();
+    return levels.map((level) => this.serializeLevel(level) as unknown as Level);
   }
 
   async findLevelById(id: string): Promise<Level> {
-    const level = await this.levelRepo.findOne({
-      where: { id },
-      relations: [
-        'theories',
-        'questions',
-        'createdBy',
-        'positionLinks',
-        'positionLinks.position',
-      ],
-    });
-    if (!level) throw new NotFoundException('Daraja topilmadi');
-    return level;
+    const level = await this.getLevelEntity(id, [
+      'theories',
+      'questions',
+      'createdBy',
+      'positionLinks',
+      'positionLinks.position',
+    ]);
+    return this.serializeLevel(level, {
+      includeTheories: true,
+      includeQuestions: true,
+    }) as unknown as Level;
   }
 
   async createLevel(dto: CreateLevelDto, userId: string): Promise<Level> {
@@ -435,7 +513,7 @@ export class ContentService {
   }
 
   async updateLevel(id: string, dto: UpdateLevelDto): Promise<Level> {
-    const level = await this.findLevelById(id);
+    const level = await this.getLevelEntity(id, []);
     if (dto.title !== undefined) level.title = dto.title;
     if (dto.orderIndex !== undefined) level.orderIndex = dto.orderIndex;
     if (dto.isActive !== undefined) level.isActive = dto.isActive;
@@ -449,7 +527,7 @@ export class ContentService {
   }
 
   async removeLevel(id: string): Promise<void> {
-    const level = await this.findLevelById(id);
+    const level = await this.getLevelEntity(id, []);
     await this.levelRepo.remove(level);
   }
 
@@ -543,7 +621,7 @@ export class ContentService {
   }
 
   async createTheory(dto: CreateTheoryDto, userId: string): Promise<Theory> {
-    await this.findLevelById(dto.levelId);
+    await this.getLevelEntity(dto.levelId, []);
 
     const parentTheoryId =
       dto.parentTheoryId === undefined ? null : (dto.parentTheoryId ?? null);
@@ -731,7 +809,7 @@ export class ContentService {
     dto: CreateQuestionDto,
     userId: string,
   ): Promise<Question> {
-    await this.findLevelById(dto.levelId);
+    await this.getLevelEntity(dto.levelId, []);
     await this.findTheoryById(dto.theoryId);
 
     const maxOrder = await this.questionRepo
@@ -1021,7 +1099,7 @@ export class ContentService {
       userId: string;
     },
   ): Promise<ImportQuestionsDocxResult> {
-    const level = await this.findLevelById(opts.levelId);
+    const level = await this.getLevelEntity(opts.levelId, []);
     const theory = await this.findTheoryById(opts.theoryId);
 
     if (theory.levelId !== level.id) {
