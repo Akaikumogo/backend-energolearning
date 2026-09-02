@@ -1,0 +1,25 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: elektro-backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, elektro-backend]
+    timeout-minutes: 25
+    steps:
+      - name: Pull va deploy
+        env:
+          DEPLOY_PATH: /home/sroot/BACKEND_PROJECTS/backend-energolearning
+        run: |
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+          git fetch origin main
+          git reset --hard origin/main
+          bash scripts/deploy-server.sh
