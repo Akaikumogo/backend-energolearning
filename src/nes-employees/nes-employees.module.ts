@@ -13,6 +13,7 @@ import { Department } from '../database/entities/department.entity';
 import { Position } from '../database/entities/position.entity';
 import { BranchAnalyticsModule } from '../branch-analytics/branch-analytics.module';
 import { NesEmployeesController } from './nes-employees.controller';
+import { FieldOverridesController } from './field-overrides.controller';
 import { NesEmployeesService } from './nes-employees.service';
 import { NesSyncGateway } from './nes-sync.gateway';
 
@@ -33,7 +34,7 @@ import { NesSyncGateway } from './nes-sync.gateway';
       Position,
     ]),
   ],
-  controllers: [NesEmployeesController],
+  controllers: [NesEmployeesController, FieldOverridesController],
   providers: [NesEmployeesService, NesSyncGateway],
 })
 export class NesEmployeesModule {}

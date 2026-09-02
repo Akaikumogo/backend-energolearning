@@ -112,6 +112,18 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
     return { module: 'students', action: 'update' };
   }
 
+  // Field overrides (Energo ID master)
+  if (/^\/admin\/field-overrides\/employees\/[^/]+$/.test(path) && m === 'PATCH') {
+    return { module: 'students', action: 'update' };
+  }
+  if (
+    (path === '/admin/field-overrides/departments' ||
+      path === '/admin/field-overrides/positions') &&
+    m === 'PATCH'
+  ) {
+    return { module: 'students', action: 'update' };
+  }
+
   // Employees: legacy /admin/students is still supported by the controller.
   if ((path === '/admin/students' || path === '/admin/employees') && m === 'POST') {
     return { module: 'students', action: 'create' };

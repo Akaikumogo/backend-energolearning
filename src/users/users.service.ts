@@ -17,6 +17,10 @@ import { PromoteModeratorDto } from './dto/promote-moderator.dto';
 import { PromoteSuperAdminDto } from './dto/promote-superadmin.dto';
 import { ModeratorPermissionsService } from '../moderator-permissions/moderator-permissions.service';
 import {
+  normalizeOrganizationName,
+  organizationNamesEquivalent,
+} from '../common/utils/organization-name.normalize';
+import {
   splitSearchTokens,
   variantsForSearchToken,
 } from '../common/utils/latinize-search.util';
@@ -818,27 +822,50 @@ export class UsersService {
   }
 
   private async ensureOrganization(name: string, externalId?: string | null) {
-    const trimmed = name.trim() || 'Unknown';
+    const rawName = name.trim() || 'Unknown';
+    const normalized = normalizeOrganizationName(rawName) || rawName;
     const ext = externalId?.trim() || null;
 
     if (ext) {
       const byExternal = await this.orgRepo.findOne({
         where: { energoExternalId: ext },
       });
-      if (byExternal) return byExternal;
+      if (byExternal) {
+        if (byExternal.name !== normalized) {
+          await this.orgRepo.update(byExternal.id, { name: normalized });
+        }
+        return { ...byExternal, name: normalized };
+      }
     }
 
-    const existing = await this.orgRepo.findOne({ where: { name: trimmed } });
+    let existing = await this.orgRepo.findOne({ where: { name: normalized } });
+    if (!existing && rawName !== normalized) {
+      existing = await this.orgRepo.findOne({ where: { name: rawName } });
+    }
+    if (!existing) {
+      const candidates = await this.orgRepo
+        .createQueryBuilder('o')
+        .where('o.archived_at IS NULL')
+        .getMany();
+      existing =
+        candidates.find((candidate) =>
+          organizationNamesEquivalent(candidate.name, normalized),
+        ) ?? null;
+    }
+
     if (existing) {
       if (ext && !existing.energoExternalId) {
         await this.orgRepo.update(existing.id, { energoExternalId: ext });
       }
-      return existing;
+      if (existing.name !== normalized) {
+        await this.orgRepo.update(existing.id, { name: normalized });
+      }
+      return { ...existing, name: normalized };
     }
 
     return this.orgRepo.save(
       this.orgRepo.create({
-        name: trimmed,
+        name: normalized,
         energoExternalId: ext,
       }),
     );

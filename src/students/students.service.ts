@@ -266,8 +266,17 @@ export class StudentsService {
     // Guvohnoma uchun kerak: otasining ismi, lavozim, bo‘lim, tabel raqami.
     const nes = await this.nesEmployeeRepo.findOne({
       where: { userId: id },
-      select: ['personnelNumber', 'division', 'post', 'middleName'],
+      select: [
+        'personnelNumber',
+        'division',
+        'post',
+        'middleName',
+        'firstName',
+        'lastName',
+        'rawPayload',
+      ],
     });
+    const nesPayload = (nes?.rawPayload ?? {}) as Record<string, string>;
 
     const totalXp = xpCount * 10;
     const completedLevels = Array.from(completionMap.values()).filter(
@@ -301,6 +310,19 @@ export class StudentsService {
         null,
       division: nes?.division?.trim() || null,
       post: nes?.post?.trim() || null,
+      firstName1c:
+        nesPayload.firstName1c?.trim() ||
+        nes?.firstName?.trim() ||
+        user.firstName,
+      lastName1c:
+        nesPayload.lastName1c?.trim() ||
+        nes?.lastName?.trim() ||
+        user.lastName,
+      middleName1c:
+        nesPayload.middleName1c?.trim() || nes?.middleName?.trim() || null,
+      division1c:
+        nesPayload.division1c?.trim() || nes?.division?.trim() || null,
+      post1c: nesPayload.post1c?.trim() || nes?.post?.trim() || null,
       organizations:
         isOrgScopedAdminRole(requestingUser.role) && orgIds && orgIds.length
           ? (user.organizations ?? [])
