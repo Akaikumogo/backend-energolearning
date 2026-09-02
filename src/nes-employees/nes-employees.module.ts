@@ -12,6 +12,7 @@ import { TerminatedEmployee } from '../database/entities/terminated-employee.ent
 import { Department } from '../database/entities/department.entity';
 import { Position } from '../database/entities/position.entity';
 import { BranchAnalyticsModule } from '../branch-analytics/branch-analytics.module';
+import { ModeratorPermissionsModule } from '../moderator-permissions/moderator-permissions.module';
 import { NesEmployeesController } from './nes-employees.controller';
 import { FieldOverridesController } from './field-overrides.controller';
 import { NesEmployeesService } from './nes-employees.service';
@@ -23,6 +24,7 @@ import { NesSyncGateway } from './nes-sync.gateway';
     UsersModule,
     OrganizationsModule,
     BranchAnalyticsModule,
+    ModeratorPermissionsModule,
     TypeOrmModule.forFeature([
       NesEmployee,
       Organization,
