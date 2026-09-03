@@ -1,79 +1,81 @@
 const DEFAULT_VERIFY_BASE_URL = 'https://elektrolearn.uzbekistonmet.uz/verify';
 
-/** Bosh tashkilot (markaziy apparat) — filial emas. */
+/** Bosh tashkilot (markaziy apparat) — jadvalda yo‘q. */
 const HEAD_OFFICE_PREFIX = 'MA';
 
 /**
- * Tashkilotning to'liq nomida takrorlanadigan so'zlar — prefiksga kirmaydi.
- * Faqat filialning o'ziga xos nomi qoladi.
+ * MET filiallari — guvohnoma tartib raqamidagi belgi.
+ * Izoh: raqam qismiga tabel raqami yoziladi.
  */
-const ORG_STOPWORDS = new Set([
-  'ao',
-  'aj',
-  'oaj',
-  'oao',
-  'ао',
-  'аж',
-  'оао',
-  "o'zbekiston",
-  'ozbekiston',
-  'узбекистон',
-  'узбекистан',
-  'milliy',
-  'миллий',
-  'национальные',
-  'национальная',
-  'elektr',
-  'электр',
-  'электрические',
-  'tarmoqlari',
-  'тармоклари',
-  'тармоқлари',
-  'сети',
-  'aksiyadorlik',
-  'jamiyati',
-  'акциядорлик',
-  'жамияти',
-  'filiali',
-  'filial',
-  'филиали',
-  'филиал',
-]);
+const BRANCH_PREFIXES: { prefix: string; patterns: RegExp[] }[] = [
+  // Toshkent shahar — oddiy Toshkentdan oldin tekshiriladi
+  {
+    prefix: 'TSh',
+    patterns: [
+      /toshkent\s+shahar/i,
+      /тошкент\s+шах?ар/i,
+      /ташкент\s+(?:город|г\.?)/i,
+    ],
+  },
+  {
+    prefix: 'QQ',
+    patterns: [
+      /qoraqalpog[''‘’]?iston/i,
+      /qaraqalpog[''‘’]?iston/i,
+      /каракалпакстан/i,
+      /қорақалпоғ?истон/i,
+    ],
+  },
+  { prefix: 'AN', patterns: [/andijon/i, /андижан/i, /андижон/i] },
+  { prefix: 'BX', patterns: [/buxoro/i, /бухара/i, /бухоро/i] },
+  { prefix: 'JX', patterns: [/jizzax/i, /джизак/i, /жиззах/i] },
+  {
+    prefix: 'QSh',
+    patterns: [/qashqadaryo/i, /қашқадар[еёя]/i, /кашкадарь?[еёя]/i],
+  },
+  { prefix: 'NV', patterns: [/navoiy/i, /навои/i] },
+  { prefix: 'NM', patterns: [/namangan/i, /наманган/i] },
+  { prefix: 'SM', patterns: [/samarqand/i, /самарканд/i, /самарқанд/i] },
+  {
+    prefix: 'SR',
+    patterns: [/sirdaryo/i, /сырдарь?[еёя]/i, /сирдар[еёя]/i],
+  },
+  {
+    prefix: 'SX',
+    patterns: [/surxondaryo/i, /сурхандарь?[еёя]/i, /сурхондар[еёя]/i],
+  },
+  {
+    prefix: 'FR',
+    patterns: [/farg[''‘’]?ona/i, /фергана/i, /фарғона/i],
+  },
+  { prefix: 'XZ', patterns: [/xorazm/i, /хорезм/i, /хоразм/i] },
+  // Toshkent viloyati (shahar emas)
+  {
+    prefix: 'TV',
+    patterns: [/toshkent/i, /тошкент/i, /ташкент/i],
+  },
+];
 
 function normalizeApostrophes(value: string): string {
-  return value.replace(/[`´ʻʼ‘’]/g, "'");
-}
-
-/** "Shahar" → "SH", "Toshkent" → "T": sh/ch digrafi bitta harf sifatida olinadi. */
-function wordInitial(word: string): string {
-  const lower = word.toLocaleLowerCase();
-  if (lower.startsWith('sh') || lower.startsWith('ch')) {
-    return word.slice(0, 2).toLocaleUpperCase();
-  }
-  return word.slice(0, 1).toLocaleUpperCase();
+  return value.replace(/[`´ʻʼ‘’']/g, "'");
 }
 
 /**
- * Guvohnoma raqamining prefiksi — filial nomining bosh harflari + "F".
- * Masalan: «ENERGO - IT» filiali → EF, Toshkent shahar … filiali → TSHF,
- * Toshkent filiali → TF. Bosh tashkilotning o'zi bo'lsa — MA.
+ * Guvohnoma raqamining prefiksi — MET filial belgilari jadvali bo‘yicha.
+ * Masalan: Andijon → AN, Toshkent shahar → TSh, Toshkent → TV.
+ * Filial aniqlanmasa yoki Markaziy apparat — MA.
  */
 export function resolveCertificatePrefix(
   branchName: string | null | undefined,
 ): string {
   const raw = normalizeApostrophes((branchName ?? '').trim());
-  if (!raw || !/filial|филиал/i.test(raw)) return HEAD_OFFICE_PREFIX;
+  if (!raw) return HEAD_OFFICE_PREFIX;
 
-  const words = raw
-    // "ENERGO - IT" — chiziqcha bilan bog'langan nom bitta so'z hisoblanadi
-    .replace(/\s*-\s*/g, '-')
-    .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .filter((word) => !ORG_STOPWORDS.has(word.toLocaleLowerCase()));
+  for (const { prefix, patterns } of BRANCH_PREFIXES) {
+    if (patterns.some((re) => re.test(raw))) return prefix;
+  }
 
-  const code = words.map(wordInitial).join('');
-  return code ? `${code}F` : HEAD_OFFICE_PREFIX;
+  return HEAD_OFFICE_PREFIX;
 }
 
 export function formatCertificateNumber(prefix: string, sequence: number) {
