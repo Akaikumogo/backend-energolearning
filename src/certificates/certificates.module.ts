@@ -6,6 +6,7 @@ import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { User } from '../database/entities/user.entity';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { SafetyRecordsModule } from '../safety-records/safety-records.module';
 import { CertificatesController } from './certificates.controller';
 import { CertificatesMeController } from './certificates-me.controller';
 import { CertificatesPublicController } from './certificates-public.controller';
@@ -21,6 +22,7 @@ import { CertificatesService } from './certificates.service';
       User,
     ]),
     OrganizationsModule,
+    SafetyRecordsModule,
   ],
   controllers: [
     CertificatesController,

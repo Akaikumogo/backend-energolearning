@@ -12,6 +12,7 @@ import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { User } from '../database/entities/user.entity';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { SafetyRecordsService } from '../safety-records/safety-records.service';
 import { resolveStoredAvatarUrl } from '../common/avatar-url.util';
 import { extractPersonnelNumberFromLogin } from '../common/utils/personnel-number.util';
 import { OralResult } from '../common/enums/oral-result.enum';
@@ -54,6 +55,7 @@ export class CertificatesService {
     @InjectRepository(Organization)
     private readonly organizationRepo: Repository<Organization>,
     private readonly organizationsService: OrganizationsService,
+    private readonly safetyRecordsService: SafetyRecordsService,
   ) {}
 
   // ---------------------------------------------------------------- queries
@@ -218,6 +220,9 @@ export class CertificatesService {
     if (!user) throw new NotFoundException('Xodim topilmadi');
 
     const card = await this.buildEnergoIdCard(user);
+    const safetyBadge = await this.safetyRecordsService.publicBadgeForUser(
+      user.id,
+    );
     return {
       found: true as const,
       certificateNumber: card.certificateNumber,
@@ -234,6 +239,7 @@ export class CertificatesService {
       avatarUrl: card.avatarUrl,
       personnelNumber: card.personnelNumber,
       verifyUrl: card.verifyUrl,
+      safetyBadge,
     };
   }
 

@@ -572,6 +572,24 @@ export class EnergoIdAuthClient {
     return response.json();
   }
 
+  /** Beydj / bilim sinovi qisqa ma'lumotini Energo ID raw_payload ga yozadi. */
+  async pushSafetyBadge(energoUserId: string, safetyBadge: unknown) {
+    const config = this.getConfig();
+    const response = await this.request(
+      `${config.baseUrl}/internal/v1/portal/users/${encodeURIComponent(energoUserId)}/safety-badge`,
+      {
+        method: 'POST',
+        headers: config.headers,
+        body: JSON.stringify({ safetyBadge }),
+      },
+      config.timeoutMs,
+    );
+    if (!response.ok) {
+      await this.throwMappedError(response);
+    }
+    return response.json();
+  }
+
   async patchCatalogField(
     entityType: 'department' | 'position',
     sourceName: string,

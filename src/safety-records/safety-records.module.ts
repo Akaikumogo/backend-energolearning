@@ -8,6 +8,7 @@ import { User } from '../database/entities/user.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { ModeratorPermissionsModule } from '../moderator-permissions/moderator-permissions.module';
+import { AuthModule } from '../auth/auth.module';
 import { SafetyRecordsController } from './safety-records.controller';
 import { SafetyRecordsService } from './safety-records.service';
 
@@ -23,6 +24,7 @@ import { SafetyRecordsService } from './safety-records.service';
     OrganizationsModule,
     NotificationsModule,
     ModeratorPermissionsModule,
+    AuthModule,
   ],
   controllers: [SafetyRecordsController],
   providers: [SafetyRecordsService],
