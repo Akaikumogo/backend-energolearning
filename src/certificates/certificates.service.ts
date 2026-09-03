@@ -198,7 +198,12 @@ export class CertificatesService {
   /** QR /public/{energoId} yoki user id orqali ochiq guvohnoma. */
   async getPublicIdCard(energoOrUserId: string) {
     const id = energoOrUserId.trim();
-    if (!id) throw new NotFoundException('Xodim topilmadi');
+    // `users.id` va `users.energo_id` UUID — noto'g'ri format Postgres 22P02 → 500 beradi.
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!id || !UUID_RE.test(id)) {
+      throw new NotFoundException('Xodim topilmadi');
+    }
 
     let user = await this.userRepo.findOne({
       where: { energoId: id },
