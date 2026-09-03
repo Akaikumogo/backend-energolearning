@@ -14,6 +14,7 @@ import { User } from '../database/entities/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { ModeratorPermissionsService } from '../moderator-permissions/moderator-permissions.service';
+import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
 import {
   RejectSafetyChangeDto,
   UpsertSafetyRecordDto,
@@ -54,6 +55,7 @@ export class SafetyRecordsService {
     private readonly organizationsService: OrganizationsService,
     private readonly notificationsService: NotificationsService,
     private readonly moderatorPermissionsService: ModeratorPermissionsService,
+    private readonly energoIdAuthClient: EnergoIdAuthClient,
   ) {}
 
   async listTypes() {
@@ -415,6 +417,8 @@ export class SafetyRecordsService {
       await this.notificationsService.resolve(change.notificationId);
     }
     await this.notificationsService.resolveByChangeId(change.id);
+
+    void this.syncSafetyBadgeToEnergo(change.userId);
 
     return {
       record: this.mapRecord(record),
@@ -813,5 +817,70 @@ export class SafetyRecordsService {
       reviewNote: change.reviewNote,
       notificationId: change.notificationId,
     };
+  }
+
+  /** Ochiq guvohnoma / beydj uchun — oxirgi tasdiqlangan yozuvlar. */
+  async publicBadgeForUser(userId: string) {
+    const types = await this.listTypes();
+    const records = await this.recordRepo.find({
+      where: {
+        userId,
+        isLatest: true,
+        approvalStatus: 'APPROVED',
+        archivedAt: IsNull(),
+      },
+      relations: ['recordType'],
+      order: { updatedAt: 'DESC' },
+    });
+
+    const SHORT: Record<string, string> = {
+      TECHNICAL_OPERATION: 'ТЭҚҚ',
+      OCCUPATIONAL_SAFETY: 'ХТҚ',
+      FIRE_SAFETY: 'ЁХҚ',
+      INDUSTRIAL_SAFETY: 'ЖБЁКҚ',
+      MEDICAL_EXAM: 'Тиббий',
+    };
+
+    const byType = new Map<string, EmployeeSafetyRecord>();
+    for (const row of records) {
+      const code = row.recordType?.code;
+      if (!code || byType.has(code)) continue;
+      byType.set(code, row);
+    }
+
+    const exams = types.map((type) => {
+      const row = byType.get(type.code);
+      return {
+        code: type.code,
+        shortLabel: SHORT[type.code] ?? type.code,
+        titleUz: type.titleUz,
+        examDate: row?.examDate ?? null,
+        nextExamDate: row?.nextExamDate ?? null,
+        grade: row?.grade ?? null,
+        qualificationGroup: row?.qualificationGroup ?? null,
+        doctorConclusion: row?.doctorConclusion ?? null,
+      };
+    });
+
+    return {
+      exams,
+      specialWorks: 'Йўқ',
+    };
+  }
+
+  /** Tasdiqlangan bilim sinovi — Energo ID public sahifa uchun. */
+  private async syncSafetyBadgeToEnergo(employeeUserId: string) {
+    try {
+      const user = await this.userRepo.findOne({
+        where: { id: employeeUserId },
+        select: ['id', 'energoId'],
+      });
+      const energoId = user?.energoId?.trim();
+      if (!energoId) return;
+      const safetyBadge = await this.publicBadgeForUser(employeeUserId);
+      await this.energoIdAuthClient.pushSafetyBadge(energoId, safetyBadge);
+    } catch {
+      /* Energo ID sync ixtiyoriy — xatolik asosiy oqimni buzmasin */
+    }
   }
 }
