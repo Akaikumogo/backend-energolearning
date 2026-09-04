@@ -7,7 +7,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsOptional, IsString, MinLength } from 'class-validator';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -20,35 +21,52 @@ type AuthedRequest = Request & {
   user: { id: string; role: Role };
 };
 
+function trimString({ value }: { value: unknown }) {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
 class PatchEmployeeFieldsBody {
   @IsOptional()
+  @Transform(trimString)
   @IsString()
-  firstName?: string | null;
+  @MinLength(1, { message: 'Ism bo‘sh bo‘lishi mumkin emas' })
+  firstName?: string;
 
   @IsOptional()
+  @Transform(trimString)
   @IsString()
-  lastName?: string | null;
+  @MinLength(1, { message: 'Familiya bo‘sh bo‘lishi mumkin emas' })
+  lastName?: string;
 
   @IsOptional()
+  @Transform(trimString)
   @IsString()
-  middleName?: string | null;
+  @MinLength(1, { message: 'Otasining ismi bo‘sh bo‘lishi mumkin emas' })
+  middleName?: string;
 
   @IsOptional()
+  @Transform(trimString)
   @IsString()
-  division?: string | null;
+  @MinLength(1, { message: 'Bo‘lim bo‘sh bo‘lishi mumkin emas' })
+  division?: string;
 
   @IsOptional()
+  @Transform(trimString)
   @IsString()
-  post?: string | null;
+  @MinLength(1, { message: 'Lavozim bo‘sh bo‘lishi mumkin emas' })
+  post?: string;
 }
 
 class PatchCatalogFieldBody {
   @IsString()
+  @MinLength(1)
   sourceName: string;
 
   @IsOptional()
+  @Transform(trimString)
   @IsString()
-  name?: string | null;
+  @MinLength(1, { message: 'Katalog nomi bo‘sh bo‘lishi mumkin emas' })
+  name?: string;
 }
 
 @ApiTags('Field overrides')
