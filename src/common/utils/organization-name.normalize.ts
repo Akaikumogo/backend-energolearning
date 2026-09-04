@@ -85,8 +85,19 @@ function extractQuotedCompany(value: string): { company: string; rest: string } 
   return null;
 }
 
+function cleanBranchText(value: string): string {
+  // Faqat qo‘shtirnoqlar; O` / oʻ uchun ishlatiladigan ` va ' saqlanadi
+  let branch = value
+    .replace(/["«»„\u201c\u201d]/gu, ' ')
+    .replace(/,/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  branch = collapseWhitespace(stripLeadingOrgForms(stripTrailingOrgForms(branch)));
+  return branch;
+}
+
 function normalizeBranchSuffix(value: string): string {
-  let branch = collapseWhitespace(stripLeadingOrgForms(stripTrailingOrgForms(value)));
+  let branch = cleanBranchText(value);
 
   const ajPrefix = branch.match(/^AJ(?:,\s*(.*))?$/iu);
   if (ajPrefix) {
@@ -97,6 +108,9 @@ function normalizeBranchSuffix(value: string): string {
   if (aoPrefix) {
     branch = collapseWhitespace(aoPrefix[1] ?? '');
   }
+
+  branch = branch.replace(/^[,.\s]+/u, '').replace(/[,.\s]+$/u, '').trim();
+  branch = collapseWhitespace(branch);
 
   if (isOrgFormToken(branch)) return '';
   return branch;
@@ -131,6 +145,9 @@ function parseLegacyMetName(value: string): string | null {
   return formatMetOrganization(holding, branch || undefined);
 }
 
+/**
+ * 1C dan kelgan `organization` ni bazaga yozish formatiga keltiradi.
+ */
 export function normalizeOrganizationName(raw: string | null | undefined): string {
   const input = collapseWhitespace(String(raw ?? '').normalize('NFKC'));
   if (!input) return '';
@@ -166,6 +183,7 @@ export function normalizeOrganizationName(raw: string | null | undefined): strin
   return collapseWhitespace(stripTrailingOrgForms(stripped.replace(/\bAO\b/giu, 'AJ')));
 }
 
+/** Nomlar bir xil tashkilotni ifodalashini tekshiradi (sync/dedup uchun). */
 export function organizationNamesEquivalent(
   a: string | null | undefined,
   b: string | null | undefined,
