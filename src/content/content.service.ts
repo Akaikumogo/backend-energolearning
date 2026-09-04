@@ -121,14 +121,22 @@ export class ContentService {
     levelId: string,
     positionIds: string[],
   ): Promise<void> {
-    await this.levelPositionRepo.delete({ levelId });
-    const unique = [...new Set(positionIds)];
-    if (unique.length === 0) return;
-    await this.levelPositionRepo.save(
-      unique.map((positionId) =>
-        this.levelPositionRepo.create({ levelId, positionId }),
-      ),
-    );
+    try {
+      await this.levelPositionRepo.delete({ levelId });
+      const unique = [...new Set(positionIds)];
+      if (unique.length === 0) return;
+      await this.levelPositionRepo.save(
+        unique.map((positionId) =>
+          this.levelPositionRepo.create({ levelId, positionId }),
+        ),
+      );
+    } catch (error) {
+      if ((error as { code?: string }).code === '42P01') {
+        // Jadval yo‘q — migratsiya kutiladi; daraja o‘zi saqlanadi.
+        return;
+      }
+      throw error;
+    }
   }
 
   // ─── Mobile (client) helpers ───────────────────────────
@@ -382,9 +390,24 @@ export class ContentService {
     id: string,
     relations: string[] = ['createdBy', 'positionLinks', 'positionLinks.position'],
   ): Promise<Level> {
-    const level = await this.levelRepo.findOne({ where: { id }, relations });
-    if (!level) throw new NotFoundException('Daraja topilmadi');
-    return level;
+    try {
+      const level = await this.levelRepo.findOne({ where: { id }, relations });
+      if (!level) throw new NotFoundException('Daraja topilmadi');
+      return level;
+    } catch (error) {
+      // Productionda `level_positions` migratsiyasi kechikishi mumkin (42P01).
+      if ((error as { code?: string }).code !== '42P01') throw error;
+      const safeRelations = relations.filter(
+        (rel) => !rel.startsWith('positionLinks'),
+      );
+      const level = await this.levelRepo.findOne({
+        where: { id },
+        relations: safeRelations,
+      });
+      if (!level) throw new NotFoundException('Daraja topilmadi');
+      level.positionLinks = [];
+      return level;
+    }
   }
 
   /** TypeORM relationlaridagi aylana havolalarni JSON uchun xavfsiz qilib qaytaradi. */
@@ -457,25 +480,47 @@ export class ContentService {
   }
 
   async findAllLevels(filters?: { search?: string }): Promise<Level[]> {
-    const qb = this.levelRepo
-      .createQueryBuilder('l')
-      .leftJoinAndSelect('l.createdBy', 'u')
-      .leftJoinAndSelect('l.positionLinks', 'pl')
-      .leftJoinAndSelect('pl.position', 'pos')
-      .orderBy('l.order_index', 'ASC');
-
-    if (filters?.search) {
-      qb.leftJoin('l.theories', 'th')
-        .leftJoin('l.questions', 'q')
-        .andWhere(
-          `(LOWER(l.title) LIKE :q OR LOWER(th.title) LIKE :q OR LOWER(q.prompt) LIKE :q)`,
-          { q: `%${filters.search.toLowerCase()}%` },
-        )
-        .distinct(true);
-    }
-
-    const levels = await qb.getMany();
+    const levels = await this.loadAllLevelEntities(filters);
     return levels.map((level) => this.serializeLevel(level) as unknown as Level);
+  }
+
+  private async loadAllLevelEntities(filters?: {
+    search?: string;
+  }): Promise<Level[]> {
+    const build = (withPositions: boolean) => {
+      const qb = this.levelRepo
+        .createQueryBuilder('l')
+        .leftJoinAndSelect('l.createdBy', 'u')
+        .orderBy('l.orderIndex', 'ASC');
+
+      if (withPositions) {
+        qb.leftJoinAndSelect('l.positionLinks', 'pl').leftJoinAndSelect(
+          'pl.position',
+          'pos',
+        );
+      }
+
+      if (filters?.search) {
+        qb.leftJoin('l.theories', 'th')
+          .leftJoin('l.questions', 'q')
+          .andWhere(
+            `(LOWER(l.title) LIKE :q OR LOWER(th.title) LIKE :q OR LOWER(q.prompt) LIKE :q)`,
+            { q: `%${filters.search.toLowerCase()}%` },
+          )
+          .distinct(true);
+      }
+
+      return qb.getMany();
+    };
+
+    try {
+      return await build(true);
+    } catch (error) {
+      if ((error as { code?: string }).code !== '42P01') throw error;
+      const levels = await build(false);
+      for (const level of levels) level.positionLinks = [];
+      return levels;
+    }
   }
 
   async findLevelById(id: string): Promise<Level> {
