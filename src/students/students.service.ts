@@ -154,46 +154,37 @@ export class StudentsService {
     const light = Boolean(filters.light);
     const total = await qb.getCount();
 
-    // Login/email aniqroq mos kelganlar birinchi (k.omonov3952) — count dan keyin
-    if (filters.search) {
-      const primary = splitSearchTokens(filters.search)[0];
-      const primaryNorm = primary
-        ? variantsForSearchToken(primary)[0] || primary
-        : '';
-      if (primaryNorm) {
-        qb.addSelect(
-          `CASE
-            WHEN LOWER(u.email) = :rankExact THEN 0
-            WHEN LOWER(u.email) LIKE :rankPrefix THEN 1
-            WHEN EXISTS (
-              SELECT 1 FROM nes_employees nes_rank
-              WHERE nes_rank.user_id = u.id
-                AND (
-                  LOWER(nes_rank.login) = :rankExact
-                  OR LOWER(nes_rank.login) LIKE :rankPrefix
-                  OR LOWER(nes_rank.personnel_number) = :rankExact
-                )
-            ) THEN 1
-            WHEN LOWER(u.email) LIKE :rankLoose THEN 2
-            ELSE 3
-          END`,
-          'search_rank',
-        );
-        qb.setParameter('rankExact', primaryNorm);
-        qb.setParameter('rankPrefix', `${primaryNorm}%`);
-        qb.setParameter('rankLoose', `%${primaryNorm}%`);
-        qb.orderBy('search_rank', 'ASC');
-        qb.addOrderBy('u.last_name', 'ASC');
-        qb.addOrderBy('u.first_name', 'ASC');
-      }
-    }
-
     const users = light
       ? await qb.getMany()
       : await qb
           .skip((page - 1) * limit)
           .take(limit)
           .getMany();
+
+    // Login/email aniq mos kelganlarni sahifa ichida birinchi qatorga (TypeORM
+    // CASE/alias orderBy productionda databaseName crash beradi).
+    if (filters.search && users.length > 1) {
+      const primary = splitSearchTokens(filters.search)[0];
+      const primaryNorm = (
+        primary ? variantsForSearchToken(primary)[0] || primary : ''
+      ).toLowerCase();
+      if (primaryNorm) {
+        const rank = (u: User) => {
+          const email = (u.email || '').toLowerCase();
+          if (email === primaryNorm) return 0;
+          if (email.startsWith(primaryNorm)) return 1;
+          if (email.includes(primaryNorm)) return 2;
+          return 3;
+        };
+        users.sort((a, b) => {
+          const d = rank(a) - rank(b);
+          if (d !== 0) return d;
+          const ln = (a.lastName || '').localeCompare(b.lastName || '');
+          if (ln !== 0) return ln;
+          return (a.firstName || '').localeCompare(b.firstName || '');
+        });
+      }
+    }
 
     if (light) {
       const data = await this.toStudentSummariesLight(users, requestingUser);
