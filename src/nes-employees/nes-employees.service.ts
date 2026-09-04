@@ -1596,35 +1596,71 @@ export class NesEmployeesService {
       post1c: string;
     };
 
+    const nextFirst = (resolved.firstName ?? '').trim() || user.firstName;
+    const nextLast = (resolved.lastName ?? '').trim() || user.lastName;
+
     await this.userRepo.update(userId, {
-      firstName: resolved.firstName,
-      lastName: resolved.lastName,
+      firstName: nextFirst,
+      lastName: nextLast,
     });
 
     const mirror = await this.employeeRepo.findOne({ where: { userId } });
     if (mirror) {
+      const nextMiddle =
+        (resolved.middleName ?? '').trim() || mirror.middleName || '';
+      const nextDivision =
+        (resolved.division ?? '').trim() || mirror.division || '';
+      const nextPost = (resolved.post ?? '').trim() || mirror.post || '';
       await this.employeeRepo.update(mirror.id, {
-        firstName: resolved.firstName,
-        lastName: resolved.lastName,
-        middleName: resolved.middleName,
-        division: resolved.division,
-        post: resolved.post,
-        fullName: [resolved.lastName, resolved.firstName, resolved.middleName]
+        firstName: nextFirst,
+        lastName: nextLast,
+        middleName: nextMiddle,
+        division: nextDivision,
+        post: nextPost,
+        fullName: [nextLast, nextFirst, nextMiddle]
           .map((p) => p.trim())
           .filter(Boolean)
           .join(' '),
         rawPayload: {
           ...(mirror.rawPayload ?? {}),
-          firstName1c: resolved.firstName1c,
-          lastName1c: resolved.lastName1c,
-          middleName1c: resolved.middleName1c,
-          division1c: resolved.division1c,
-          post1c: resolved.post1c,
+          firstName1c:
+            (resolved.firstName1c ?? '').trim() ||
+            String(mirror.rawPayload?.['firstName1c'] ?? '') ||
+            nextFirst,
+          lastName1c:
+            (resolved.lastName1c ?? '').trim() ||
+            String(mirror.rawPayload?.['lastName1c'] ?? '') ||
+            nextLast,
+          middleName1c:
+            (resolved.middleName1c ?? '').trim() ||
+            String(mirror.rawPayload?.['middleName1c'] ?? '') ||
+            nextMiddle,
+          division1c:
+            (resolved.division1c ?? '').trim() ||
+            String(mirror.rawPayload?.['division1c'] ?? '') ||
+            nextDivision,
+          post1c:
+            (resolved.post1c ?? '').trim() ||
+            String(mirror.rawPayload?.['post1c'] ?? '') ||
+            nextPost,
         },
       });
     }
 
-    return resolved;
+    return {
+      ...resolved,
+      firstName: nextFirst,
+      lastName: nextLast,
+      middleName: mirror
+        ? (resolved.middleName ?? '').trim() || mirror.middleName || ''
+        : resolved.middleName,
+      division: mirror
+        ? (resolved.division ?? '').trim() || mirror.division || ''
+        : resolved.division,
+      post: mirror
+        ? (resolved.post ?? '').trim() || mirror.post || ''
+        : resolved.post,
+    };
   }
 
   async patchCatalogField(
