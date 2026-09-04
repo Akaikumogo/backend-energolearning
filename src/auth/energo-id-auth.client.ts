@@ -316,7 +316,8 @@ export class EnergoIdAuthClient {
         method: 'GET',
         headers: config.headers,
       },
-      config.timeoutMs,
+      // ~10k xodim JSON — portal/backend uchun default 5–15s yetmaydi.
+      Math.max(config.timeoutMs, config.heavyTimeoutMs),
     );
 
     if (!response.ok) {
@@ -631,7 +632,7 @@ export class EnergoIdAuthClient {
         headers: config.headers,
         body: JSON.stringify({ resources }),
       },
-      config.timeoutMs,
+      Math.max(config.timeoutMs, config.heavyTimeoutMs),
     );
 
     if (!response.ok) {
@@ -657,12 +658,17 @@ export class EnergoIdAuthClient {
     }
 
     const timeoutMs = Number(process.env.ENERGO_ID_TIMEOUT_MS ?? 5000);
+    const heavyTimeoutMs = Number(
+      process.env.ENERGO_ID_HEAVY_TIMEOUT_MS ??
+        Math.max(timeoutMs, 180_000),
+    );
     return {
       baseUrl,
       platform,
       clientId,
       clientSecret,
       timeoutMs,
+      heavyTimeoutMs,
       headers: {
         'Content-Type': 'application/json',
         'X-Platform': platform,
