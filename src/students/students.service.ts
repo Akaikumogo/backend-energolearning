@@ -340,7 +340,7 @@ export class StudentsService {
       uniqueCorrectQuestions,
       completedLevels,
       totalErrors: wrongCount,
-      badge: BADGES[badgeIndex],
+      badge: { ...BADGES[badgeIndex] },
       levelProgress,
       createdAt: user.createdAt,
     };
@@ -664,7 +664,7 @@ export class StudentsService {
         totalXp: correctCount * 10,
         currentLevelId: null as string | null,
         currentLevelTitle: null as string | null,
-        badge: BADGES[0],
+        badge: { ...BADGES[0] },
         organizations: this.mapOrgs(user, orgIds),
       };
     });
@@ -782,7 +782,7 @@ export class StudentsService {
       totalXp,
       currentLevelId,
       currentLevelTitle,
-      badge: BADGES[badgeIndex],
+      badge: { ...BADGES[badgeIndex] },
       organizations: this.mapOrgs(user, orgIds),
     };
   }

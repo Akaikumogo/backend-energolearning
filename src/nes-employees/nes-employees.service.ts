@@ -1441,9 +1441,12 @@ export class NesEmployeesService {
       .createQueryBuilder('d')
       .orderBy('d.name', 'ASC');
     if (filters?.search?.trim()) {
-      qb.andWhere('LOWER(d.name) LIKE :q', {
-        q: `%${filters.search.trim().toLowerCase()}%`,
-      });
+      qb.andWhere(
+        '(LOWER(d.name) LIKE :q OR LOWER(COALESCE(d.name1c, \'\')) LIKE :q)',
+        {
+          q: `%${filters.search.trim().toLowerCase()}%`,
+        },
+      );
     }
     const data = await qb.getMany();
     return { data, total: data.length };

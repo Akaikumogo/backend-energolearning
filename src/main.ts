@@ -7,8 +7,10 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { webcrypto } from 'crypto';
 import * as fs from 'fs';
 import { join } from 'path';
+import { DataSource } from 'typeorm';
 import { AppModule } from './app.module';
 import { resolveEnergoIdBaseUrl, warnIfLegacyEnergoIdEnv } from './auth/energo-id-env.util';
+import { ensureCriticalSchema } from './database/ensure-critical-schema';
 import { SWAGGER_RELATIVE_PATH } from './swagger.constants';
 import { ONE_TIME_CUTOVER_FLAG_PATH } from './one-time-cutover/one-time-cutover.constants';
 import 'dotenv/config';
@@ -131,6 +133,14 @@ async function bootstrap() {
   warnIfLegacyEnergoIdEnv();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useWebSocketAdapter(new IoAdapter(app));
+
+  try {
+    await ensureCriticalSchema(app.get(DataSource));
+  } catch (error) {
+    console.warn(
+      `Schema ensure failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 
   app.enableCors(buildCorsConfig());
 
