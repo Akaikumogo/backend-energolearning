@@ -5,6 +5,7 @@ import {
   HttpStatus,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -728,6 +729,9 @@ export class EnergoIdAuthClient {
         message ||
           `Energo ID rad etildi. ENERGO_ID_BASE_URL portal API (:8081) bo‘lishi kerak — masalan https://cabinetid-api.uzbekistonmet.uz`,
       );
+    }
+    if (status === 404) {
+      throw new NotFoundException(message || 'Energo ID da topilmadi');
     }
     if (status === 429) {
       throw new HttpException(
