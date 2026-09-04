@@ -19,4 +19,23 @@ describe('normalizeOrganizationName', () => {
       '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, JIZZAX MAGISTRAL ELEKTR TARMOQLARI FILIALI',
     );
   });
+
+  it('eski format bilan ekvivalent deb topadi', () => {
+    expect(
+      organizationNamesEquivalent(
+        'АJ "O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" JIZZAX MAGISTRAL ELEKTR TARMOQLARI FILIALI',
+        '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, JIZZAX MAGISTRAL ELEKTR TARMOQLARI FILIALI',
+      ),
+    ).toBe(true);
+  });
+
+  it('1C dagi noto`g`ri qo`shtirnoqli filial nomini tozalaydi', () => {
+    expect(
+      normalizeOrganizationName(
+        '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, " , BUXORO MAGISTRAL ELEKTR TARMOQLARI" FILIALI',
+      ),
+    ).toBe(
+      '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, BUXORO MAGISTRAL ELEKTR TARMOQLARI FILIALI',
+    );
+  });
 });

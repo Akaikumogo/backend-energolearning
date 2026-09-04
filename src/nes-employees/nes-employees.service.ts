@@ -1508,6 +1508,7 @@ export class NesEmployeesService {
       );
     }
 
+    await this.mergeEquivalentOrganizationsInto(org.id, name);
     await this.releaseOrganizationName(name, org.id);
 
     await this.orgRepo.update(org.id, {
@@ -1523,9 +1524,94 @@ export class NesEmployeesService {
     }) as Promise<Organization>;
   }
 
+  /** Bir xil normalize qilingan nomdagi boshqa filiallarni keepOrg ga birlashtiradi. */
+  private async mergeEquivalentOrganizationsInto(
+    keepOrgId: string,
+    canonicalName: string,
+  ) {
+    const candidates = await this.orgRepo
+      .createQueryBuilder('o')
+      .where('o.id <> :keepOrgId', { keepOrgId })
+      .andWhere('o.archived_at IS NULL')
+      .getMany();
+
+    for (const extra of candidates) {
+      if (!organizationNamesEquivalent(extra.name, canonicalName)) continue;
+
+      await this.userOrgRepo.query(
+        `
+        UPDATE user_organizations AS uo
+        SET "organizationId" = $1
+        WHERE uo."organizationId" = $2
+          AND NOT EXISTS (
+            SELECT 1 FROM user_organizations AS x
+            WHERE x."userId" = uo."userId" AND x."organizationId" = $1
+          )
+        `,
+        [keepOrgId, extra.id],
+      );
+      await this.userOrgRepo
+        .createQueryBuilder()
+        .delete()
+        .where('"organizationId" = :id', { id: extra.id })
+        .execute();
+      await this.employeeRepo.update(
+        { organizationId: extra.id },
+        { organizationId: keepOrgId },
+      );
+      if (await this.canRemoveOrganization(extra.id)) {
+        await this.orgRepo.delete(extra.id);
+      } else {
+        await this.orgRepo.update(extra.id, {
+          name: `legacy-${extra.id.slice(0, 8)}-${extra.name}`.slice(0, 180),
+          archivedAt: new Date(),
+        });
+      }
+    }
+  }
+
   private async releaseOrganizationName(name: string, keepOrgId: string) {
     const conflict = await this.orgRepo.findOne({ where: { name } });
     if (!conflict || conflict.id === keepOrgId) return;
+
+    if (organizationNamesEquivalent(conflict.name, name)) {
+      await this.userOrgRepo.query(
+        `
+        UPDATE user_organizations AS uo
+        SET "organizationId" = $1
+        WHERE uo."organizationId" = $2
+          AND NOT EXISTS (
+            SELECT 1
+            FROM user_organizations AS x
+            WHERE x."userId" = uo."userId"
+              AND x."organizationId" = $1
+          )
+        `,
+        [keepOrgId, conflict.id],
+      );
+      await this.userOrgRepo
+        .createQueryBuilder()
+        .delete()
+        .where('"organizationId" = :conflictId', { conflictId: conflict.id })
+        .execute();
+      await this.employeeRepo.update(
+        { organizationId: conflict.id },
+        { organizationId: keepOrgId },
+      );
+      if (await this.canRemoveOrganization(conflict.id)) {
+        await this.orgRepo.delete(conflict.id);
+      } else {
+        const legacyName = `legacy-${conflict.id.slice(0, 8)}-${conflict.name}`.slice(
+          0,
+          180,
+        );
+        await this.orgRepo.update(conflict.id, {
+          name: legacyName,
+          archivedAt: new Date(),
+        });
+      }
+      return;
+    }
 
     const legacyName = `legacy-${conflict.id.slice(0, 8)}-${name}`.slice(0, 180);
     await this.orgRepo.update(conflict.id, { name: legacyName });
