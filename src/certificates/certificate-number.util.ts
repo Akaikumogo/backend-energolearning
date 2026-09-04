@@ -1,7 +1,7 @@
 const DEFAULT_VERIFY_BASE_URL = 'https://elektrolearn.uzbekistonmet.uz/verify';
 
-/** Bosh tashkilot (markaziy apparat) — jadvalda yo‘q. */
-const HEAD_OFFICE_PREFIX = 'MA';
+/** Bosh tashkilot (markaziy apparat) — UZ. */
+const HEAD_OFFICE_PREFIX = 'UZ';
 
 /**
  * MET filiallari — guvohnoma tartib raqamidagi belgi.
@@ -63,7 +63,7 @@ function normalizeApostrophes(value: string): string {
 /**
  * Guvohnoma raqamining prefiksi — MET filial belgilari jadvali bo‘yicha.
  * Masalan: Andijon → AN, Toshkent shahar → TSh, Toshkent → TV.
- * Filial aniqlanmasa yoki Markaziy apparat — MA.
+ * Filial aniqlanmasa yoki Markaziy apparat — UZ.
  */
 export function resolveCertificatePrefix(
   branchName: string | null | undefined,

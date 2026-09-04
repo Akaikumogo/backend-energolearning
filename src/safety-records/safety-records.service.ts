@@ -855,9 +855,14 @@ export class SafetyRecordsService {
         shortLabel: SHORT[type.code] ?? type.code,
         titleUz: type.titleUz,
         examDate: row?.examDate ?? null,
+        examReason: row?.examReason ?? null,
         nextExamDate: row?.nextExamDate ?? null,
         grade: row?.grade ?? null,
         qualificationGroup: row?.qualificationGroup ?? null,
+        ruleName: row?.ruleName ?? null,
+        commissionDecision: row?.commissionDecision ?? null,
+        protocolNumber: row?.protocolNumber ?? null,
+        protocolDate: row?.protocolDate ?? null,
         doctorConclusion: row?.doctorConclusion ?? null,
       };
     });
