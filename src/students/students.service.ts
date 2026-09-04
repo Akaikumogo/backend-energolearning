@@ -153,6 +153,41 @@ export class StudentsService {
 
     const light = Boolean(filters.light);
     const total = await qb.getCount();
+
+    // Login/email aniqroq mos kelganlar birinchi (k.omonov3952) — count dan keyin
+    if (filters.search) {
+      const primary = splitSearchTokens(filters.search)[0];
+      const primaryNorm = primary
+        ? variantsForSearchToken(primary)[0] || primary
+        : '';
+      if (primaryNorm) {
+        qb.addSelect(
+          `CASE
+            WHEN LOWER(u.email) = :rankExact THEN 0
+            WHEN LOWER(u.email) LIKE :rankPrefix THEN 1
+            WHEN EXISTS (
+              SELECT 1 FROM nes_employees nes_rank
+              WHERE nes_rank.user_id = u.id
+                AND (
+                  LOWER(nes_rank.login) = :rankExact
+                  OR LOWER(nes_rank.login) LIKE :rankPrefix
+                  OR LOWER(nes_rank.personnel_number) = :rankExact
+                )
+            ) THEN 1
+            WHEN LOWER(u.email) LIKE :rankLoose THEN 2
+            ELSE 3
+          END`,
+          'search_rank',
+        );
+        qb.setParameter('rankExact', primaryNorm);
+        qb.setParameter('rankPrefix', `${primaryNorm}%`);
+        qb.setParameter('rankLoose', `%${primaryNorm}%`);
+        qb.orderBy('search_rank', 'ASC');
+        qb.addOrderBy('u.last_name', 'ASC');
+        qb.addOrderBy('u.first_name', 'ASC');
+      }
+    }
+
     const users = light
       ? await qb.getMany()
       : await qb
