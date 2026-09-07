@@ -24,6 +24,7 @@ import {
   BulkRejectSafetyChangeDto,
   BulkSafetyChangeIdsDto,
   RejectSafetyChangeDto,
+  UpsertSafetyProfileDto,
   UpsertSafetyRecordDto,
 } from './dto/safety-record.dto';
 import { SafetyRecordsService } from './safety-records.service';
@@ -77,12 +78,27 @@ export class SafetyRecordsController {
   @Get('students/:userId/safety-records')
   @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER, Role.ACCOUNTING)
   @ApiOperation({ summary: 'Xodimning joriy safety yozuvlari' })
-  @ApiOkResponse({ description: 'Types + latest records + pending changes' })
+  @ApiOkResponse({
+    description: 'profile + types + latest records + pending changes',
+  })
   listForEmployee(
     @Req() req: Authed,
     @Param('userId', ParseUUIDPipe) userId: string,
   ) {
     return this.safetyRecordsService.listForEmployee(userId, req.user);
+  }
+
+  @Put('students/:userId/safety-profile')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary: 'Beydj profili: maxsus ishlar / ish turi (realtime → Energo ID)',
+  })
+  upsertProfile(
+    @Req() req: Authed,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: UpsertSafetyProfileDto,
+  ) {
+    return this.safetyRecordsService.upsertProfile(userId, dto, req.user);
   }
 
   @Get('students/:userId/safety-records/:typeCode/history')

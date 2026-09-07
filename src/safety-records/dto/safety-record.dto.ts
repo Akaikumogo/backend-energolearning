@@ -55,6 +55,28 @@ export class UpsertSafetyRecordDto {
   @IsString()
   @MaxLength(2000)
   doctorConclusion?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  commissionChairName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  medicalResponsibleName?: string | null;
+}
+
+export class UpsertSafetyProfileDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  specialWorks?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  specialWorkType?: string | null;
 }
 
 export class RejectSafetyChangeDto {

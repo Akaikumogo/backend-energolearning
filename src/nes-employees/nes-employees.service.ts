@@ -29,6 +29,7 @@ import {
 import {
   resolvePersonnelNumber,
   withPersonnelNumberSuffix,
+  extractPersonnelNumberFromLogin,
 } from '../common/utils/personnel-number.util';
 import { personNamesEquivalent } from '../common/utils/person-name.util';
 
@@ -1145,13 +1146,13 @@ export class NesEmployeesService {
         WHERE e.user_id = u.id
           AND (
             u.energo_id IS NULL
-            OR u.role <> $1
+            OR u.role <> ALL($1::text[])
           )
         RETURNING e.id
       )
       SELECT COUNT(*)::int AS cnt FROM deleted
     `,
-      [Role.USER],
+      [[...REPORTING_ROLES]],
     );
 
     const suffixDupesRemoved = await this.cleanupPersonnelSuffixDuplicates();
@@ -2384,13 +2385,17 @@ export class NesEmployeesService {
       if (sent !== undefined && sent !== null && String(sent).trim()) {
         return String(sent).trim();
       }
-      if (fromResolved !== undefined && fromResolved !== null && String(fromResolved).trim()) {
+      if (
+        fromResolved !== undefined &&
+        fromResolved !== null &&
+        String(fromResolved).trim()
+      ) {
         return String(fromResolved).trim();
       }
       return fallback;
     };
 
-    const mirror = await this.employeeRepo.findOne({ where: { userId } });
+    let mirror = await this.employeeRepo.findOne({ where: { userId } });
 
     const nextFirst = pick(fields.firstName, resolved.firstName, user.firstName);
     const nextLast = pick(fields.lastName, resolved.lastName, user.lastName);
@@ -2411,6 +2416,23 @@ export class NesEmployeesService {
       lastName: nextLast,
     });
 
+    // MODERATOR/USER uchun mirror bo‘lmasa (eski cleanup o‘chirgan) — yaratamiz,
+    // aks holda division/post GET da null qoladi.
+    if (!mirror) {
+      mirror = await this.ensureEmployeeMirrorForPatch(user, {
+        firstName: nextFirst,
+        lastName: nextLast,
+        middleName: nextMiddle,
+        division: nextDivision,
+        post: nextPost,
+        firstName1c: (resolved.firstName1c ?? '').trim() || nextFirst,
+        lastName1c: (resolved.lastName1c ?? '').trim() || nextLast,
+        middleName1c: (resolved.middleName1c ?? '').trim() || nextMiddle,
+        division1c: (resolved.division1c ?? '').trim() || nextDivision,
+        post1c: (resolved.post1c ?? '').trim() || nextPost,
+      });
+    }
+
     if (mirror) {
       const prev = (mirror.rawPayload ?? {}) as Record<string, unknown>;
       await this.employeeRepo.update(mirror.id, {
@@ -2425,8 +2447,6 @@ export class NesEmployeesService {
           .join(' '),
         rawPayload: {
           ...prev,
-          // Display o‘zgarganda 1c ni o‘chirmaymiz; faqat Energo qaytargan
-          // yoki avvalgi 1c ni saqlaymiz
           firstName1c:
             (resolved.firstName1c ?? '').trim() ||
             String(prev['firstName1c'] ?? '') ||
@@ -2478,6 +2498,89 @@ export class NesEmployeesService {
         String(mirror?.rawPayload?.['post1c'] ?? '') ||
         nextPost,
     };
+  }
+
+  /** Field override uchun nes_employees qatori — yo‘q bo‘lsa yaratadi. */
+  private async ensureEmployeeMirrorForPatch(
+    user: User,
+    fields: {
+      firstName: string;
+      lastName: string;
+      middleName: string;
+      division: string;
+      post: string;
+      firstName1c: string;
+      lastName1c: string;
+      middleName1c: string;
+      division1c: string;
+      post1c: string;
+    },
+  ): Promise<NesEmployee | null> {
+    const uo = await this.userOrgRepo.findOne({
+      where: { user: { id: user.id } },
+      relations: ['organization'],
+      order: { createdAt: 'ASC' },
+    });
+    const organization = uo?.organization;
+    if (!organization) {
+      this.logger.warn(
+        `patchEmployeeFields: mirror yaratilmadi — org yo‘q (${user.id})`,
+      );
+      return null;
+    }
+
+    const personnelNumber =
+      extractPersonnelNumberFromLogin(user.email) ??
+      (user.email.replace(/[^0-9]/g, '').slice(-6) || null);
+    if (!personnelNumber) {
+      this.logger.warn(
+        `patchEmployeeFields: mirror yaratilmadi — tabel yo‘q (${user.email})`,
+      );
+      return null;
+    }
+
+    const existingByKey = await this.employeeRepo.findOne({
+      where: {
+        personnelNumber,
+        organizationName: organization.name,
+      },
+    });
+    if (existingByKey) {
+      if (existingByKey.userId !== user.id) {
+        existingByKey.userId = user.id;
+      }
+      return this.employeeRepo.save(existingByKey);
+    }
+
+    return this.employeeRepo.save(
+      this.employeeRepo.create({
+        userId: user.id,
+        personnelNumber,
+        organizationId: organization.id,
+        organizationName: organization.name,
+        login: user.email,
+        firstName: fields.firstName,
+        lastName: fields.lastName,
+        middleName: fields.middleName,
+        division: fields.division,
+        post: fields.post,
+        fullName: [fields.lastName, fields.firstName, fields.middleName]
+          .map((p) => p.trim())
+          .filter(Boolean)
+          .join(' '),
+        initialPassword: user.initialPassword ?? null,
+        modifiedAt: null,
+        hiredAt: null,
+        lastSyncedAt: new Date(),
+        rawPayload: {
+          firstName1c: fields.firstName1c,
+          lastName1c: fields.lastName1c,
+          middleName1c: fields.middleName1c,
+          division1c: fields.division1c,
+          post1c: fields.post1c,
+        },
+      }),
+    );
   }
 
   async patchCatalogField(

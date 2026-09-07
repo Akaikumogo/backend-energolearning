@@ -72,6 +72,14 @@ export class EmployeeSafetyRecord {
   @Column({ type: 'text', name: 'doctor_conclusion', nullable: true })
   doctorConclusion: string | null;
 
+  /** Imtihon komissiyasi raisi (PDF / B-ilova). */
+  @Column({ type: 'text', name: 'commission_chair_name', nullable: true })
+  commissionChairName: string | null;
+
+  /** Tibbiy ko‘rik javobgar shaxsi. */
+  @Column({ type: 'text', name: 'medical_responsible_name', nullable: true })
+  medicalResponsibleName: string | null;
+
   @Column({ type: 'boolean', name: 'is_latest', default: true })
   isLatest: boolean;
 

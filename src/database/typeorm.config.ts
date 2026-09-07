@@ -83,6 +83,7 @@ import { ExpandTelegramBotInbox1748900000000 } from './migrations/0043-expand-te
 import { SafetyRecordDeleteArchive1749000000000 } from './migrations/0044-safety-record-delete-archive';
 import { TelegramMessageMediaUrl1749100000000 } from './migrations/0045-telegram-message-media-url';
 import { CatalogName1c1749500000000 } from './migrations/0046-catalog-name1c';
+import { SafetyBadgePdfFields1749600000000 } from './migrations/0047-safety-badge-pdf-fields';
 import { TelegramReportChat } from './entities/telegram-report-chat.entity';
 import { TelegramBotSetting } from './entities/telegram-bot-setting.entity';
 import { TelegramChatMessage } from './entities/telegram-chat-message.entity';
@@ -96,6 +97,7 @@ import { ReportingActivationHistory } from './entities/reporting-activation-hist
 import { SafetyRecordType } from './entities/safety-record-type.entity';
 import { EmployeeSafetyRecord } from './entities/employee-safety-record.entity';
 import { EmployeeSafetyRecordChange } from './entities/employee-safety-record-change.entity';
+import { EmployeeSafetyProfile } from './entities/employee-safety-profile.entity';
 import { getPostgresConnectionOptions } from './postgres-env';
 
 export const AppDataSource = new DataSource({
@@ -148,6 +150,7 @@ export const AppDataSource = new DataSource({
     SafetyRecordType,
     EmployeeSafetyRecord,
     EmployeeSafetyRecordChange,
+    EmployeeSafetyProfile,
     TelegramReportChat,
     TelegramBotSetting,
     TelegramChatMessage,
@@ -201,6 +204,7 @@ export const AppDataSource = new DataSource({
     SafetyRecordDeleteArchive1749000000000,
     TelegramMessageMediaUrl1749100000000,
     CatalogName1c1749500000000,
+    SafetyBadgePdfFields1749600000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
