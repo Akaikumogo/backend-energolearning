@@ -97,7 +97,7 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
     return { module: 'users', action: 'update' };
   }
 
-  // Reporting activation switches (hisobotdan chiqarish / qaytarish)
+  // Reporting activation: filial / bo‘lim — organizations.update
   if (
     m === 'PATCH' &&
     (/^\/admin\/reporting-activation\/organizations\/[^/]+$/.test(path) ||
@@ -105,11 +105,13 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   ) {
     return { module: 'organizations', action: 'update' };
   }
+  // Xodim hisobot switch — barcha moderatorlarga ochiq.
+  // Filial/xodim chegarasi assertUserInModeratorScope da.
   if (
     m === 'PATCH' &&
     /^\/admin\/reporting-activation\/employees\/[^/]+$/.test(path)
   ) {
-    return { module: 'students', action: 'update' };
+    return null;
   }
 
   // Field overrides (Energo ID master)
