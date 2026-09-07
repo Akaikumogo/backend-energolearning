@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   NotFoundException,
   Param,
   Post,
@@ -216,6 +217,39 @@ export class UploadController {
     };
   }
 
+  private async clearAvatar(userId: string): Promise<{
+    success: boolean;
+    avatarUrl: null;
+    energoIdSynced: boolean;
+  }> {
+    const user = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Foydalanuvchi topilmadi');
+    }
+
+    let energoIdSynced = false;
+    if (user.energoId) {
+      await this.energoIdClient.deleteUserAvatar(user.energoId);
+      energoIdSynced = true;
+    } else if (user.avatarUrl?.startsWith('/uploads/avatars/')) {
+      const local = join(process.cwd(), user.avatarUrl.replace(/^\//, ''));
+      if (fs.existsSync(local)) {
+        try {
+          fs.unlinkSync(local);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+
+    await this.usersRepo.update(userId, {
+      avatarUrl: null,
+      avatarHasFace: false,
+    });
+
+    return { success: true, avatarUrl: null, energoIdSynced };
+  }
+
   // ─── Avatar uploads (foydalanuvchi va admin) ────────────────────────────
   @Post('users/me/avatar')
   @UseGuards(JwtAuthGuard)
@@ -326,6 +360,23 @@ export class UploadController {
       hasFace: !!hasFace,
       energoIdSynced: result.energoIdSynced,
     };
+  }
+
+  @Delete('users/me/avatar')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'O‘z avatarini o‘chirish' })
+  async deleteMyAvatar(@Req() req: Request & { user: { id: string } }) {
+    return this.clearAvatar(req.user.id);
+  }
+
+  @Delete('users/:userId/avatar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'Xodim avatarini o‘chirish (Admin/Moderator)' })
+  async deleteUserAvatar(@Param('userId') userId: string) {
+    return this.clearAvatar(userId);
   }
 
   // ─── Audio upload (admin/moderator) ─────────────────────────────────────

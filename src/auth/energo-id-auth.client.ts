@@ -504,6 +504,26 @@ export class EnergoIdAuthClient {
     };
   }
 
+  async deleteUserAvatar(energoUserId: string): Promise<{ success: boolean }> {
+    const config = this.getConfig();
+    const response = await this.request(
+      `${config.baseUrl}/internal/v1/users/${encodeURIComponent(energoUserId)}/avatar`,
+      {
+        method: 'DELETE',
+        headers: {
+          'X-Platform': config.platform,
+          'X-Client-Id': config.clientId,
+          Authorization: `Bearer ${config.clientSecret}`,
+        },
+      },
+      config.timeoutMs,
+    );
+    if (!response.ok) {
+      await this.throwMappedError(response);
+    }
+    return { success: true };
+  }
+
   async uploadImage(file: {
     buffer?: Buffer;
     path?: string;
