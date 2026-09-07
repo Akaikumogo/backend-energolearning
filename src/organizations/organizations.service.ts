@@ -153,10 +153,11 @@ export class OrganizationsService {
     if (allowed.length === 0) {
       throw new NotFoundException('Xodim topilmadi');
     }
+    // DB ustunlari camelCase: "userId", "organizationId" (user_id emas)
     const link = await this.userOrgRepo
       .createQueryBuilder('uo')
-      .where('uo.user_id = :userId', { userId })
-      .andWhere('uo.organization_id IN (:...orgIds)', { orgIds: allowed })
+      .where('uo.userId = :userId', { userId })
+      .andWhere('uo.organizationId IN (:...orgIds)', { orgIds: allowed })
       .getOne();
     if (!link) {
       throw new NotFoundException('Xodim topilmadi');
