@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EmployeeSafetyRecord } from '../database/entities/employee-safety-record.entity';
 import { EmployeeSafetyRecordChange } from '../database/entities/employee-safety-record-change.entity';
+import { EmployeeSafetyProfile } from '../database/entities/employee-safety-profile.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { SafetyRecordType } from '../database/entities/safety-record-type.entity';
 import { User } from '../database/entities/user.entity';
@@ -18,6 +19,7 @@ import { SafetyRecordsService } from './safety-records.service';
       SafetyRecordType,
       EmployeeSafetyRecord,
       EmployeeSafetyRecordChange,
+      EmployeeSafetyProfile,
       User,
       NesEmployee,
     ]),

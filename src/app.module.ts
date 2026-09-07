@@ -93,6 +93,7 @@ import { SafetyRecordsModule } from './safety-records/safety-records.module';
 import { SafetyRecordType } from './database/entities/safety-record-type.entity';
 import { EmployeeSafetyRecord } from './database/entities/employee-safety-record.entity';
 import { EmployeeSafetyRecordChange } from './database/entities/employee-safety-record-change.entity';
+import { EmployeeSafetyProfile } from './database/entities/employee-safety-profile.entity';
 import { LibraryDocumentsModule } from './library-documents/library-documents.module';
 import { LibraryDocument } from './database/entities/library-document.entity';
 import { TelegramReportChat } from './database/entities/telegram-report-chat.entity';
@@ -155,6 +156,7 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
         SafetyRecordType,
         EmployeeSafetyRecord,
         EmployeeSafetyRecordChange,
+        EmployeeSafetyProfile,
         LibraryDocument,
         TelegramReportChat,
         TelegramBotSetting,

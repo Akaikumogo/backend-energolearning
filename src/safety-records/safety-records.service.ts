@@ -8,6 +8,7 @@ import { In, IsNull, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { EmployeeSafetyRecord } from '../database/entities/employee-safety-record.entity';
 import { EmployeeSafetyRecordChange } from '../database/entities/employee-safety-record-change.entity';
+import { EmployeeSafetyProfile } from '../database/entities/employee-safety-profile.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
 import { SafetyRecordType } from '../database/entities/safety-record-type.entity';
 import { User } from '../database/entities/user.entity';
@@ -17,6 +18,7 @@ import { ModeratorPermissionsService } from '../moderator-permissions/moderator-
 import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
 import {
   RejectSafetyChangeDto,
+  UpsertSafetyProfileDto,
   UpsertSafetyRecordDto,
 } from './dto/safety-record.dto';
 
@@ -37,6 +39,8 @@ const FIELD_KEYS = [
   'protocolNumber',
   'protocolDate',
   'doctorConclusion',
+  'commissionChairName',
+  'medicalResponsibleName',
 ] as const;
 
 @Injectable()
@@ -48,6 +52,8 @@ export class SafetyRecordsService {
     private readonly recordRepo: Repository<EmployeeSafetyRecord>,
     @InjectRepository(EmployeeSafetyRecordChange)
     private readonly changeRepo: Repository<EmployeeSafetyRecordChange>,
+    @InjectRepository(EmployeeSafetyProfile)
+    private readonly profileRepo: Repository<EmployeeSafetyProfile>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(NesEmployee)
@@ -62,9 +68,54 @@ export class SafetyRecordsService {
     return this.typeRepo.find({ order: { sortOrder: 'ASC' } });
   }
 
+  async getOrCreateProfile(employeeUserId: string) {
+    let profile = await this.profileRepo.findOne({
+      where: { userId: employeeUserId },
+    });
+    if (!profile) {
+      profile = await this.profileRepo.save(
+        this.profileRepo.create({
+          userId: employeeUserId,
+          specialWorks: 'Йўқ',
+          specialWorkType: 'Йўқ',
+        }),
+      );
+    }
+    return this.mapProfile(profile);
+  }
+
+  async upsertProfile(
+    employeeUserId: string,
+    dto: UpsertSafetyProfileDto,
+    actor: Actor,
+  ) {
+    await this.assertEmployeeAccess(employeeUserId, actor);
+    let profile = await this.profileRepo.findOne({
+      where: { userId: employeeUserId },
+    });
+    if (!profile) {
+      profile = this.profileRepo.create({
+        userId: employeeUserId,
+        specialWorks: 'Йўқ',
+        specialWorkType: 'Йўқ',
+      });
+    }
+    if (dto.specialWorks !== undefined) {
+      profile.specialWorks = (dto.specialWorks ?? '').trim() || 'Йўқ';
+    }
+    if (dto.specialWorkType !== undefined) {
+      profile.specialWorkType = (dto.specialWorkType ?? '').trim() || 'Йўқ';
+    }
+    profile.updatedBy = actor.id;
+    const saved = await this.profileRepo.save(profile);
+    await this.syncSafetyBadgeToEnergo(employeeUserId);
+    return this.mapProfile(saved);
+  }
+
   async listForEmployee(employeeUserId: string, actor: Actor) {
     await this.assertEmployeeAccess(employeeUserId, actor);
     const types = await this.listTypes();
+    const profile = await this.getOrCreateProfile(employeeUserId);
     let records = await this.recordRepo.find({
       where: { userId: employeeUserId },
       relations: [
@@ -99,7 +150,7 @@ export class SafetyRecordsService {
       activePending.map((c) => [c.recordTypeCode, c]),
     );
 
-    return types.map((type) => {
+    const sections = types.map((type) => {
       const typeRecords = records.filter((r) => r.recordTypeId === type.id);
       const record =
         typeRecords.find((r) => r.isLatest && !r.deletedAt) ?? null;
@@ -111,6 +162,8 @@ export class SafetyRecordsService {
         pendingChange: pending ? this.mapChange(pending) : null,
       };
     });
+
+    return { profile, sections };
   }
 
   async listHistory(
@@ -718,6 +771,12 @@ export class SafetyRecordsService {
     if (dto.doctorConclusion !== undefined) {
       record.doctorConclusion = dto.doctorConclusion;
     }
+    if (dto.commissionChairName !== undefined) {
+      record.commissionChairName = dto.commissionChairName;
+    }
+    if (dto.medicalResponsibleName !== undefined) {
+      record.medicalResponsibleName = dto.medicalResponsibleName;
+    }
   }
 
   private snapshot(record: EmployeeSafetyRecord): Record<string, unknown> {
@@ -780,6 +839,8 @@ export class SafetyRecordsService {
       protocolNumber: record.protocolNumber,
       protocolDate: record.protocolDate,
       doctorConclusion: record.doctorConclusion,
+      commissionChairName: record.commissionChairName,
+      medicalResponsibleName: record.medicalResponsibleName,
       isLatest: record.isLatest,
       approvalStatus: record.approvalStatus,
       createdBy: this.mapUserBrief(record.createdByUser),
@@ -819,9 +880,19 @@ export class SafetyRecordsService {
     };
   }
 
+  private mapProfile(profile: EmployeeSafetyProfile) {
+    return {
+      userId: profile.userId,
+      specialWorks: profile.specialWorks || 'Йўқ',
+      specialWorkType: profile.specialWorkType || 'Йўқ',
+      updatedAt: profile.updatedAt,
+    };
+  }
+
   /** Ochiq guvohnoma / beydj uchun — oxirgi tasdiqlangan yozuvlar. */
   async publicBadgeForUser(userId: string) {
     const types = await this.listTypes();
+    const profile = await this.profileRepo.findOne({ where: { userId } });
     const records = await this.recordRepo.find({
       where: {
         userId,
@@ -864,12 +935,15 @@ export class SafetyRecordsService {
         protocolNumber: row?.protocolNumber ?? null,
         protocolDate: row?.protocolDate ?? null,
         doctorConclusion: row?.doctorConclusion ?? null,
+        commissionChairName: row?.commissionChairName ?? null,
+        medicalResponsibleName: row?.medicalResponsibleName ?? null,
       };
     });
 
     return {
       exams,
-      specialWorks: 'Йўқ',
+      specialWorks: profile?.specialWorks?.trim() || 'Йўқ',
+      specialWorkType: profile?.specialWorkType?.trim() || 'Йўқ',
     };
   }
 
