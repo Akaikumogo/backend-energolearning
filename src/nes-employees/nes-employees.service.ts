@@ -1332,15 +1332,15 @@ export class NesEmployeesService {
       `
       DELETE FROM user_organizations d
       USING user_organizations k
-      WHERE d.user_id = $1::uuid
-        AND k.user_id = $2::uuid
-        AND d.organization_id = k.organization_id
+      WHERE d."userId" = $1::uuid
+        AND k."userId" = $2::uuid
+        AND d."organizationId" = k."organizationId"
       `,
       [loser.id, keeper.id],
     );
     await run(
       'user_organizations.move',
-      `UPDATE user_organizations SET user_id = $2::uuid WHERE user_id = $1::uuid`,
+      `UPDATE user_organizations SET "userId" = $2::uuid WHERE "userId" = $1::uuid`,
       [loser.id, keeper.id],
     );
     await run(
@@ -1578,16 +1578,15 @@ export class NesEmployeesService {
         if (orgName) {
           const org = await this.upsertOrganizationMirror({ name: orgName });
           organizationId = org.id;
-          const exists = await this.userOrgRepo
-            .createQueryBuilder('uo')
-            .where('uo.user_id = :userId', { userId: orphan.id })
-            .andWhere('uo.organization_id = :organizationId', {
-              organizationId: org.id,
-            })
-            .getOne();
-          if (!exists) {
+          const exists = await this.dataSource.query(
+            `SELECT 1 FROM user_organizations
+             WHERE "userId" = $1::uuid AND "organizationId" = $2::uuid
+             LIMIT 1`,
+            [orphan.id, org.id],
+          );
+          if (!exists?.length) {
             await this.dataSource.query(
-              `INSERT INTO user_organizations (id, user_id, organization_id, created_at)
+              `INSERT INTO user_organizations (id, "userId", "organizationId", created_at)
                VALUES (gen_random_uuid(), $1::uuid, $2::uuid, NOW())
                ON CONFLICT DO NOTHING`,
               [orphan.id, org.id],
