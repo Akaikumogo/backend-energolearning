@@ -183,6 +183,34 @@ export class NesEmployeesController {
     return this.nesEmployeesService.dedupeSuffixEmployees();
   }
 
+  @Get('diagnose-orphan-xp')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary:
+      'Arxivlangan (energo_id=NULL) lekin XP bor userlar — Farg‘ona 0 ball diagnostikasi',
+  })
+  async diagnoseOrphanXp(@Req() req: AuthedRequest) {
+    await this.assertCanSync(req);
+    return this.nesEmployeesService.diagnoseOrphanXp();
+  }
+
+  @Post('restore-orphan-xp')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary:
+      'Arxivlangan XP userlarni tiklash yoki aktiv akkauntga birlashtirish',
+  })
+  @ApiQuery({ name: 'dryRun', required: false, type: Boolean })
+  async restoreOrphanXp(
+    @Req() req: AuthedRequest,
+    @Query('dryRun') dryRun?: string,
+  ) {
+    await this.assertCanSync(req);
+    return this.nesEmployeesService.restoreOrphanXpUsers(
+      dryRun === '1' || dryRun === 'true',
+    );
+  }
+
   @Get('export-credentials')
   @Roles(Role.SUPERADMIN)
   @ApiOperation({

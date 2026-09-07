@@ -1402,6 +1402,324 @@ export class NesEmployeesService {
     return cleaned;
   }
 
+  /**
+   * Sync arxivlagan (energo_id=NULL) lekin XP/urinishi bor userlarni tiklash.
+   * Sabab: dublikat UUID syncda "yo‘q" deb belgilanib, reytingdan tushib qolgan.
+   */
+  async restoreOrphanXpUsers(dryRun = false): Promise<{
+    dryRun: boolean;
+    restored: number;
+    mergedIntoActive: number;
+    samples: Array<{
+      action: 'restore' | 'merge';
+      orphanUserId: string;
+      orphanEmail: string;
+      xpAnswers: number;
+      energoId?: string | null;
+      targetUserId?: string;
+    }>;
+  }> {
+    const orphans: Array<{
+      id: string;
+      email: string;
+      first_name: string;
+      last_name: string;
+      xp_ans: string;
+      old_energo_id: string | null;
+      personnel_number: string | null;
+      organization_name: string | null;
+      division: string | null;
+      post: string | null;
+      middle_name: string | null;
+    }> = await this.dataSource.query(`
+      SELECT
+        u.id,
+        u.email,
+        u.first_name,
+        u.last_name,
+        COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp)::text AS xp_ans,
+        (
+          SELECT t.energo_id::text
+          FROM terminated_employees t
+          WHERE t.user_id = u.id
+          ORDER BY t.terminated_at DESC
+          LIMIT 1
+        ) AS old_energo_id,
+        (
+          SELECT t.personnel_number
+          FROM terminated_employees t
+          WHERE t.user_id = u.id
+          ORDER BY t.terminated_at DESC
+          LIMIT 1
+        ) AS personnel_number,
+        (
+          SELECT t.organization_name
+          FROM terminated_employees t
+          WHERE t.user_id = u.id
+          ORDER BY t.terminated_at DESC
+          LIMIT 1
+        ) AS organization_name,
+        (
+          SELECT t.division FROM terminated_employees t
+          WHERE t.user_id = u.id ORDER BY t.terminated_at DESC LIMIT 1
+        ) AS division,
+        (
+          SELECT t.post FROM terminated_employees t
+          WHERE t.user_id = u.id ORDER BY t.terminated_at DESC LIMIT 1
+        ) AS post,
+        (
+          SELECT t.snapshot->>'middleName'
+          FROM terminated_employees t
+          WHERE t.user_id = u.id
+          ORDER BY t.terminated_at DESC
+          LIMIT 1
+        ) AS middle_name
+      FROM users u
+      JOIN user_question_attempts a ON a.user_id = u.id
+      WHERE u.energo_id IS NULL
+        AND u.role IN ('USER', 'MODERATOR')
+      GROUP BY u.id
+      HAVING COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp) > 0
+      ORDER BY COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp) DESC
+    `);
+
+    let restored = 0;
+    let mergedIntoActive = 0;
+    const samples: Array<{
+      action: 'restore' | 'merge';
+      orphanUserId: string;
+      orphanEmail: string;
+      xpAnswers: number;
+      energoId?: string | null;
+      targetUserId?: string;
+    }> = [];
+
+    for (const orphan of orphans) {
+      const xpAnswers = Number(orphan.xp_ans || 0);
+      const oldEnergoId = orphan.old_energo_id?.trim() || null;
+
+      let holder: User | null = null;
+      if (oldEnergoId) {
+        holder = await this.userRepo.findOne({
+          where: { energoId: oldEnergoId },
+        });
+      }
+
+      // Bir xil odam: aktiv (energo_id bor) + soft F.I.O / tabel
+      if (!holder && orphan.personnel_number) {
+        const fullName = [orphan.last_name, orphan.first_name, orphan.middle_name]
+          .map((p) => (p ?? '').trim())
+          .filter(Boolean)
+          .join(' ');
+        const candidates = await this.employeeRepo.find({
+          where: { personnelNumber: orphan.personnel_number },
+          take: 20,
+        });
+        for (const mirror of candidates) {
+          const u = await this.userRepo.findOne({
+            where: { id: mirror.userId },
+          });
+          if (!u?.energoId) continue;
+          if (
+            fullName &&
+            !personNamesEquivalent(
+              fullName,
+              `${u.lastName} ${u.firstName}`.trim() || mirror.fullName || '',
+            )
+          ) {
+            continue;
+          }
+          holder = u;
+          break;
+        }
+      }
+
+      if (holder && holder.id !== orphan.id) {
+        samples.push({
+          action: 'merge',
+          orphanUserId: orphan.id,
+          orphanEmail: orphan.email,
+          xpAnswers,
+          energoId: holder.energoId,
+          targetUserId: holder.id,
+        });
+        if (!dryRun) {
+          await this.mergeElUsersPreferBase(holder.id, orphan.id);
+        }
+        mergedIntoActive += 1;
+        continue;
+      }
+
+      if (!oldEnergoId) continue;
+
+      // energo_id band emas — orphan ni qayta ochamiz
+      const taken = await this.userRepo.findOne({
+        where: { energoId: oldEnergoId },
+      });
+      if (taken && taken.id !== orphan.id) continue;
+
+      samples.push({
+        action: 'restore',
+        orphanUserId: orphan.id,
+        orphanEmail: orphan.email,
+        xpAnswers,
+        energoId: oldEnergoId,
+      });
+
+      if (!dryRun) {
+        await this.userRepo.update(orphan.id, {
+          energoId: oldEnergoId,
+          reportActive: true,
+          loginBlocked: false,
+        });
+
+        const orgName = orphan.organization_name?.trim() || '';
+        let organizationId: string | null = null;
+        if (orgName) {
+          const org = await this.upsertOrganizationMirror({ name: orgName });
+          organizationId = org.id;
+          const exists = await this.userOrgRepo
+            .createQueryBuilder('uo')
+            .where('uo.user_id = :userId', { userId: orphan.id })
+            .andWhere('uo.organization_id = :organizationId', {
+              organizationId: org.id,
+            })
+            .getOne();
+          if (!exists) {
+            await this.dataSource.query(
+              `INSERT INTO user_organizations (id, user_id, organization_id, created_at)
+               VALUES (gen_random_uuid(), $1::uuid, $2::uuid, NOW())
+               ON CONFLICT DO NOTHING`,
+              [orphan.id, org.id],
+            );
+          }
+        }
+
+        const pn = orphan.personnel_number?.trim();
+        if (pn && organizationId) {
+          const existingMirror = await this.employeeRepo.findOne({
+            where: { userId: orphan.id },
+          });
+          if (!existingMirror) {
+            const login =
+              orphan.email?.includes('@')
+                ? orphan.email.split('@')[0]!
+                : orphan.email || pn;
+            await this.employeeRepo.save(
+              this.employeeRepo.create({
+                userId: orphan.id,
+                personnelNumber: pn,
+                organizationId,
+                organizationName: orgName,
+                division: orphan.division ?? '',
+                post: orphan.post ?? '',
+                firstName: orphan.first_name ?? '',
+                lastName: orphan.last_name ?? '',
+                middleName: orphan.middle_name ?? '',
+                fullName: [
+                  orphan.last_name,
+                  orphan.first_name,
+                  orphan.middle_name,
+                ]
+                  .map((p) => (p ?? '').trim())
+                  .filter(Boolean)
+                  .join(' '),
+                login,
+                lastSyncedAt: new Date(),
+              }),
+            );
+          }
+        }
+      }
+      restored += 1;
+    }
+
+    this.logger.warn(
+      `restoreOrphanXp: dryRun=${dryRun} restored=${restored} merged=${mergedIntoActive} candidates=${orphans.length}`,
+    );
+
+    return {
+      dryRun,
+      restored,
+      mergedIntoActive,
+      samples: samples.slice(0, 50),
+    };
+  }
+
+  async diagnoseOrphanXp(): Promise<{
+    orphanUsersWithXp: number;
+    orphanXpAnswers: number;
+    activeUsersWithXp: number;
+    activeXpAnswers: number;
+    terminatedRows: number;
+    topOrphans: Array<{
+      email: string;
+      xpAnswers: number;
+      oldEnergoId: string | null;
+      personnelNumber: string | null;
+      organizationName: string | null;
+    }>;
+  }> {
+    const [orphan, active, terminated, top] = await Promise.all([
+      this.dataSource.query(`
+        SELECT
+          COUNT(DISTINCT u.id)::int AS users,
+          COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp)::int AS xp_answers
+        FROM users u
+        JOIN user_question_attempts a ON a.user_id = u.id
+        WHERE u.energo_id IS NULL AND u.role IN ('USER', 'MODERATOR')
+      `),
+      this.dataSource.query(`
+        SELECT
+          COUNT(DISTINCT u.id)::int AS users,
+          COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp)::int AS xp_answers
+        FROM users u
+        JOIN user_question_attempts a ON a.user_id = u.id
+        WHERE u.energo_id IS NOT NULL AND u.role IN ('USER', 'MODERATOR')
+      `),
+      this.dataSource.query(`SELECT COUNT(*)::int AS cnt FROM terminated_employees`),
+      this.dataSource.query(`
+        SELECT
+          u.email,
+          COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp)::int AS xp_answers,
+          (
+            SELECT t.energo_id::text FROM terminated_employees t
+            WHERE t.user_id = u.id ORDER BY t.terminated_at DESC LIMIT 1
+          ) AS old_energo_id,
+          (
+            SELECT t.personnel_number FROM terminated_employees t
+            WHERE t.user_id = u.id ORDER BY t.terminated_at DESC LIMIT 1
+          ) AS personnel_number,
+          (
+            SELECT t.organization_name FROM terminated_employees t
+            WHERE t.user_id = u.id ORDER BY t.terminated_at DESC LIMIT 1
+          ) AS organization_name
+        FROM users u
+        JOIN user_question_attempts a ON a.user_id = u.id
+        WHERE u.energo_id IS NULL AND u.role IN ('USER', 'MODERATOR')
+        GROUP BY u.id
+        HAVING COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp) > 0
+        ORDER BY xp_answers DESC
+        LIMIT 20
+      `),
+    ]);
+
+    return {
+      orphanUsersWithXp: Number(orphan[0]?.users ?? 0),
+      orphanXpAnswers: Number(orphan[0]?.xp_answers ?? 0),
+      activeUsersWithXp: Number(active[0]?.users ?? 0),
+      activeXpAnswers: Number(active[0]?.xp_answers ?? 0),
+      terminatedRows: Number(terminated[0]?.cnt ?? 0),
+      topOrphans: (top as Array<Record<string, unknown>>).map((r) => ({
+        email: String(r.email ?? ''),
+        xpAnswers: Number(r.xp_answers ?? 0),
+        oldEnergoId: (r.old_energo_id as string | null) ?? null,
+        personnelNumber: (r.personnel_number as string | null) ?? null,
+        organizationName: (r.organization_name as string | null) ?? null,
+      })),
+    };
+  }
+
   async getFilterOptions(allowedOrgIds?: string[] | null) {
     if (allowedOrgIds && allowedOrgIds.length === 0) {
       return { organizations: [], divisions: [] };
