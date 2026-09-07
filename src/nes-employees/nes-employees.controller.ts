@@ -211,6 +211,17 @@ export class NesEmployeesController {
     );
   }
 
+  @Get('duplicates')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary:
+      'Dublikat xodimlarni topish (hech narsani o\'zgartirmaydi). Energo ID da tab № o\'zgartirganda ikkita user paydo bo\'lishi mumkin.',
+  })
+  async duplicates(@Req() req: AuthedRequest) {
+    await this.assertCanSync(req);
+    return this.nesEmployeesService.listDuplicateGroups();
+  }
+
   @Get('export-credentials')
   @Roles(Role.SUPERADMIN)
   @ApiOperation({

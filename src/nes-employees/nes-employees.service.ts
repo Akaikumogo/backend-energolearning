@@ -32,6 +32,7 @@ import {
   extractPersonnelNumberFromLogin,
 } from '../common/utils/personnel-number.util';
 import { personNamesEquivalent } from '../common/utils/person-name.util';
+import { clusterElDuplicateUsers } from './el-duplicate-users.util';
 
 @Injectable()
 export class NesEmployeesService {
@@ -1419,6 +1420,76 @@ export class NesEmployeesService {
   async dedupeSuffixEmployees() {
     const cleaned = await this.cleanupStaleNesMirrors();
     return cleaned;
+  }
+
+  /**
+   * Dublikat xodimlarni topish (hech narsani o'zgartirmaydi).
+   * Energo ID da tab № o'zgartirganda (8192 → 81922) ikkita user paydo bo'lishi
+   * mumkin. Bu ushbu userlarni guruhlaydi va qaysi biri asosiy ekanligini ko'rsatadi.
+   */
+  async listDuplicateGroups(): Promise<{
+    groups: Array<{
+      keeperId: string;
+      keeperEmail: string | null;
+      members: Array<{
+        id: string;
+        email: string | null;
+        firstName: string;
+        lastName: string;
+        middleName: string | null;
+        personnelNumber: string | null;
+        organizationName: string | null;
+        energoId: string | null;
+        createdAt: string;
+      }>;
+    }>;
+    totalGroups: number;
+    totalDuplicates: number;
+  }> {
+    const users = await this.userRepo
+      .createQueryBuilder('u')
+      .where('u.role IN (:...roles)', {
+        roles: [...REPORTING_ROLES],
+      })
+      .orderBy('u.createdAt', 'ASC')
+      .getMany();
+
+    const mirrorByUser = new Map<string, NesEmployee>();
+    const mirrors = await this.employeeRepo.find();
+    for (const m of mirrors) {
+      if (!mirrorByUser.has(m.userId)) mirrorByUser.set(m.userId, m);
+    }
+
+    const clusters = clusterElDuplicateUsers(users);
+
+    const groups = await Promise.all(
+      clusters.map(async (c) => ({
+        keeperId: c.keeperId,
+        keeperEmail:
+          users.find((u) => u.id === c.keeperId)?.email ?? null,
+        members: c.memberIds.map((id) => {
+          const u = users.find((x) => x.id === id)!;
+          const mirror = mirrorByUser.get(id);
+          return {
+            id: u.id,
+            email: u.email ?? null,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            middleName: mirror?.middleName ?? null,
+            personnelNumber: mirror?.personnelNumber ?? null,
+            organizationName: mirror?.organizationName ?? null,
+            energoId: u.energoId ?? null,
+            createdAt: u.createdAt.toISOString(),
+          };
+        }),
+      })),
+    );
+
+    return {
+      groups,
+      totalGroups: groups.length,
+      totalDuplicates: groups.reduce((sum, g) => sum + g.members.length - 1, 0),
+    };
   }
 
   /**
