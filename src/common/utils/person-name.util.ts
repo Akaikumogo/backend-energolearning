@@ -32,5 +32,8 @@ export function personNamesEquivalent(a: string, b: string) {
   const fa = foldPersonNameKey(a);
   const fb = foldPersonNameKey(b);
   if (!fa || !fb) return false;
-  return fa === fb;
+  if (fa === fb) return true;
+  const shortA = fa.split(/\s+/).filter(Boolean).slice(0, 2).join(' ');
+  const shortB = fb.split(/\s+/).filter(Boolean).slice(0, 2).join(' ');
+  return Boolean(shortA && shortB && shortA === shortB);
 }
