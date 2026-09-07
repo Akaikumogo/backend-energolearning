@@ -59,13 +59,13 @@ async function main() {
         COALESCE(SUM(xp.cnt) FILTER (WHERE u.energo_id IS NOT NULL), 0)::int AS xp_on_active,
         COALESCE(SUM(xp.cnt) FILTER (WHERE u.energo_id IS NULL), 0)::int AS xp_on_orphan
       FROM user_organizations uo
-      JOIN users u ON u.id = uo.user_id
+      JOIN users u ON u.id = uo."userId"
       LEFT JOIN LATERAL (
         SELECT COUNT(*)::int AS cnt
         FROM user_question_attempts a
         WHERE a.user_id = u.id AND a.is_correct AND a.counts_for_xp
       ) xp ON true
-      WHERE uo.organization_id = $1
+      WHERE uo."organizationId" = $1
         AND u.role IN ('USER', 'MODERATOR')
       `,
       [org.id],
