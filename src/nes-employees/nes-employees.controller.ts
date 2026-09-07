@@ -172,6 +172,17 @@ export class NesEmployeesController {
     return this.nesEmployeesService.syncFromNes();
   }
 
+  @Post('dedupe-suffix')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary:
+      'Suffix tabel dublikatlarini tozalash (01921→0192), XP eski userda qoladi',
+  })
+  async dedupeSuffix(@Req() req: AuthedRequest) {
+    await this.assertCanSync(req);
+    return this.nesEmployeesService.dedupeSuffixEmployees();
+  }
+
   @Get('export-credentials')
   @Roles(Role.SUPERADMIN)
   @ApiOperation({
