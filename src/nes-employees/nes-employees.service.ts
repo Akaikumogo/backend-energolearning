@@ -30,6 +30,7 @@ import {
   resolvePersonnelNumber,
   withPersonnelNumberSuffix,
 } from '../common/utils/personnel-number.util';
+import { personNamesEquivalent } from '../common/utils/person-name.util';
 
 @Injectable()
 export class NesEmployeesService {
@@ -286,9 +287,13 @@ export class NesEmployeesService {
 
       const hidden = await this.finalizeMissingEnergoEmployees(activeEnergoIds);
       const cleaned = await this.cleanupStaleNesMirrors();
-      if (cleaned.duplicatesRemoved > 0 || cleaned.orphansRemoved > 0) {
+      if (
+        cleaned.duplicatesRemoved > 0 ||
+        cleaned.orphansRemoved > 0 ||
+        cleaned.suffixDupesRemoved > 0
+      ) {
         this.logger.log(
-          `Sync finalize cleanup: dup=${cleaned.duplicatesRemoved}, orphan=${cleaned.orphansRemoved}`,
+          `Sync finalize cleanup: dup=${cleaned.duplicatesRemoved}, orphan=${cleaned.orphansRemoved}, suffix=${cleaned.suffixDupesRemoved}`,
         );
       }
 
@@ -769,6 +774,23 @@ export class NesEmployeesService {
     userId: string,
     excludeMirrorId?: string | null,
   ): Promise<boolean> {
+    const conflict = await this.findPersonnelOrgConflict(
+      candidate,
+      organizationId,
+      organizationName,
+      excludeMirrorId,
+    );
+    if (!conflict) return false;
+    if (conflict.userId === userId) return false;
+    return true;
+  }
+
+  private async findPersonnelOrgConflict(
+    candidate: string,
+    organizationId: string,
+    organizationName: string,
+    excludeMirrorId?: string | null,
+  ): Promise<NesEmployee | null> {
     const qb = this.employeeRepo
       .createQueryBuilder('e')
       .where('e.personnel_number = :candidate', { candidate })
@@ -781,9 +803,45 @@ export class NesEmployeesService {
       qb.andWhere('e.id != :excludeMirrorId', { excludeMirrorId });
     }
 
-    const conflict = await qb.getOne();
-    if (!conflict) return false;
-    if (conflict.userId === userId) return false;
+    return qb.getOne();
+  }
+
+  /**
+   * Bir xil odam (F.I.O≈) boshqa user mirrorida bo‘lsa — tabelni qaytarib olamiz.
+   * Aks holda 01921 kabi suffix chiqadi.
+   */
+  private async reclaimPersonnelIfSamePerson(
+    basePersonnelNumber: string,
+    organizationId: string,
+    organizationName: string,
+    userId: string,
+    incomingFullName: string,
+    existingMirrorId?: string | null,
+  ): Promise<boolean> {
+    const conflict = await this.findPersonnelOrgConflict(
+      basePersonnelNumber,
+      organizationId,
+      organizationName,
+      existingMirrorId,
+    );
+    if (!conflict || conflict.userId === userId) return false;
+    if (!personNamesEquivalent(conflict.fullName ?? '', incomingFullName)) {
+      return false;
+    }
+
+    if (existingMirrorId && existingMirrorId !== conflict.id) {
+      await this.employeeRepo.delete(conflict.id);
+      this.logger.warn(
+        `Tabel ${basePersonnelNumber}: bir xil F.I.O dublikat mirror o‘chirildi (${conflict.login})`,
+      );
+      return true;
+    }
+
+    conflict.userId = userId;
+    await this.employeeRepo.save(conflict);
+    this.logger.warn(
+      `Tabel ${basePersonnelNumber}: bir xil F.I.O — mirror ${conflict.login} → yangi user ga biriktirildi`,
+    );
     return true;
   }
 
@@ -795,7 +853,19 @@ export class NesEmployeesService {
     userId: string,
     existingMirrorId?: string | null,
     startSuffix = 0,
+    incomingFullName = '',
   ): Promise<string> {
+    if (startSuffix === 0 && incomingFullName) {
+      await this.reclaimPersonnelIfSamePerson(
+        basePersonnelNumber,
+        organizationId,
+        organizationName,
+        userId,
+        incomingFullName,
+        existingMirrorId,
+      );
+    }
+
     for (let suffix = startSuffix; suffix <= 99; suffix += 1) {
       const candidate = withPersonnelNumberSuffix(basePersonnelNumber, suffix);
       const hasConflict = await this.hasPersonnelOrgConflict(
@@ -829,6 +899,7 @@ export class NesEmployeesService {
   ): Promise<void> {
     let mirror = existing;
     let startSuffix = 0;
+    const incomingFullName = String(payload.fullName ?? '');
 
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const personnelNumber = await this.resolveUniquePersonnelNumberInOrg(
@@ -838,6 +909,7 @@ export class NesEmployeesService {
         userId,
         mirror?.id,
         startSuffix,
+        incomingFullName,
       );
       startSuffix =
         personnelNumber === basePersonnelNumber
@@ -1027,6 +1099,7 @@ export class NesEmployeesService {
   private async cleanupStaleNesMirrors(): Promise<{
     duplicatesRemoved: number;
     orphansRemoved: number;
+    suffixDupesRemoved: number;
   }> {
     const dupResult = await this.dataSource.query(`
       WITH ranked AS (
@@ -1063,14 +1136,82 @@ export class NesEmployeesService {
       [Role.USER],
     );
 
+    const suffixDupesRemoved = await this.cleanupPersonnelSuffixDuplicates();
+
     const duplicatesRemoved = Number(dupResult?.[0]?.cnt ?? 0);
     const orphansRemoved = Number(orphanResult?.[0]?.cnt ?? 0);
-    if (duplicatesRemoved > 0 || orphansRemoved > 0) {
+    if (duplicatesRemoved > 0 || orphansRemoved > 0 || suffixDupesRemoved > 0) {
       this.logger.log(
-        `nes_employees cleanup: duplicates=${duplicatesRemoved}, orphans=${orphansRemoved}`,
+        `nes_employees cleanup: duplicates=${duplicatesRemoved}, orphans=${orphansRemoved}, suffixDupes=${suffixDupesRemoved}`,
       );
     }
-    return { duplicatesRemoved, orphansRemoved };
+    return { duplicatesRemoved, orphansRemoved, suffixDupesRemoved };
+  }
+
+  /**
+   * Bir filialda 0192 + 01921 (suffix) bir xil F.I.O bo‘lsa — asosiy tabelni qoldiradi.
+   */
+  private async cleanupPersonnelSuffixDuplicates(): Promise<number> {
+    const rows = await this.employeeRepo
+      .createQueryBuilder('e')
+      .orderBy('e.last_synced_at', 'DESC')
+      .addOrderBy('e.updated_at', 'DESC')
+      .getMany();
+
+    const byOrgBase = new Map<string, NesEmployee[]>();
+    for (const row of rows) {
+      const org =
+        (row.organizationId || row.organizationName || '').trim() || '_';
+      const key = `${org}|${row.personnelNumber}`;
+      const list = byOrgBase.get(key) ?? [];
+      list.push(row);
+      byOrgBase.set(key, list);
+    }
+
+    const toDelete: string[] = [];
+    const seen = new Set<string>();
+
+    for (const row of rows) {
+      if (seen.has(row.id) || toDelete.includes(row.id)) continue;
+      const pn = row.personnelNumber?.trim() ?? '';
+      if (!pn) continue;
+
+      // suffix: base + "1".."99" (01921 → base 0192)
+      let base: string | null = null;
+      for (let s = 1; s <= 99; s += 1) {
+        const suffix = String(s);
+        if (pn.length > suffix.length && pn.endsWith(suffix)) {
+          const candidate = pn.slice(0, -suffix.length);
+          if (candidate && /^\d+$/.test(candidate)) {
+            base = candidate;
+            break;
+          }
+        }
+      }
+      if (!base) continue;
+
+      const org = (row.organizationId || row.organizationName || '').trim() || '_';
+      const baseKey = `${org}|${base}`;
+      const baseRows = byOrgBase.get(baseKey) ?? [];
+      const match = baseRows.find(
+        (b) =>
+          b.id !== row.id &&
+          personNamesEquivalent(b.fullName ?? '', row.fullName ?? ''),
+      );
+      if (!match) continue;
+
+      // Asosiy tabel (0192) saqlanadi, suffix (01921) o‘chiriladi
+      toDelete.push(row.id);
+      seen.add(row.id);
+      this.logger.warn(
+        `Suffix dublikat o‘chirildi: ${row.personnelNumber} (${row.fullName}) — asosiy ${match.personnelNumber}`,
+      );
+    }
+
+    if (toDelete.length > 0) {
+      await this.employeeRepo.delete(toDelete);
+    }
+    return toDelete.length;
   }
 
   async getFilterOptions(allowedOrgIds?: string[] | null) {
@@ -1497,31 +1638,61 @@ export class NesEmployeesService {
     }
 
     if (!org) {
-      return this.orgRepo.save(
-        this.orgRepo.create({
-          name,
-          energoBranchId: input.energoBranchId ?? null,
-          energoExternalId: input.externalId ?? null,
-          branchCode: input.code ?? null,
-          archivedAt: null,
-        }),
-      );
+      try {
+        return await this.orgRepo.save(
+          this.orgRepo.create({
+            name,
+            energoBranchId: input.energoBranchId ?? null,
+            energoExternalId: input.externalId ?? null,
+            branchCode: input.code ?? null,
+            archivedAt: null,
+          }),
+        );
+      } catch (error) {
+        if (!this.isUniqueNameViolation(error)) throw error;
+        org = await this.orgRepo.findOne({ where: { name } });
+        if (!org) throw error;
+      }
     }
 
     await this.mergeEquivalentOrganizationsInto(org.id, name);
     await this.releaseOrganizationName(name, org.id);
 
-    await this.orgRepo.update(org.id, {
-      name,
-      energoBranchId: input.energoBranchId ?? org.energoBranchId,
-      energoExternalId: input.externalId ?? org.energoExternalId,
-      branchCode: input.code ?? org.branchCode,
-      archivedAt: null,
-    });
+    try {
+      await this.orgRepo.update(org.id, {
+        name,
+        energoBranchId: input.energoBranchId ?? org.energoBranchId,
+        energoExternalId: input.externalId ?? org.energoExternalId,
+        branchCode: input.code ?? org.branchCode,
+        archivedAt: null,
+      });
+    } catch (error) {
+      if (!this.isUniqueNameViolation(error)) throw error;
+      // Nom band — conflictni yana bo‘shatib qayta urinish
+      await this.releaseOrganizationName(name, org.id);
+      await this.orgRepo.update(org.id, {
+        name,
+        energoBranchId: input.energoBranchId ?? org.energoBranchId,
+        energoExternalId: input.externalId ?? org.energoExternalId,
+        branchCode: input.code ?? org.branchCode,
+        archivedAt: null,
+      });
+    }
 
     return this.orgRepo.findOne({
       where: { id: org.id },
     }) as Promise<Organization>;
+  }
+
+  private isUniqueNameViolation(error: unknown): boolean {
+    const err = error as { code?: string; message?: string; driverError?: { code?: string } };
+    const code = err?.code ?? err?.driverError?.code;
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      code === '23505' ||
+      message.includes('organizations_name_key') ||
+      message.includes('duplicate key')
+    );
   }
 
   /** Bir xil normalize qilingan nomdagi boshqa filiallarni keepOrg ga birlashtiradi. */
