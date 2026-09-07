@@ -980,19 +980,21 @@ export class NesEmployeesService {
       organizationName,
       user.id,
       {
-        division: employee.division ?? '',
-        post: employee.post ?? '',
+        // Bo‘sh sync qiymati mavjud display (override) ni o‘chirmasin
+        division: (employee.division ?? '').trim() || existing?.division || '',
+        post: (employee.post ?? '').trim() || existing?.post || '',
         fullName: [
-          employee.lastName ?? '',
-          employee.firstName ?? '',
-          employee.middleName ?? '',
+          (employee.lastName ?? '').trim() || existing?.lastName || '',
+          (employee.firstName ?? '').trim() || existing?.firstName || '',
+          (employee.middleName ?? '').trim() || existing?.middleName || '',
         ]
           .map((p) => p.trim())
           .filter(Boolean)
           .join(' '),
-        lastName: employee.lastName ?? '',
-        firstName: employee.firstName ?? '',
-        middleName: employee.middleName?.trim() || '',
+        lastName: (employee.lastName ?? '').trim() || existing?.lastName || '',
+        firstName: (employee.firstName ?? '').trim() || existing?.firstName || '',
+        middleName:
+          (employee.middleName ?? '').trim() || existing?.middleName || '',
         modifiedAt: null,
         hiredAt: null,
         login: employee.login,
@@ -1000,11 +1002,27 @@ export class NesEmployeesService {
           employee.initialPassword ?? existing?.initialPassword ?? null,
         rawPayload: {
           ...(employee as unknown as Record<string, unknown>),
-          firstName1c: employee.firstName1c ?? employee.firstName ?? '',
-          lastName1c: employee.lastName1c ?? employee.lastName ?? '',
-          middleName1c: employee.middleName1c ?? employee.middleName ?? '',
-          division1c: employee.division1c ?? employee.division ?? '',
-          post1c: employee.post1c ?? employee.post ?? '',
+          // *1c faqat 1C manba; bo‘sh kelsa avvalgi rawPayload saqlanadi
+          firstName1c:
+            (employee.firstName1c ?? '').trim() ||
+            String(existing?.rawPayload?.['firstName1c'] ?? '') ||
+            '',
+          lastName1c:
+            (employee.lastName1c ?? '').trim() ||
+            String(existing?.rawPayload?.['lastName1c'] ?? '') ||
+            '',
+          middleName1c:
+            (employee.middleName1c ?? '').trim() ||
+            String(existing?.rawPayload?.['middleName1c'] ?? '') ||
+            '',
+          division1c:
+            (employee.division1c ?? '').trim() ||
+            String(existing?.rawPayload?.['division1c'] ?? '') ||
+            '',
+          post1c:
+            (employee.post1c ?? '').trim() ||
+            String(existing?.rawPayload?.['post1c'] ?? '') ||
+            '',
         },
         lastSyncedAt: new Date(),
       },
@@ -2346,33 +2364,55 @@ export class NesEmployeesService {
       fields,
       changedByUserId,
     )) as {
-      firstName: string;
-      lastName: string;
-      middleName: string;
-      division: string;
-      post: string;
-      firstName1c: string;
-      lastName1c: string;
-      middleName1c: string;
-      division1c: string;
-      post1c: string;
+      firstName?: string;
+      lastName?: string;
+      middleName?: string;
+      division?: string;
+      post?: string;
+      firstName1c?: string;
+      lastName1c?: string;
+      middleName1c?: string;
+      division1c?: string;
+      post1c?: string;
     };
 
-    const nextFirst = (resolved.firstName ?? '').trim() || user.firstName;
-    const nextLast = (resolved.lastName ?? '').trim() || user.lastName;
+    const pick = (
+      sent: string | null | undefined,
+      fromResolved: string | null | undefined,
+      fallback = '',
+    ) => {
+      if (sent !== undefined && sent !== null && String(sent).trim()) {
+        return String(sent).trim();
+      }
+      if (fromResolved !== undefined && fromResolved !== null && String(fromResolved).trim()) {
+        return String(fromResolved).trim();
+      }
+      return fallback;
+    };
+
+    const mirror = await this.employeeRepo.findOne({ where: { userId } });
+
+    const nextFirst = pick(fields.firstName, resolved.firstName, user.firstName);
+    const nextLast = pick(fields.lastName, resolved.lastName, user.lastName);
+    const nextMiddle = pick(
+      fields.middleName,
+      resolved.middleName,
+      mirror?.middleName ?? '',
+    );
+    const nextDivision = pick(
+      fields.division,
+      resolved.division,
+      mirror?.division ?? '',
+    );
+    const nextPost = pick(fields.post, resolved.post, mirror?.post ?? '');
 
     await this.userRepo.update(userId, {
       firstName: nextFirst,
       lastName: nextLast,
     });
 
-    const mirror = await this.employeeRepo.findOne({ where: { userId } });
     if (mirror) {
-      const nextMiddle =
-        (resolved.middleName ?? '').trim() || mirror.middleName || '';
-      const nextDivision =
-        (resolved.division ?? '').trim() || mirror.division || '';
-      const nextPost = (resolved.post ?? '').trim() || mirror.post || '';
+      const prev = (mirror.rawPayload ?? {}) as Record<string, unknown>;
       await this.employeeRepo.update(mirror.id, {
         firstName: nextFirst,
         lastName: nextLast,
@@ -2384,44 +2424,59 @@ export class NesEmployeesService {
           .filter(Boolean)
           .join(' '),
         rawPayload: {
-          ...(mirror.rawPayload ?? {}),
+          ...prev,
+          // Display o‘zgarganda 1c ni o‘chirmaymiz; faqat Energo qaytargan
+          // yoki avvalgi 1c ni saqlaymiz
           firstName1c:
             (resolved.firstName1c ?? '').trim() ||
-            String(mirror.rawPayload?.['firstName1c'] ?? '') ||
+            String(prev['firstName1c'] ?? '') ||
             nextFirst,
           lastName1c:
             (resolved.lastName1c ?? '').trim() ||
-            String(mirror.rawPayload?.['lastName1c'] ?? '') ||
+            String(prev['lastName1c'] ?? '') ||
             nextLast,
           middleName1c:
             (resolved.middleName1c ?? '').trim() ||
-            String(mirror.rawPayload?.['middleName1c'] ?? '') ||
+            String(prev['middleName1c'] ?? '') ||
             nextMiddle,
           division1c:
             (resolved.division1c ?? '').trim() ||
-            String(mirror.rawPayload?.['division1c'] ?? '') ||
+            String(prev['division1c'] ?? '') ||
             nextDivision,
           post1c:
             (resolved.post1c ?? '').trim() ||
-            String(mirror.rawPayload?.['post1c'] ?? '') ||
+            String(prev['post1c'] ?? '') ||
             nextPost,
         },
       });
     }
 
     return {
-      ...resolved,
       firstName: nextFirst,
       lastName: nextLast,
-      middleName: mirror
-        ? (resolved.middleName ?? '').trim() || mirror.middleName || ''
-        : resolved.middleName,
-      division: mirror
-        ? (resolved.division ?? '').trim() || mirror.division || ''
-        : resolved.division,
-      post: mirror
-        ? (resolved.post ?? '').trim() || mirror.post || ''
-        : resolved.post,
+      middleName: nextMiddle,
+      division: nextDivision,
+      post: nextPost,
+      firstName1c:
+        (resolved.firstName1c ?? '').trim() ||
+        String(mirror?.rawPayload?.['firstName1c'] ?? '') ||
+        nextFirst,
+      lastName1c:
+        (resolved.lastName1c ?? '').trim() ||
+        String(mirror?.rawPayload?.['lastName1c'] ?? '') ||
+        nextLast,
+      middleName1c:
+        (resolved.middleName1c ?? '').trim() ||
+        String(mirror?.rawPayload?.['middleName1c'] ?? '') ||
+        nextMiddle,
+      division1c:
+        (resolved.division1c ?? '').trim() ||
+        String(mirror?.rawPayload?.['division1c'] ?? '') ||
+        nextDivision,
+      post1c:
+        (resolved.post1c ?? '').trim() ||
+        String(mirror?.rawPayload?.['post1c'] ?? '') ||
+        nextPost,
     };
   }
 

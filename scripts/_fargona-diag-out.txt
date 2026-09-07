@@ -1,0 +1,190 @@
+ORG {
+  id: '81e1bbcf-b4d1-40b4-852b-a7cd71d7b2d3',
+  name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, FARG`ONA MAGISTRAL ELEKTR TARMOQLARI FILIALI',
+  report_active: true
+}
+RANKING_EMPLOYEES { cnt: 267 }
+TODAY { xp_today: 43, users_today: 5 }
+LAST14 [ { d: 2026-09-07T00:00:00.000Z, xp: 43, users: 5 } ]
+FARGONA_USERS_XP_ANY_ORG { xp_all_orgs: 43, xp_fargona_org: 43, users: 5 }
+ALL_FARG_ORGS [
+  {
+    id: '81e1bbcf-b4d1-40b4-852b-a7cd71d7b2d3',
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, FARG`ONA MAGISTRAL ELEKTR TARMOQLARI FILIALI',
+    xp: 43
+  }
+]
+FARGONA_ORPHAN_USERS_XP { users: 106, xp: 0 }
+TOP_BRANCHES_7D [
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, JIZZAX MAGISTRAL ELEKTR TAR',
+    xp7: 9749
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, QASHQADARYO MAGISTRAL ELEKT',
+    xp7: 6766
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, ANDIJON MAGISTRAL ELEKTR TA',
+    xp7: 6664
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, SAMARQAND MAGISTRAL ELEKTR ',
+    xp7: 4363
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, QARAQALPAQ MAGISTRAL ELEKTR',
+    xp7: 4351
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, XORAZM MAGISTRAL ELEKTR TAR',
+    xp7: 3506
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, NAMANGAN MAGISTRAL ELEKTR T',
+    xp7: 3471
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, NAVOIY MAGISTRAL ELEKTR TAR',
+    xp7: 3156
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, BUXORO MAGISTRAL ELEKTR TAR',
+    xp7: 2389
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, SURXONDARYO MAGISTRAL ELEKT',
+    xp7: 1640
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, TOSHKENT SHAHAR MAGISTRAL E',
+    xp7: 700
+  },
+  { name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ', xp7: 104 },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, FARG`ONA MAGISTRAL ELEKTR T',
+    xp7: 43
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, SIRDARYO MAGISTRAL ELEKTR T',
+    xp7: 4
+  },
+  {
+    name: '"O`ZBEKISTON MILLIY ELEKTR TARMOQLARI" AJ, TOSHKENT MAGISTRAL ELEKTR T',
+    xp7: 2
+  }
+]
+LEFTOVER_ORPHANS [
+  {
+    email: 'goibnazarov.sh@gmail.com',
+    first_name: 'Shukurjon',
+    last_name: 'Gʻoyibnazarov',
+    xp: 20,
+    created: 2026-06-24T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'muxammadboburakbarov1991@gmail.com',
+    first_name: 'Muxammadbobur',
+    last_name: 'Akbarov',
+    xp: 10,
+    created: 2026-06-25T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'nargizabadiliva@gimail.com',
+    first_name: 'Fayziyev',
+    last_name: 'Xusan',
+    xp: 10,
+    created: 2026-06-27T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'dil_es9191@mail.ru',
+    first_name: 'Dilshod',
+    last_name: 'Eshmatov',
+    xp: 10,
+    created: 2026-06-23T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'xusanfayziyev@gmail.com',
+    first_name: 'Xusan',
+    last_name: 'Fayziyev',
+    xp: 10,
+    created: 2026-06-25T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'abdulloh1991@mail.ru',
+    first_name: 'Abdullo',
+    last_name: 'Xamidullayev',
+    xp: 7,
+    created: 2026-06-22T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'eshmatovdilshod769@gmail.com',
+    first_name: 'Dilshod',
+    last_name: 'Eshmatov',
+    xp: 6,
+    created: 2026-06-22T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'sr27040912@gmail.com',
+    first_name: 'Ravshan',
+    last_name: 'Sobirov',
+    xp: 5,
+    created: 2026-06-28T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'Goibnazarov.sh@gmail.com',
+    first_name: 'Shukurjon',
+    last_name: 'Gʻoyibnazarov',
+    xp: 4,
+    created: 2026-06-22T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'nargizabadiliva@gmail.com',
+    first_name: 'Xusan',
+    last_name: 'Fayziyev',
+    xp: 3,
+    created: 2026-06-25T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'd.marko5202@gmsil.com',
+    first_name: 'Muxtor',
+    last_name: 'Xamidov',
+    xp: 3,
+    created: 2026-06-22T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'qwerty12345@gmail.com',
+    first_name: 'Abdullo',
+    last_name: 'Xamidullayev',
+    xp: 3,
+    created: 2026-07-09T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'd.marko5202@gmail.com',
+    first_name: 'Muxtor',
+    last_name: 'Xamidov',
+    xp: 2,
+    created: 2026-06-23T00:00:00.000Z,
+    in_terminated: true
+  },
+  {
+    email: 'muhsinzonbegmatov@gmail.com',
+    first_name: 'Muxsin',
+    last_name: 'Begmatov',
+    xp: 1,
+    created: 2026-06-25T00:00:00.000Z,
+    in_terminated: true
+  }
+]
