@@ -122,7 +122,8 @@ export class ReportingActivationController {
   @Patch('employees/:userId')
   @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
-    summary: 'Xodim switch вЂ” OFF = reportingdan chiqarish',
+    summary:
+      'Xodim switch — OFF = reportingdan chiqarish (barcha moderatorlarga ochiq, faqat o‘z filiali)',
   })
   @ApiBody({ type: SetReportActiveDto })
   async setEmployee(
