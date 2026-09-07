@@ -831,10 +831,7 @@ export class UsersService {
         where: { energoExternalId: ext },
       });
       if (byExternal) {
-        if (byExternal.name !== normalized) {
-          await this.orgRepo.update(byExternal.id, { name: normalized });
-        }
-        return { ...byExternal, name: normalized };
+        return this.finalizeOrganizationIdentity(byExternal, normalized, ext);
       }
     }
 
@@ -854,20 +851,106 @@ export class UsersService {
     }
 
     if (existing) {
-      if (ext && !existing.energoExternalId) {
-        await this.orgRepo.update(existing.id, { energoExternalId: ext });
-      }
-      if (existing.name !== normalized) {
-        await this.orgRepo.update(existing.id, { name: normalized });
-      }
-      return { ...existing, name: normalized };
+      return this.finalizeOrganizationIdentity(existing, normalized, ext);
     }
 
-    return this.orgRepo.save(
-      this.orgRepo.create({
-        name: normalized,
-        energoExternalId: ext,
-      }),
+    try {
+      return await this.orgRepo.save(
+        this.orgRepo.create({
+          name: normalized,
+          energoExternalId: ext,
+        }),
+      );
+    } catch (error) {
+      if (!this.isOrgNameUniqueViolation(error)) throw error;
+      const raced = await this.orgRepo.findOne({ where: { name: normalized } });
+      if (!raced) throw error;
+      return this.finalizeOrganizationIdentity(raced, normalized, ext);
+    }
+  }
+
+  private async finalizeOrganizationIdentity(
+    existing: Organization,
+    normalized: string,
+    ext: string | null,
+  ) {
+    if (existing.name !== normalized) {
+      await this.releaseOrganizationNameForRename(normalized, existing.id);
+    }
+
+    const patch: Partial<Organization> = {};
+    if (ext && !existing.energoExternalId) patch.energoExternalId = ext;
+    if (existing.name !== normalized) patch.name = normalized;
+    if (existing.archivedAt) patch.archivedAt = null;
+
+    if (Object.keys(patch).length > 0) {
+      try {
+        await this.orgRepo.update(existing.id, patch);
+      } catch (error) {
+        if (!this.isOrgNameUniqueViolation(error)) throw error;
+        await this.releaseOrganizationNameForRename(normalized, existing.id);
+        await this.orgRepo.update(existing.id, patch);
+      }
+    }
+
+    return { ...existing, ...patch, name: normalized };
+  }
+
+  /** Rename oldin shu nom band bo‘lsa — legacy ga ko‘chiradi yoki birlashtiradi. */
+  private async releaseOrganizationNameForRename(
+    name: string,
+    keepOrgId: string,
+  ) {
+    const conflict = await this.orgRepo.findOne({ where: { name } });
+    if (!conflict || conflict.id === keepOrgId) return;
+
+    await this.userOrgRepo.query(
+      `
+      UPDATE user_organizations AS uo
+      SET "organizationId" = $1
+      WHERE uo."organizationId" = $2
+        AND NOT EXISTS (
+          SELECT 1
+          FROM user_organizations AS x
+          WHERE x."userId" = uo."userId"
+            AND x."organizationId" = $1
+        )
+      `,
+      [keepOrgId, conflict.id],
+    );
+    await this.userOrgRepo
+      .createQueryBuilder()
+      .delete()
+      .where('"organizationId" = :conflictId', { conflictId: conflict.id })
+      .execute();
+
+    await this.dataSource.query(
+      `UPDATE nes_employees SET organization_id = $1 WHERE organization_id = $2`,
+      [keepOrgId, conflict.id],
+    );
+
+    const legacyName = `legacy-${conflict.id.slice(0, 8)}-${conflict.name}`.slice(
+      0,
+      180,
+    );
+    await this.orgRepo.update(conflict.id, {
+      name: legacyName,
+      archivedAt: new Date(),
+    });
+  }
+
+  private isOrgNameUniqueViolation(error: unknown): boolean {
+    const err = error as {
+      code?: string;
+      message?: string;
+      driverError?: { code?: string };
+    };
+    const code = err?.code ?? err?.driverError?.code;
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      code === '23505' ||
+      message.includes('organizations_name_key') ||
+      message.includes('duplicate key')
     );
   }
 
