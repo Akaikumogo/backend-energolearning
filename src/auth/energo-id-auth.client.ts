@@ -384,14 +384,26 @@ export class EnergoIdAuthClient {
       firstName: row.firstName ?? '',
       lastName: row.lastName ?? '',
       middleName,
-      firstName1c:
-        (row as EnergoIdUser).firstName1c ?? row.firstName ?? '',
-      lastName1c: (row as EnergoIdUser).lastName1c ?? row.lastName ?? '',
-      middleName1c:
-        (row as EnergoIdUser).middleName1c ?? middleName ?? '',
-      division1c:
-        (row as EnergoIdUser).division1c ?? row.division ?? '',
-      post1c: (row as EnergoIdUser).post1c ?? row.post ?? '',
+      firstName1c: (() => {
+        const v = (row as EnergoIdUser).firstName1c;
+        return typeof v === 'string' ? v : undefined;
+      })(),
+      lastName1c: (() => {
+        const v = (row as EnergoIdUser).lastName1c;
+        return typeof v === 'string' ? v : undefined;
+      })(),
+      middleName1c: (() => {
+        const v = (row as EnergoIdUser).middleName1c;
+        return typeof v === 'string' ? v : undefined;
+      })(),
+      division1c: (() => {
+        const v = (row as EnergoIdUser).division1c;
+        return typeof v === 'string' ? v : undefined;
+      })(),
+      post1c: (() => {
+        const v = (row as EnergoIdUser).post1c;
+        return typeof v === 'string' ? v : undefined;
+      })(),
       role: row.role ?? 'USER',
       permissions: row.permissions ?? [],
       mustChangePassword: row.mustChangePassword ?? false,
@@ -571,7 +583,16 @@ export class EnergoIdAuthClient {
     if (!response.ok) {
       await this.throwMappedError(response);
     }
-    return response.json();
+    const payload = (await response.json()) as Record<string, unknown>;
+    // Ba'zi interceptorlar { data: {...} } qaytarishi mumkin
+    const resolved =
+      payload &&
+      typeof payload === 'object' &&
+      payload.data &&
+      typeof payload.data === 'object'
+        ? (payload.data as Record<string, unknown>)
+        : payload;
+    return resolved;
   }
 
   /** Beydj / bilim sinovi qisqa ma'lumotini Energo ID raw_payload ga yozadi. */

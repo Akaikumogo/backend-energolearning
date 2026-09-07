@@ -238,10 +238,11 @@ export class UsersService {
       const patch: Partial<User> = {
         email: resolvedEmail,
         energoId: energoUserId,
-        firstName: data.firstName,
-        lastName: data.lastName,
         mustChangePassword: data.mustChangePassword,
       };
+      // Bo‘sh sync ism/familiya mavjud qiymatni o‘chirmasin (field override)
+      if ((data.firstName ?? '').trim()) patch.firstName = data.firstName.trim();
+      if ((data.lastName ?? '').trim()) patch.lastName = data.lastName.trim();
       if (!this.isProtectedRole(user.role)) {
         patch.role = role;
       }
