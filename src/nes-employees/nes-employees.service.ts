@@ -1150,6 +1150,7 @@ export class NesEmployeesService {
 
   /**
    * Bir filialda 0192 + 01921 (suffix) bir xil F.I.O bo‘lsa — asosiy tabelni qoldiradi.
+   * Suffix user dagi XP/urinishlar asosiy (eski) user ga ko‘chiriladi.
    */
   private async cleanupPersonnelSuffixDuplicates(): Promise<number> {
     const rows = await this.employeeRepo
@@ -1170,13 +1171,13 @@ export class NesEmployeesService {
 
     const toDelete: string[] = [];
     const seen = new Set<string>();
+    let usersMerged = 0;
 
     for (const row of rows) {
       if (seen.has(row.id) || toDelete.includes(row.id)) continue;
       const pn = row.personnelNumber?.trim() ?? '';
       if (!pn) continue;
 
-      // suffix: base + "1".."99" (01921 → base 0192)
       let base: string | null = null;
       for (let s = 1; s <= 99; s += 1) {
         const suffix = String(s);
@@ -1200,7 +1201,15 @@ export class NesEmployeesService {
       );
       if (!match) continue;
 
-      // Asosiy tabel (0192) saqlanadi, suffix (01921) o‘chiriladi
+      // Asosiy tabel user = keeper (eski / XP), suffix = loser
+      if (match.userId !== row.userId) {
+        const merged = await this.mergeElUsersPreferBase(
+          match.userId,
+          row.userId,
+        );
+        if (merged) usersMerged += 1;
+      }
+
       toDelete.push(row.id);
       seen.add(row.id);
       this.logger.warn(
@@ -1211,7 +1220,160 @@ export class NesEmployeesService {
     if (toDelete.length > 0) {
       await this.employeeRepo.delete(toDelete);
     }
+    if (usersMerged > 0) {
+      this.logger.warn(`EL suffix user merge: ${usersMerged} juftlik`);
+    }
     return toDelete.length;
+  }
+
+  /**
+   * Suffix dublikat user → asosiy user. XP (attempts) + moderator asosiyda qoladi.
+   * baseUserId = qisqa tabel (0192), suffixUserId = …01921.
+   */
+  private async mergeElUsersPreferBase(
+    baseUserId: string,
+    suffixUserId: string,
+  ): Promise<boolean> {
+    if (!baseUserId || !suffixUserId || baseUserId === suffixUserId) {
+      return false;
+    }
+
+    const [baseUser, suffixUser] = await Promise.all([
+      this.userRepo.findOne({ where: { id: baseUserId } }),
+      this.userRepo.findOne({ where: { id: suffixUserId } }),
+    ]);
+    if (!baseUser || !suffixUser) return false;
+
+    // Keeper: qisqa email/login, moderator, parol o‘zgartirilgan, eski
+    const keeper = this.pickElDuplicateKeeper(baseUser, suffixUser);
+    const loser = keeper.id === baseUser.id ? suffixUser : baseUser;
+
+    const run = async (label: string, sql: string, params: unknown[]) => {
+      try {
+        await this.dataSource.query(sql, params);
+      } catch (error) {
+        this.logger.warn(
+          `EL merge skip (${label}): ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+    };
+
+    // XP urinishlari — unique conflict bo‘lsa loser dagi dublikat o‘chadi
+    await run(
+      'attempts.delete_dup',
+      `
+      DELETE FROM user_question_attempts d
+      USING user_question_attempts k
+      WHERE d.user_id = $1::uuid
+        AND k.user_id = $2::uuid
+        AND d.question_id = k.question_id
+        AND date_trunc('day', d.answered_at AT TIME ZONE 'Asia/Tashkent')
+          = date_trunc('day', k.answered_at AT TIME ZONE 'Asia/Tashkent')
+      `,
+      [loser.id, keeper.id],
+    );
+    await run(
+      'attempts.move',
+      `UPDATE user_question_attempts SET user_id = $2::uuid WHERE user_id = $1::uuid`,
+      [loser.id, keeper.id],
+    );
+    await run(
+      'exam_attempts',
+      `UPDATE exam_attempts SET user_id = $2::uuid WHERE user_id = $1::uuid`,
+      [loser.id, keeper.id],
+    );
+    await run(
+      'moderator_permissions',
+      `
+      DELETE FROM moderator_permissions d
+      WHERE d.moderator_user_id = $1::uuid
+        AND EXISTS (
+          SELECT 1 FROM moderator_permissions k
+          WHERE k.moderator_user_id = $2::uuid
+        )
+      `,
+      [loser.id, keeper.id],
+    );
+    await run(
+      'moderator_move',
+      `UPDATE moderator_permissions SET moderator_user_id = $2::uuid WHERE moderator_user_id = $1::uuid`,
+      [loser.id, keeper.id],
+    );
+    await run(
+      'user_organizations.delete_dup',
+      `
+      DELETE FROM user_organizations d
+      USING user_organizations k
+      WHERE d.user_id = $1::uuid
+        AND k.user_id = $2::uuid
+        AND d.organization_id = k.organization_id
+      `,
+      [loser.id, keeper.id],
+    );
+    await run(
+      'user_organizations.move',
+      `UPDATE user_organizations SET user_id = $2::uuid WHERE user_id = $1::uuid`,
+      [loser.id, keeper.id],
+    );
+    await run(
+      'nes_employees.relink',
+      `UPDATE nes_employees SET user_id = $2::uuid WHERE user_id = $1::uuid`,
+      [loser.id, keeper.id],
+    );
+
+    // Moderator roli / ism yangilanishi
+    const patch: Partial<User> = {};
+    if (loser.role === Role.MODERATOR && keeper.role === Role.USER) {
+      patch.role = Role.MODERATOR;
+    }
+    if (!keeper.mustChangePassword && loser.mustChangePassword) {
+      // keeper da allaqachon o‘zgartirilgan parol — saqlanadi
+    }
+    if (Object.keys(patch).length > 0) {
+      await this.userRepo.update(keeper.id, patch);
+    }
+
+    // Loser: energo_id bo‘shatib o‘chirish (FK cascade)
+    await this.userRepo.update(loser.id, {
+      energoId: null,
+      email: `${loser.email}__merged_${loser.id.slice(0, 8)}`,
+      loginBlocked: true,
+      reportActive: false,
+    });
+    try {
+      await this.userRepo.delete(loser.id);
+    } catch (error) {
+      this.logger.warn(
+        `EL loser soft-left ${loser.email}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
+
+    this.logger.warn(
+      `EL merge users: keep ${keeper.email} ← drop ${loser.email}`,
+    );
+    return true;
+  }
+
+  private pickElDuplicateKeeper(baseUser: User, suffixUser: User): User {
+    // Default: asosiy tabel = eski akkaunt (XP).
+    // Faqat suffix moderator bo‘lsa va base emas — suffix saqlanadi.
+    if (
+      suffixUser.role === Role.MODERATOR &&
+      baseUser.role !== Role.MODERATOR
+    ) {
+      return suffixUser;
+    }
+    return baseUser;
+  }
+
+  /** Admin: suffix dublikatlarni tozalash (syncsiz). */
+  async dedupeSuffixEmployees() {
+    const cleaned = await this.cleanupStaleNesMirrors();
+    return cleaned;
   }
 
   async getFilterOptions(allowedOrgIds?: string[] | null) {
