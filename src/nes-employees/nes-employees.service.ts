@@ -1201,7 +1201,23 @@ export class NesEmployeesService {
       );
       if (!match) continue;
 
-      // Asosiy tabel user = keeper (eski / XP), suffix = loser
+      const [baseUser, suffixUser] = await Promise.all([
+        this.userRepo.findOne({ where: { id: match.userId } }),
+        this.userRepo.findOne({ where: { id: row.userId } }),
+      ]);
+      if (!baseUser || !suffixUser) {
+        toDelete.push(row.id);
+        seen.add(row.id);
+        continue;
+      }
+
+      const keeper =
+        match.userId === row.userId
+          ? baseUser
+          : this.pickElDuplicateKeeper(baseUser, suffixUser);
+      const loserMirror = keeper.id === match.userId ? row : match;
+      const keeperMirror = keeper.id === match.userId ? match : row;
+
       if (match.userId !== row.userId) {
         const merged = await this.mergeElUsersPreferBase(
           match.userId,
@@ -1210,10 +1226,20 @@ export class NesEmployeesService {
         if (merged) usersMerged += 1;
       }
 
-      toDelete.push(row.id);
+      // Loser mirror o‘chadi; keeper mirror asosiy tabelga qaytariladi
+      if (!toDelete.includes(loserMirror.id)) {
+        toDelete.push(loserMirror.id);
+      }
       seen.add(row.id);
+      seen.add(match.id);
+
+      if (keeperMirror.personnelNumber !== base) {
+        keeperMirror.personnelNumber = base;
+        await this.employeeRepo.save(keeperMirror);
+      }
+
       this.logger.warn(
-        `Suffix dublikat o‘chirildi: ${row.personnelNumber} (${row.fullName}) — asosiy ${match.personnelNumber}`,
+        `Suffix dublikat: keep user ${keeper.email}, tabel ${base}, drop mirror ${loserMirror.personnelNumber}`,
       );
     }
 
