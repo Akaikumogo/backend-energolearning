@@ -39,7 +39,11 @@ export class ElektroArchiveController {
     @Req() req: AuthedReq,
   ) {
     const adminUser = req.user?.email || 'superadmin';
-    return this.archiveService.executeCutover(adminUser, body.confirmationCode);
+    return this.archiveService.executeCutover(
+      adminUser,
+      body.confirmationCode,
+      Boolean(body.force),
+    );
   }
 
   @Get('list')
