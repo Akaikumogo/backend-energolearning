@@ -6,12 +6,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { DatabaseSync } from 'node:sqlite';
+import initSqlJs, { Database, SqlJsStatic } from 'sql.js';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Role } from '../common/enums/role.enum';
 import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
+
+let SQL_ENGINE: SqlJsStatic | null = null;
+async function getSqlEngine(): Promise<SqlJsStatic> {
+  if (!SQL_ENGINE) {
+    SQL_ENGINE = await initSqlJs();
+  }
+  return SQL_ENGINE;
+}
 
 export interface ElektroArchiveMetadataRecord {
   archiveId: string;
@@ -162,17 +170,18 @@ export class ElektroArchiveService {
     const fileName = `${archiveId}.sqlite`;
     const filePath = path.join(this.archivesDir, fileName);
 
-    let sqliteDb: DatabaseSync | null = null;
+    let sqliteDb: Database | null = null;
     const tableCounts: Record<string, number> = {};
 
     try {
       this.logger.log(`Boshlandi: ElektroLearn Cutover [${archiveId}]`);
 
-      sqliteDb = new DatabaseSync(filePath);
-      sqliteDb.exec('PRAGMA synchronous = NORMAL;');
-      sqliteDb.exec('PRAGMA journal_mode = WAL;');
+      const SQL = await getSqlEngine();
+      sqliteDb = new SQL.Database();
+      sqliteDb.run('PRAGMA synchronous = NORMAL;');
+      sqliteDb.run('PRAGMA journal_mode = WAL;');
 
-      sqliteDb.exec(`
+      sqliteDb.run(`
         CREATE TABLE IF NOT EXISTS archive_metadata (
           archive_id TEXT PRIMARY KEY,
           created_at TEXT NOT NULL,
@@ -285,31 +294,29 @@ export class ElektroArchiveService {
           const colDefs = cols
             .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
             .join(', ');
-          sqliteDb.exec(`CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`);
+          sqliteDb.run(`CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`);
 
           const placeholders = cols.map(() => '?').join(', ');
-          const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders})`;
+          const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
           const insertStmt = sqliteDb.prepare(insertSql);
 
-          sqliteDb.exec('BEGIN TRANSACTION;');
+          sqliteDb.run('BEGIN TRANSACTION;');
           for (const row of rows) {
             const values = cols.map((col) => this.serializeValue(row[col]));
-            insertStmt.run(...(values as Array<string | number | null>));
+            insertStmt.run(values as any[]);
           }
-          sqliteDb.exec('COMMIT;');
+          sqliteDb.run('COMMIT;');
+          insertStmt.free();
         } else {
-          sqliteDb.exec(
+          sqliteDb.run(
             `CREATE TABLE IF NOT EXISTS "${t.name}" (id TEXT PRIMARY KEY);`,
           );
         }
       }
 
       // 2-BOSQICH: VERIFIKATSIYA
-      const integrity = (
-        sqliteDb.prepare('PRAGMA integrity_check;').all() as Array<{
-          integrity_check: string;
-        }>
-      )[0]?.integrity_check;
+      const integrityRes = sqliteDb.exec('PRAGMA integrity_check;');
+      const integrity = integrityRes[0]?.values?.[0]?.[0];
 
       if (integrity !== 'ok') {
         throw new Error(
@@ -319,13 +326,10 @@ export class ElektroArchiveService {
 
       for (const t of tablesToArchive) {
         if (tableCounts[t.name] === undefined) continue;
-        const checkCount = (
-          sqliteDb
-            .prepare(`SELECT COUNT(*) as count FROM "${t.name}"`)
-            .all() as Array<{
-            count: number;
-          }>
-        )[0]?.count;
+        const countRes = sqliteDb.exec(
+          `SELECT COUNT(*) as count FROM "${t.name}"`,
+        );
+        const checkCount = Number(countRes[0]?.values?.[0]?.[0] ?? 0);
 
         if (checkCount !== tableCounts[t.name]) {
           throw new Error(
@@ -334,6 +338,8 @@ export class ElektroArchiveService {
         }
       }
 
+      const initialData = sqliteDb.export();
+      fs.writeFileSync(filePath, Buffer.from(initialData));
       sqliteDb.close();
       sqliteDb = null;
 
@@ -343,24 +349,25 @@ export class ElektroArchiveService {
         .update(fileBuffer)
         .digest('hex');
 
-      const writerDb = new DatabaseSync(filePath);
-      const metaStmt = writerDb.prepare(`
-        INSERT INTO archive_metadata (
+      const writerDb = new SQL.Database(fileBuffer);
+      writerDb.run(
+        `INSERT INTO archive_metadata (
           archive_id, created_at, source_database, schema_version,
           table_counts, checksum_sha256, status, verified_at, executed_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      metaStmt.run(
-        archiveId,
-        new Date().toISOString(),
-        'elektrolearn_postgres',
-        '1.0.0',
-        JSON.stringify(tableCounts),
-        checksumSha256,
-        'VERIFIED',
-        new Date().toISOString(),
-        executedBy,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          archiveId,
+          new Date().toISOString(),
+          'elektrolearn_postgres',
+          '1.0.0',
+          JSON.stringify(tableCounts),
+          checksumSha256,
+          'VERIFIED',
+          new Date().toISOString(),
+          executedBy,
+        ],
       );
+      fs.writeFileSync(filePath, Buffer.from(writerDb.export()));
       writerDb.close();
 
       this.logger.log(
@@ -459,37 +466,34 @@ export class ElektroArchiveService {
       .reverse();
 
     const archives: ElektroArchiveMetadataRecord[] = [];
+    const SQL = await getSqlEngine();
 
     for (const file of files) {
       const filePath = path.join(this.archivesDir, file);
       try {
-        const db = new DatabaseSync(filePath, { readOnly: true });
-        const meta = (
-          db.prepare('SELECT * FROM archive_metadata LIMIT 1').all() as Array<{
-            archive_id: string;
-            created_at: string;
-            source_database: string;
-            schema_version: string;
-            table_counts: string;
-            checksum_sha256: string;
-            status: 'INITIALIZING' | 'VERIFIED' | 'FAILED';
-            verified_at: string;
-            executed_by: string;
-          }>
-        )[0];
+        const fileBuffer = fs.readFileSync(filePath);
+        const db = new SQL.Database(fileBuffer);
+        const res = db.exec('SELECT * FROM archive_metadata LIMIT 1');
         db.close();
 
-        if (meta) {
+        if (res.length > 0 && res[0].values.length > 0) {
+          const cols = res[0].columns;
+          const val = res[0].values[0];
+          const meta: Record<string, unknown> = {};
+          cols.forEach((col, idx) => {
+            meta[col] = val[idx];
+          });
+
           archives.push({
-            archiveId: meta.archive_id,
-            createdAt: meta.created_at,
-            sourceDatabase: meta.source_database,
-            schemaVersion: meta.schema_version,
-            tableCounts: JSON.parse(meta.table_counts || '{}'),
-            checksumSha256: meta.checksum_sha256,
-            status: meta.status,
-            verifiedAt: meta.verified_at,
-            executedBy: meta.executed_by,
+            archiveId: String(meta.archive_id),
+            createdAt: String(meta.created_at),
+            sourceDatabase: String(meta.source_database),
+            schemaVersion: String(meta.schema_version),
+            tableCounts: JSON.parse(String(meta.table_counts || '{}')),
+            checksumSha256: String(meta.checksum_sha256),
+            status: meta.status as 'INITIALIZING' | 'VERIFIED' | 'FAILED',
+            verifiedAt: String(meta.verified_at),
+            executedBy: String(meta.executed_by),
           });
         }
       } catch (err) {
@@ -514,7 +518,9 @@ export class ElektroArchiveService {
       throw new NotFoundException(`Arxiv topilmadi: ${archiveId}`);
     }
 
-    const db = new DatabaseSync(filePath, { readOnly: true });
+    const SQL = await getSqlEngine();
+    const fileBuffer = fs.readFileSync(filePath);
+    const db = new SQL.Database(fileBuffer);
     try {
       let countSql = `SELECT COUNT(*) as count FROM "${tableName}"`;
       let dataSql = `SELECT * FROM "${tableName}"`;
@@ -531,11 +537,22 @@ export class ElektroArchiveService {
 
       dataSql += ` LIMIT ? OFFSET ?`;
 
-      const total =
-        (db.prepare(countSql).all(...params) as Array<{ count: number }>)[0]
-          ?.count ?? 0;
+      const countStmt = db.prepare(countSql);
+      if (params.length > 0) countStmt.bind(params as any[]);
+      let total = 0;
+      if (countStmt.step()) {
+        const countObj = countStmt.getAsObject();
+        total = Number(countObj.count ?? 0);
+      }
+      countStmt.free();
 
-      const rows = db.prepare(dataSql).all(...params, limit, offset);
+      const dataStmt = db.prepare(dataSql);
+      dataStmt.bind([...params, limit, offset] as any[]);
+      const rows: Array<Record<string, unknown>> = [];
+      while (dataStmt.step()) {
+        rows.push(dataStmt.getAsObject());
+      }
+      dataStmt.free();
 
       return {
         archiveId,
