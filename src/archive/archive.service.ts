@@ -257,9 +257,8 @@ export class ElektroArchiveService {
       const SQL = await getSqlEngine();
       sqliteDb = new SQL.Database();
       sqliteDb.run('PRAGMA synchronous = OFF;');
-      sqliteDb.run('PRAGMA journal_mode = MEMORY;');
-      sqliteDb.run('PRAGMA temp_store = MEMORY;');
-      sqliteDb.run('PRAGMA cache_size = 50000;');
+      sqliteDb.run('PRAGMA journal_mode = OFF;');
+      sqliteDb.run('PRAGMA cache_size = -2000;'); // 2MB cache
 
       sqliteDb.run(`
         CREATE TABLE IF NOT EXISTS archive_metadata (
@@ -326,11 +325,11 @@ export class ElektroArchiveService {
         },
         {
           name: 'user_activity_events',
-          sql: `SELECT * FROM user_activity_events`,
+          sql: `SELECT * FROM user_activity_events ORDER BY created_at DESC LIMIT 1000`,
         },
         {
           name: 'user_sessions',
-          sql: `SELECT * FROM user_sessions`,
+          sql: `SELECT * FROM user_sessions ORDER BY created_at DESC LIMIT 1000`,
         },
         {
           name: 'daily_plans',
@@ -338,11 +337,11 @@ export class ElektroArchiveService {
         },
         {
           name: 'notifications',
-          sql: `SELECT * FROM notifications`,
+          sql: `SELECT * FROM notifications ORDER BY created_at DESC LIMIT 1000`,
         },
         {
           name: 'admin_audit_logs',
-          sql: `SELECT * FROM admin_audit_logs`,
+          sql: `SELECT * FROM admin_audit_logs ORDER BY created_at DESC LIMIT 1000`,
         },
         {
           name: 'nes_employee_position_history',
@@ -396,7 +395,7 @@ export class ElektroArchiveService {
 
       this.currentCutoverJob.totalTables = tablesToArchive.length;
 
-      // Part-by-part: har bir jadvalni alohida ko'chiramiz va progress yangilab boramiz
+      // Part-by-part: 500 talik paketlarda ko'chiramiz, RAM minimal qoladi
       for (let i = 0; i < tablesToArchive.length; i++) {
         const t = tablesToArchive[i]!;
 
@@ -409,7 +408,6 @@ export class ElektroArchiveService {
           message: `Jadval arxivlanmoqda: ${t.name} (${i + 1}/${tablesToArchive.length})`,
         };
 
-        // Event loopni bo'shatamiz
         await new Promise((r) => setImmediate(r));
 
         const exists = await this.tableExists(
@@ -419,40 +417,65 @@ export class ElektroArchiveService {
           continue;
         }
 
-        const rows: Array<Record<string, unknown>> =
-          await this.dataSource.query(t.sql, t.params ?? []);
-        tableCounts[t.name] = rows.length;
+        const countRes = await this.dataSource.query(
+          `SELECT COUNT(*)::int AS count FROM (${t.sql}) AS _sub_cnt`,
+          t.params ?? [],
+        );
+        const totalRows = Number(countRes[0]?.count ?? 0);
+        tableCounts[t.name] = totalRows;
 
-        if (rows.length > 0) {
-          const sample = rows[0]!;
-          const cols = Object.keys(sample);
-          const colDefs = cols
-            .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
-            .join(', ');
-          sqliteDb.run(`CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`);
-
-          const placeholders = cols.map(() => '?').join(', ');
-          const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
-          const insertStmt = sqliteDb.prepare(insertSql);
-
-          sqliteDb.run('BEGIN TRANSACTION;');
-          for (const row of rows) {
-            const values = cols.map((col) => this.serializeValue(row[col]));
-            insertStmt.run(values as any[]);
-          }
-          sqliteDb.run('COMMIT;');
-          insertStmt.free();
-        } else {
+        if (totalRows === 0) {
           sqliteDb.run(
             `CREATE TABLE IF NOT EXISTS "${t.name}" (id TEXT PRIMARY KEY);`,
           );
+        } else {
+          const BATCH_SIZE = 500;
+          let createdTable = false;
+          let insertStmt: any = null;
+
+          for (let offset = 0; offset < totalRows; offset += BATCH_SIZE) {
+            const chunkSql = `SELECT * FROM (${t.sql}) AS _sub_chunk LIMIT ${BATCH_SIZE} OFFSET ${offset}`;
+            const chunkRows: Array<Record<string, unknown>> =
+              await this.dataSource.query(chunkSql, t.params ?? []);
+            if (chunkRows.length === 0) break;
+
+            if (!createdTable) {
+              const sample = chunkRows[0]!;
+              const cols = Object.keys(sample);
+              const colDefs = cols
+                .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
+                .join(', ');
+              sqliteDb.run(
+                `CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`,
+              );
+
+              const placeholders = cols.map(() => '?').join(', ');
+              const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
+              insertStmt = sqliteDb.prepare(insertSql);
+              createdTable = true;
+            }
+
+            sqliteDb.run('BEGIN TRANSACTION;');
+            for (const row of chunkRows) {
+              const cols = Object.keys(row);
+              const values = cols.map((col) => this.serializeValue(row[col]));
+              insertStmt.run(values as any[]);
+            }
+            sqliteDb.run('COMMIT;');
+
+            await new Promise((r) => setImmediate(r));
+          }
+
+          if (insertStmt) {
+            insertStmt.free();
+          }
         }
 
         this.currentCutoverJob = {
           ...this.currentCutoverJob,
           processedTables: i + 1,
           percent: Math.round(5 + ((i + 1) / tablesToArchive.length) * 75),
-          message: `Ko'chirildi: ${t.name} (${rows.length} ta yozuv)`,
+          message: `Ko'chirildi: ${t.name} (${totalRows} ta yozuv)`,
         };
         await new Promise((r) => setImmediate(r));
       }
