@@ -429,9 +429,7 @@ export class ElektroArchiveService {
           const colDefs = cols
             .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
             .join(', ');
-          sqliteDb.run(
-            `CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`,
-          );
+          sqliteDb.run(`CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`);
 
           const placeholders = cols.map(() => '?').join(', ');
           const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
