@@ -354,7 +354,19 @@ export class NesEmployeesService {
       `DELETE FROM "app_sync_locks"
        WHERE "name" = $1 AND "locked_at" < now() - interval '2 hours'`,
       ['elektrolearn-energo-employee-sync'],
+       WHERE "locked_at" < now() - interval '2 hours'`,
     );
+
+    const cutoverLocks = await this.dataSource.query(
+      `SELECT name FROM "app_sync_locks" WHERE "name" = 'elektrolearn-prod-cutover-lock'`,
+    );
+    if (cutoverLocks.length > 0) {
+      this.logger.warn(
+        'Xodimlar sync to‘xtatildi: Cutover / arxivlash jarayoni faol.',
+      );
+      return false;
+    }
+
     const rows = await this.dataSource.query(
       `INSERT INTO "app_sync_locks"("name")
        VALUES ($1)
