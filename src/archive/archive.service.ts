@@ -11,6 +11,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Role } from '../common/enums/role.enum';
+import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
 
 export interface ElektroArchiveMetadataRecord {
   archiveId: string;
@@ -34,6 +35,10 @@ export class ElektroArchiveService {
   );
 
   constructor(private readonly dataSource: DataSource) {
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly energoIdAuthClient: EnergoIdAuthClient,
+  ) {
     if (!fs.existsSync(this.archivesDir)) {
       fs.mkdirSync(this.archivesDir, { recursive: true });
     }
@@ -87,6 +92,26 @@ export class ElektroArchiveService {
       ),
     ]);
 
+    let energoIdStatus = {
+      configured: false,
+      reachable: false,
+      error: undefined as string | undefined,
+    };
+
+    if (this.energoIdAuthClient.isConfigured()) {
+      energoIdStatus.configured = true;
+      try {
+        await this.energoIdAuthClient.listEmployees();
+        energoIdStatus.reachable = true;
+      } catch (err: unknown) {
+        energoIdStatus.reachable = false;
+        energoIdStatus.error =
+          err instanceof Error ? err.message : 'Energo ID ulanmadi';
+      }
+    } else {
+      energoIdStatus.error = 'ENERGO_ID_BASE_URL sozlanmagan';
+    }
+
     return {
       toArchive: {
         testUsers,
@@ -101,6 +126,7 @@ export class ElektroArchiveService {
         examQuestions,
         admins,
       },
+      energoIdStatus,
     };
   }
 
@@ -563,7 +589,19 @@ export class ElektroArchiveService {
       `DELETE FROM "app_sync_locks"
        WHERE "name" = $1 AND "locked_at" < now() - interval '2 hours'`,
       ['elektrolearn-prod-cutover-lock'],
+       WHERE "locked_at" < now() - interval '2 hours'`,
     );
+
+    // Agar sync faol bo'lsa cutoverga yo'l qo'yilmaydi
+    const activeSyncLocks = await this.dataSource.query(
+      `SELECT name FROM "app_sync_locks" WHERE "name" = 'elektrolearn-energo-employee-sync'`,
+    );
+    if (activeSyncLocks.length > 0) {
+      throw new ConflictException(
+        'Energo ID xodimlarni sinxronlash jarayoni ayni paytda faol. Cutoverdan oldin uning yakunlanishini kuting.',
+      );
+    }
+
     const rows = await this.dataSource.query(
       `INSERT INTO "app_sync_locks"("name")
        VALUES ($1)
@@ -572,6 +610,18 @@ export class ElektroArchiveService {
       ['elektrolearn-prod-cutover-lock'],
     );
     return rows.length > 0;
+    if (rows.length === 0) {
+      return false;
+    }
+
+    // Cutover paytida cron sync ishga tushib ketmasligi uchun sync lockni ham band qilamiz
+    await this.dataSource.query(
+      `INSERT INTO "app_sync_locks"("name")
+       VALUES ('elektrolearn-energo-employee-sync')
+       ON CONFLICT ("name") DO UPDATE SET "locked_at" = now()`,
+    );
+
+    return true;
   }
 
   private async releaseCutoverLock() {
@@ -579,6 +629,9 @@ export class ElektroArchiveService {
       .query('DELETE FROM "app_sync_locks" WHERE "name" = $1', [
         'elektrolearn-prod-cutover-lock',
       ])
+      .query(
+        `DELETE FROM "app_sync_locks" WHERE "name" IN ('elektrolearn-prod-cutover-lock', 'elektrolearn-energo-employee-sync')`,
+      )
       .catch(() => undefined);
   }
 }
