@@ -148,6 +148,7 @@ export class ElektroArchiveService {
   async executeCutover(
     executedBy: string,
     confirmationCode: string,
+    force = false,
   ): Promise<{
     success: boolean;
     archiveId: string;
@@ -161,7 +162,7 @@ export class ElektroArchiveService {
       );
     }
 
-    const lockAcquired = await this.tryCutoverLock();
+    const lockAcquired = await this.tryCutoverLock(force);
     if (!lockAcquired) {
       throw new ConflictException('Cutover jarayoni ayni paytda bajarilmoqda.');
     }
@@ -594,7 +595,7 @@ export class ElektroArchiveService {
     return String(value);
   }
 
-  private async tryCutoverLock(): Promise<boolean> {
+  private async tryCutoverLock(force = false): Promise<boolean> {
     await this.dataSource.query(`
       CREATE TABLE IF NOT EXISTS "app_sync_locks" (
         "name" text PRIMARY KEY,
@@ -606,14 +607,26 @@ export class ElektroArchiveService {
        WHERE "locked_at" < now() - interval '2 hours'`,
     );
 
-    // Agar sync faol bo'lsa cutoverga yo'l qo'yilmaydi
+    // Agar sync faol bo'lsa
     const activeSyncLocks = await this.dataSource.query(
       `SELECT name FROM "app_sync_locks" WHERE "name" = 'elektrolearn-energo-employee-sync'`,
     );
     if (activeSyncLocks.length > 0) {
-      throw new ConflictException(
-        'Energo ID xodimlarni sinxronlash jarayoni ayni paytda faol. Cutoverdan oldin uning yakunlanishini kuting.',
-      );
+      if (force) {
+        this.logger.warn(
+          `Majburiy cutover (force=true): faol Energo ID xodimlar sinxronizatsiyasi to'xtatildi va lock tozalandi.`,
+        );
+        await this.dataSource.query(
+          `DELETE FROM "app_sync_locks" WHERE "name" = 'elektrolearn-energo-employee-sync'`,
+        );
+      } else {
+        throw new ConflictException({
+          message:
+            'Energo ID xodimlarni sinxronlash jarayoni ayni paytda faol. Barcha jarayonlarni to‘xtatib, cutoverni davom ettirishni istaysizmi?',
+          canForce: true,
+          activeProcesses: true,
+        });
+      }
     }
 
     const rows = await this.dataSource.query(

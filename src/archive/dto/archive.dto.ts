@@ -8,6 +8,9 @@ export class ExecuteElektroCutoverDto {
   @IsString()
   @IsOptional()
   adminPassword?: string;
+
+  @IsOptional()
+  force?: boolean;
 }
 
 export class ElektroArchiveQueryDto {
