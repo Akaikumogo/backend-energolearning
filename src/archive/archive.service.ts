@@ -224,115 +224,115 @@ export class ElektroArchiveService {
       }> = [
         {
           name: 'users_non_superadmin',
-          sql: `SELECT * FROM users WHERE role <> 'SUPERADMIN' ORDER BY created_at ASC`,
+          sql: `SELECT * FROM users WHERE role <> 'SUPERADMIN'`,
         },
         {
           name: 'moderator_permissions',
-          sql: `SELECT * FROM moderator_permissions ORDER BY created_at ASC`,
+          sql: `SELECT * FROM moderator_permissions`,
         },
         {
           name: 'exam_attempt_answers',
-          sql: `SELECT * FROM exam_attempt_answers ORDER BY created_at ASC`,
+          sql: `SELECT * FROM exam_attempt_answers`,
         },
         {
           name: 'exam_attempts',
-          sql: `SELECT * FROM exam_attempts ORDER BY created_at ASC`,
+          sql: `SELECT * FROM exam_attempts`,
         },
         {
           name: 'exam_sessions',
-          sql: `SELECT * FROM exam_sessions ORDER BY created_at ASC`,
+          sql: `SELECT * FROM exam_sessions`,
         },
         {
           name: 'exam_assignments',
-          sql: `SELECT * FROM exam_assignments ORDER BY created_at ASC`,
+          sql: `SELECT * FROM exam_assignments`,
         },
         {
           name: 'user_question_attempts',
-          sql: `SELECT * FROM user_question_attempts ORDER BY created_at ASC`,
+          sql: `SELECT * FROM user_question_attempts`,
         },
         {
           name: 'user_progress',
-          sql: `SELECT * FROM user_progress ORDER BY created_at ASC`,
+          sql: `SELECT * FROM user_progress`,
         },
         {
           name: 'user_level_completions',
-          sql: `SELECT * FROM user_level_completions ORDER BY created_at ASC`,
+          sql: `SELECT * FROM user_level_completions`,
         },
         {
           name: 'certificates',
-          sql: `SELECT * FROM certificates ORDER BY created_at ASC`,
+          sql: `SELECT * FROM certificates`,
         },
         {
           name: 'employee_certificates',
-          sql: `SELECT * FROM employee_certificates ORDER BY created_at ASC`,
+          sql: `SELECT * FROM employee_certificates`,
         },
         {
           name: 'user_activity_events',
-          sql: `SELECT * FROM user_activity_events ORDER BY created_at ASC`,
+          sql: `SELECT * FROM user_activity_events`,
         },
         {
           name: 'user_sessions',
-          sql: `SELECT * FROM user_sessions ORDER BY created_at ASC`,
+          sql: `SELECT * FROM user_sessions`,
         },
         {
           name: 'daily_plans',
-          sql: `SELECT * FROM daily_plans ORDER BY created_at ASC`,
+          sql: `SELECT * FROM daily_plans`,
         },
         {
           name: 'notifications',
-          sql: `SELECT * FROM notifications ORDER BY created_at ASC`,
+          sql: `SELECT * FROM notifications`,
         },
         {
           name: 'admin_audit_logs',
-          sql: `SELECT * FROM admin_audit_logs ORDER BY created_at ASC`,
+          sql: `SELECT * FROM admin_audit_logs`,
         },
         {
           name: 'nes_employee_position_history',
-          sql: `SELECT * FROM nes_employee_position_history ORDER BY created_at ASC`,
+          sql: `SELECT * FROM nes_employee_position_history`,
         },
         {
           name: 'nes_employee_history',
-          sql: `SELECT * FROM nes_employee_history ORDER BY created_at ASC`,
+          sql: `SELECT * FROM nes_employee_history`,
         },
         {
           name: 'nes_employees',
-          sql: `SELECT * FROM nes_employees ORDER BY created_at ASC`,
+          sql: `SELECT * FROM nes_employees`,
         },
         {
           name: 'terminated_employees',
-          sql: `SELECT * FROM terminated_employees ORDER BY terminated_at ASC`,
+          sql: `SELECT * FROM terminated_employees`,
         },
         {
           name: 'employee_safety_record_changes',
-          sql: `SELECT * FROM employee_safety_record_changes ORDER BY created_at ASC`,
+          sql: `SELECT * FROM employee_safety_record_changes`,
         },
         {
           name: 'employee_safety_records',
-          sql: `SELECT * FROM employee_safety_records ORDER BY created_at ASC`,
+          sql: `SELECT * FROM employee_safety_records`,
         },
         {
           name: 'employee_safety_profiles',
-          sql: `SELECT * FROM employee_safety_profiles ORDER BY created_at ASC`,
+          sql: `SELECT * FROM employee_safety_profiles`,
         },
         {
           name: 'report_submissions',
-          sql: `SELECT * FROM report_submissions ORDER BY created_at ASC`,
+          sql: `SELECT * FROM report_submissions`,
         },
         {
           name: 'reporting_activation_history',
-          sql: `SELECT * FROM reporting_activation_history ORDER BY created_at ASC`,
+          sql: `SELECT * FROM reporting_activation_history`,
         },
         {
           name: 'user_positions',
-          sql: `SELECT * FROM user_positions ORDER BY created_at ASC`,
+          sql: `SELECT * FROM user_positions`,
         },
         {
           name: 'user_organizations',
-          sql: `SELECT * FROM user_organizations ORDER BY created_at ASC`,
+          sql: `SELECT * FROM user_organizations`,
         },
         {
           name: 'moderator_violations',
-          sql: `SELECT * FROM moderator_violations ORDER BY created_at ASC`,
+          sql: `SELECT * FROM moderator_violations`,
         },
       ];
 
@@ -476,32 +476,31 @@ export class ElektroArchiveService {
         // O'quv kontenti (levels, theories, questions)dagi created_by agar o'chirilayotgan adminga bog'langan bo'lsa,
         // FK constraint xatoligi bo'lmasligi uchun NULL ga o'tkaziladi (o'quv kontentining o'zi to'liq saqlanadi!)
         if (await this.tableExists('levels')) {
-          await manager.query(`
-            UPDATE levels
-            SET created_by = NULL
-            WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
-          `);
+          await manager
+            .query(
+              `UPDATE levels SET created_by = NULL WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')`,
+            )
+            .catch(() => undefined);
         }
         if (await this.tableExists('theories')) {
-          await manager.query(`
-            UPDATE theories
-            SET created_by = NULL
-            WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
-          `);
+          await manager
+            .query(
+              `UPDATE theories SET created_by = NULL WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')`,
+            )
+            .catch(() => undefined);
         }
         if (await this.tableExists('questions')) {
-          await manager.query(`
-            UPDATE questions
-            SET created_by = NULL
-            WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
-          `);
+          await manager
+            .query(
+              `UPDATE questions SET created_by = NULL WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')`,
+            )
+            .catch(() => undefined);
         }
 
         if (await this.tableExists('refresh_tokens')) {
-          await manager.query(`
-            DELETE FROM refresh_tokens
-            WHERE user_id IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
-          `);
+          await manager
+            .query(`DELETE FROM refresh_tokens`)
+            .catch(() => undefined);
         }
 
         // Barcha USER, MODERATOR, APPROVER, ACCOUNTING va boshqa rollar to'liq o'chiriladi.
