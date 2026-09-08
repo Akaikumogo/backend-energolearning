@@ -46,6 +46,11 @@ export class ElektroArchiveController {
     );
   }
 
+  @Post('abort-sync')
+  abortSync() {
+    return this.archiveService.abortSyncAndClearLocks();
+  }
+
   @Get('list')
   listArchives() {
     return this.archiveService.listArchives();

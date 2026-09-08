@@ -74,6 +74,8 @@ export class ElektroArchiveService {
 
     const [
       testUsers,
+      moderators,
+      superadmins,
       examAttempts,
       certificates,
       progressRows,
@@ -81,10 +83,16 @@ export class ElektroArchiveService {
       theories,
       questions,
       examQuestions,
-      admins,
     ] = await Promise.all([
       safeCount(`SELECT COUNT(*)::int AS count FROM users WHERE role = $1`, [
         Role.USER,
+      ]),
+      safeCount(
+        `SELECT COUNT(*)::int AS count FROM users WHERE role <> $1 AND role <> $2`,
+        [Role.SUPERADMIN, Role.USER],
+      ),
+      safeCount(`SELECT COUNT(*)::int AS count FROM users WHERE role = $1`, [
+        Role.SUPERADMIN,
       ]),
       safeCount(`SELECT COUNT(*)::int AS count FROM exam_attempts`),
       safeCount(`SELECT COUNT(*)::int AS count FROM certificates`),
@@ -93,10 +101,6 @@ export class ElektroArchiveService {
       safeCount(`SELECT COUNT(*)::int AS count FROM theories`),
       safeCount(`SELECT COUNT(*)::int AS count FROM questions`),
       safeCount(`SELECT COUNT(*)::int AS count FROM exam_questions`),
-      safeCount(
-        `SELECT COUNT(*)::int AS count FROM users WHERE role IN ($1, $2)`,
-        [Role.SUPERADMIN, Role.MODERATOR],
-      ),
     ]);
 
     let energoIdStatus = {
@@ -119,9 +123,24 @@ export class ElektroArchiveService {
       energoIdStatus.error = 'ENERGO_ID_BASE_URL sozlanmagan';
     }
 
+    let activeSync = false;
+    let activeSyncReason = '';
+    try {
+      const activeSyncLocks = await this.dataSource.query(
+        `SELECT name FROM "app_sync_locks" WHERE "name" = 'elektrolearn-energo-employee-sync'`,
+      );
+      if (activeSyncLocks && activeSyncLocks.length > 0) {
+        activeSync = true;
+        activeSyncReason = 'Energo ID xodimlarni sinxronlash jarayoni faol';
+      }
+    } catch {
+      // ignore
+    }
+
     return {
       toArchive: {
         testUsers,
+        moderators,
         examAttempts,
         certificates,
         progressRows,
@@ -131,9 +150,11 @@ export class ElektroArchiveService {
         theories,
         questions,
         examQuestions,
-        admins,
+        superadmins,
       },
       energoIdStatus,
+      activeSync,
+      activeSyncReason,
     };
   }
 
@@ -202,8 +223,12 @@ export class ElektroArchiveService {
         params?: unknown[];
       }> = [
         {
-          name: 'users_test_role',
-          sql: `SELECT * FROM users WHERE role = 'USER' ORDER BY created_at ASC`,
+          name: 'users_non_superadmin',
+          sql: `SELECT * FROM users WHERE role <> 'SUPERADMIN' ORDER BY created_at ASC`,
+        },
+        {
+          name: 'moderator_permissions',
+          sql: `SELECT * FROM moderator_permissions ORDER BY created_at ASC`,
         },
         {
           name: 'exam_attempt_answers',
@@ -277,11 +302,43 @@ export class ElektroArchiveService {
           name: 'terminated_employees',
           sql: `SELECT * FROM terminated_employees ORDER BY terminated_at ASC`,
         },
+        {
+          name: 'employee_safety_record_changes',
+          sql: `SELECT * FROM employee_safety_record_changes ORDER BY created_at ASC`,
+        },
+        {
+          name: 'employee_safety_records',
+          sql: `SELECT * FROM employee_safety_records ORDER BY created_at ASC`,
+        },
+        {
+          name: 'employee_safety_profiles',
+          sql: `SELECT * FROM employee_safety_profiles ORDER BY created_at ASC`,
+        },
+        {
+          name: 'report_submissions',
+          sql: `SELECT * FROM report_submissions ORDER BY created_at ASC`,
+        },
+        {
+          name: 'reporting_activation_history',
+          sql: `SELECT * FROM reporting_activation_history ORDER BY created_at ASC`,
+        },
+        {
+          name: 'user_positions',
+          sql: `SELECT * FROM user_positions ORDER BY created_at ASC`,
+        },
+        {
+          name: 'user_organizations',
+          sql: `SELECT * FROM user_organizations ORDER BY created_at ASC`,
+        },
+        {
+          name: 'moderator_violations',
+          sql: `SELECT * FROM moderator_violations ORDER BY created_at ASC`,
+        },
       ];
 
       for (const t of tablesToArchive) {
         const exists = await this.tableExists(
-          t.name === 'users_test_role' ? 'users' : t.name,
+          t.name === 'users_non_superadmin' ? 'users' : t.name,
         );
         if (!exists) continue;
 
@@ -395,8 +452,12 @@ export class ElektroArchiveService {
         'notifications',
         'admin_audit_logs',
         'moderator_violations',
+        'moderator_permissions',
+        'employee_safety_record_changes',
         'employee_safety_records',
-        'employee_safety_profile',
+        'employee_safety_profiles',
+        'report_submissions',
+        'reporting_activation_history',
         'nes_employee_position_history',
         'nes_employee_history',
         'nes_employees',
@@ -412,23 +473,50 @@ export class ElektroArchiveService {
           }
         }
 
-        if (await this.tableExists('refresh_tokens')) {
+        // O'quv kontenti (levels, theories, questions)dagi created_by agar o'chirilayotgan adminga bog'langan bo'lsa,
+        // FK constraint xatoligi bo'lmasligi uchun NULL ga o'tkaziladi (o'quv kontentining o'zi to'liq saqlanadi!)
+        if (await this.tableExists('levels')) {
           await manager.query(`
-            DELETE FROM refresh_tokens
-            WHERE user_id IN (SELECT id FROM users WHERE role = 'USER')
+            UPDATE levels
+            SET created_by = NULL
+            WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
+          `);
+        }
+        if (await this.tableExists('theories')) {
+          await manager.query(`
+            UPDATE theories
+            SET created_by = NULL
+            WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
+          `);
+        }
+        if (await this.tableExists('questions')) {
+          await manager.query(`
+            UPDATE questions
+            SET created_by = NULL
+            WHERE created_by IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
           `);
         }
 
-        // Faqat role = 'USER' bo'lgan xodimlar o'chiriladi.
-        // SUPERADMIN va MODERATOR lar 100% saqlanadi!
-        await manager.query(`DELETE FROM users WHERE role = 'USER'`);
+        if (await this.tableExists('refresh_tokens')) {
+          await manager.query(`
+            DELETE FROM refresh_tokens
+            WHERE user_id IN (SELECT id FROM users WHERE role <> 'SUPERADMIN')
+          `);
+        }
+
+        // Barcha USER, MODERATOR, APPROVER, ACCOUNTING va boshqa rollar to'liq o'chiriladi.
+        // FAQAT VA FAQAT SUPERADMIN saqlanadi!
+        await manager.query(`DELETE FROM users WHERE role <> 'SUPERADMIN'`);
 
         // Tekshirish: o'quv kontenti joyidami?
         const checkContent = await manager.query(
           `SELECT COUNT(*)::int AS count FROM levels`,
         );
+        const checkSuperadmin = await manager.query(
+          `SELECT COUNT(*)::int AS count FROM users WHERE role = 'SUPERADMIN'`,
+        );
         this.logger.log(
-          `Postgres tozalashdan so'ng: levels=${checkContent[0]?.count}, superadmin/moderatorlar saqlandi.`,
+          `Postgres tozalashdan so'ng: levels=${checkContent[0]?.count}, superadmin soni=${checkSuperadmin[0]?.count}. Barcha boshqa xodim va moderatorlar tozalandi.`,
         );
       });
 
@@ -657,4 +745,19 @@ export class ElektroArchiveService {
       )
       .catch(() => undefined);
   }
+
+  async abortSyncAndClearLocks(): Promise<{ success: boolean; message: string }> {
+    await this.dataSource
+      .query(
+        `DELETE FROM "app_sync_locks" WHERE "name" IN ('elektrolearn-prod-cutover-lock', 'elektrolearn-energo-employee-sync')`,
+      )
+      .catch(() => undefined);
+
+    this.logger.warn(`ElektroLearn sync va cutover locklari tozalandi.`);
+    return {
+      success: true,
+      message: `Sinxronizatsiya va qulflar muvaffaqiyatli tozalandi.`,
+    };
+  }
 }
+
