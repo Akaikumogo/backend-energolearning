@@ -33,6 +33,29 @@ export interface ElektroArchiveMetadataRecord {
   executedBy: string;
 }
 
+export type ElektroCutoverJobStatus = {
+  status: 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  stage:
+    | 'IDLE'
+    | 'STARTING'
+    | 'ARCHIVING'
+    | 'VERIFYING'
+    | 'CLEANING'
+    | 'DONE'
+    | 'ERROR';
+  currentTable?: string;
+  processedTables: number;
+  totalTables: number;
+  percent: number;
+  message: string;
+  archiveId?: string;
+  checksumSha256?: string;
+  tableCounts?: Record<string, number>;
+  error?: string;
+  startedAt?: string;
+  finishedAt?: string;
+};
+
 @Injectable()
 export class ElektroArchiveService {
   private readonly logger = new Logger(ElektroArchiveService.name);
@@ -42,6 +65,15 @@ export class ElektroArchiveService {
     'archives',
   );
 
+  private currentCutoverJob: ElektroCutoverJobStatus = {
+    status: 'IDLE',
+    stage: 'IDLE',
+    processedTables: 0,
+    totalTables: 0,
+    percent: 0,
+    message: 'Tayyor',
+  };
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly energoIdAuthClient: EnergoIdAuthClient,
@@ -49,6 +81,10 @@ export class ElektroArchiveService {
     if (!fs.existsSync(this.archivesDir)) {
       fs.mkdirSync(this.archivesDir, { recursive: true });
     }
+  }
+
+  getCutoverStatus(): ElektroCutoverJobStatus {
+    return this.currentCutoverJob;
   }
 
   private async tableExists(tableName: string): Promise<boolean> {
@@ -159,28 +195,27 @@ export class ElektroArchiveService {
   }
 
   /**
-   * 2-bosqichli xavfsiz Cutover (ElektroLearn):
+   * 2-bosqichli xavfsiz Asinxron Cutover (ElektroLearn):
    * 1. Idempotency lock
-   * 2. Test ma'lumotlarini SQLite ga to'liq ko'chirish
+   * 2. Test ma'lumotlarini jadvalma-jadval (part-by-part) SQLite ga ko'chirish
    * 3. Integrity check + exact counts verification + SHA-256 Checksum
    * 4. FAQAT VA FAQAT tekshiruvdan to'liq o'tgandan so'ng FK tartibida PostgreSQL tozalash
    * 5. O'quv kontenti (levels, theories, questions) mutlaqo saqlanadi
+   * 6. Faqat Superadmin saqlanadi, barcha boshqa xodimlar tozalanadi.
    */
   async executeCutover(
     executedBy: string,
     confirmationCode: string,
     force = false,
-  ): Promise<{
-    success: boolean;
-    archiveId: string;
-    fileName: string;
-    checksumSha256: string;
-    tableCounts: Record<string, number>;
-  }> {
+  ): Promise<ElektroCutoverJobStatus> {
     if (confirmationCode !== 'CONFIRM-CUTOVER') {
       throw new BadRequestException(
         'Tasdiqlash kodi noto‘g‘ri. "CONFIRM-CUTOVER" deb kiritilishi shart.',
       );
+    }
+
+    if (this.currentCutoverJob.status === 'RUNNING') {
+      return this.currentCutoverJob;
     }
 
     const lockAcquired = await this.tryCutoverLock(force);
@@ -189,6 +224,27 @@ export class ElektroArchiveService {
     }
 
     const archiveId = `el_archive_${new Date().toISOString().replace(/[:.]/g, '-')}_${crypto.randomBytes(4).toString('hex')}`;
+
+    this.currentCutoverJob = {
+      status: 'RUNNING',
+      stage: 'STARTING',
+      processedTables: 0,
+      totalTables: 28,
+      percent: 2,
+      message: 'Cutover jarayoni orqa fonda boshlanmoqda...',
+      archiveId,
+      startedAt: new Date().toISOString(),
+    };
+
+    // Orqa fonda asinxron ishga tushiramiz, HTTP so'rov esa darhol qaytadi
+    this.runCutoverAsync(executedBy, archiveId).catch((err) => {
+      this.logger.error(`Async Cutover xatoligi: ${err?.message}`, err?.stack);
+    });
+
+    return this.currentCutoverJob;
+  }
+
+  private async runCutoverAsync(executedBy: string, archiveId: string) {
     const fileName = `${archiveId}.sqlite`;
     const filePath = path.join(this.archivesDir, fileName);
 
@@ -196,12 +252,14 @@ export class ElektroArchiveService {
     const tableCounts: Record<string, number> = {};
 
     try {
-      this.logger.log(`Boshlandi: ElektroLearn Cutover [${archiveId}]`);
+      this.logger.log(`Boshlandi: Async ElektroLearn Cutover [${archiveId}]`);
 
       const SQL = await getSqlEngine();
       sqliteDb = new SQL.Database();
-      sqliteDb.run('PRAGMA synchronous = NORMAL;');
-      sqliteDb.run('PRAGMA journal_mode = WAL;');
+      sqliteDb.run('PRAGMA synchronous = OFF;');
+      sqliteDb.run('PRAGMA journal_mode = MEMORY;');
+      sqliteDb.run('PRAGMA temp_store = MEMORY;');
+      sqliteDb.run('PRAGMA cache_size = 50000;');
 
       sqliteDb.run(`
         CREATE TABLE IF NOT EXISTS archive_metadata (
@@ -336,67 +394,80 @@ export class ElektroArchiveService {
         },
       ];
 
-      for (const t of tablesToArchive) {
+      this.currentCutoverJob.totalTables = tablesToArchive.length;
+
+      // Part-by-part: har bir jadvalni alohida ko'chiramiz va progress yangilab boramiz
+      for (let i = 0; i < tablesToArchive.length; i++) {
+        const t = tablesToArchive[i]!;
+
+        this.currentCutoverJob = {
+          ...this.currentCutoverJob,
+          stage: 'ARCHIVING',
+          currentTable: t.name,
+          processedTables: i,
+          percent: Math.round(5 + (i / tablesToArchive.length) * 75),
+          message: `Jadval arxivlanmoqda: ${t.name} (${i + 1}/${tablesToArchive.length})`,
+        };
+
+        // Event loopni bo'shatamiz
+        await new Promise((r) => setImmediate(r));
+
         const exists = await this.tableExists(
           t.name === 'users_non_superadmin' ? 'users' : t.name,
         );
-        if (!exists) continue;
-
-        const countRes = await this.dataSource.query(
-          `SELECT COUNT(*)::int AS count FROM (${t.sql}) as _sub`,
-          t.params ?? [],
-        );
-        const totalRows = Number(countRes[0]?.count ?? 0);
-        tableCounts[t.name] = totalRows;
-
-        if (totalRows === 0) {
-          sqliteDb.run(
-            `CREATE TABLE IF NOT EXISTS "${t.name}" (id TEXT PRIMARY KEY);`,
-          );
+        if (!exists) {
           continue;
         }
 
-        const BATCH_SIZE = 1000;
-        let createdTable = false;
-        let insertStmt: any = null;
+        const rows: Array<Record<string, unknown>> =
+          await this.dataSource.query(t.sql, t.params ?? []);
+        tableCounts[t.name] = rows.length;
 
-        for (let offset = 0; offset < totalRows; offset += BATCH_SIZE) {
-          const chunkSql = `SELECT * FROM (${t.sql}) as _sub LIMIT ${BATCH_SIZE} OFFSET ${offset}`;
-          const rows: Array<Record<string, unknown>> =
-            await this.dataSource.query(chunkSql, t.params ?? []);
-          if (rows.length === 0) break;
+        if (rows.length > 0) {
+          const sample = rows[0]!;
+          const cols = Object.keys(sample);
+          const colDefs = cols
+            .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
+            .join(', ');
+          sqliteDb.run(
+            `CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`,
+          );
 
-          if (!createdTable) {
-            const sample = rows[0]!;
-            const cols = Object.keys(sample);
-            const colDefs = cols
-              .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
-              .join(', ');
-            sqliteDb.run(
-              `CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`,
-            );
-
-            const placeholders = cols.map(() => '?').join(', ');
-            const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
-            insertStmt = sqliteDb.prepare(insertSql);
-            createdTable = true;
-          }
+          const placeholders = cols.map(() => '?').join(', ');
+          const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
+          const insertStmt = sqliteDb.prepare(insertSql);
 
           sqliteDb.run('BEGIN TRANSACTION;');
           for (const row of rows) {
-            const cols = Object.keys(row);
             const values = cols.map((col) => this.serializeValue(row[col]));
             insertStmt.run(values as any[]);
           }
           sqliteDb.run('COMMIT;');
+          insertStmt.free();
+        } else {
+          sqliteDb.run(
+            `CREATE TABLE IF NOT EXISTS "${t.name}" (id TEXT PRIMARY KEY);`,
+          );
         }
 
-        if (insertStmt) {
-          insertStmt.free();
-        }
+        this.currentCutoverJob = {
+          ...this.currentCutoverJob,
+          processedTables: i + 1,
+          percent: Math.round(5 + ((i + 1) / tablesToArchive.length) * 75),
+          message: `Ko'chirildi: ${t.name} (${rows.length} ta yozuv)`,
+        };
+        await new Promise((r) => setImmediate(r));
       }
 
       // 2-BOSQICH: VERIFIKATSIYA
+      this.currentCutoverJob = {
+        ...this.currentCutoverJob,
+        stage: 'VERIFYING',
+        percent: 82,
+        message: 'Arxiv yaxlitligi va qatorlar soni tekshirilmoqda...',
+      };
+      await new Promise((r) => setImmediate(r));
+
       const integrityRes = sqliteDb.exec('PRAGMA integrity_check;');
       const integrity = integrityRes[0]?.values?.[0]?.[0];
 
@@ -420,7 +491,7 @@ export class ElektroArchiveService {
         }
       }
 
-      // Metadata to'g'ridan-to'g'ri sqliteDb ga yoziladi (xotirada 2-marta yuklamaslik uchun)
+      // Metadata to'g'ridan-to'g'ri sqliteDb ga yoziladi
       sqliteDb.run(
         `INSERT INTO archive_metadata (
           archive_id, created_at, source_database, schema_version,
@@ -487,6 +558,14 @@ export class ElektroArchiveService {
       );
 
       // 3-BOSQICH: PostgreSQL Tozalash (Strict FK Dependency Order)
+      this.currentCutoverJob = {
+        ...this.currentCutoverJob,
+        stage: 'CLEANING',
+        percent: 92,
+        message: 'PostgreSQL tozalanmoqda (faqat Superadmin saqlanadi)...',
+      };
+      await new Promise((r) => setImmediate(r));
+
       const DELETE_ORDER = [
         'exam_attempt_answers',
         'exam_attempts',
@@ -573,14 +652,24 @@ export class ElektroArchiveService {
         );
       });
 
-      return {
-        success: true,
+      this.currentCutoverJob = {
+        status: 'COMPLETED',
+        stage: 'DONE',
+        processedTables: tablesToArchive.length,
+        totalTables: tablesToArchive.length,
+        percent: 100,
+        message:
+          'Cutover muvaffaqiyatli yakunlandi! Faqat Superadmin saqlandi.',
         archiveId,
-        fileName,
         checksumSha256,
         tableCounts,
+        finishedAt: new Date().toISOString(),
       };
-    } catch (error) {
+
+      this.logger.log(
+        `Async ElektroLearn Cutover muvaffaqiyatli yakunlandi: ${archiveId}`,
+      );
+    } catch (error: any) {
       if (sqliteDb) {
         try {
           sqliteDb.close();
@@ -588,11 +677,21 @@ export class ElektroArchiveService {
           // ignore
         }
       }
+      this.currentCutoverJob = {
+        status: 'FAILED',
+        stage: 'ERROR',
+        processedTables: this.currentCutoverJob.processedTables,
+        totalTables: this.currentCutoverJob.totalTables,
+        percent: this.currentCutoverJob.percent,
+        message: error?.message || 'Cutover bajarishda xatolik',
+        error: error?.message || 'Cutover xatoligi',
+        archiveId,
+        finishedAt: new Date().toISOString(),
+      };
       this.logger.error(
         `ElektroLearn Cutover xatosi: ${error instanceof Error ? error.message : error}`,
         error as Error,
       );
-      throw error;
     } finally {
       await this.releaseCutoverLock();
     }

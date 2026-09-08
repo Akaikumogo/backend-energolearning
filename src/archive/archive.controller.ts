@@ -33,6 +33,11 @@ export class ElektroArchiveController {
     return this.archiveService.getCutoverPreview();
   }
 
+  @Get('status')
+  getStatus() {
+    return this.archiveService.getCutoverStatus();
+  }
+
   @Post('cutover')
   executeCutover(
     @Body() body: ExecuteElektroCutoverDto,
