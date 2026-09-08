@@ -56,6 +56,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { NotificationsModule } from './notifications/notifications.module';
 import { Notification } from './database/entities/notification.entity';
 import { DbAdminModule } from './db-admin/db-admin.module';
+import { ElektroArchiveModule } from './archive/archive.module';
 import 'dotenv/config';
 import { getPostgresConnectionOptions } from './database/postgres-env';
 import { AiChatModule } from './ai-chat/ai-chat.module';
@@ -197,6 +198,7 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
     AdminImportExportModule,
     XpAnomaliesModule,
     ReportSubmissionsModule,
+    ElektroArchiveModule,
   ],
   controllers: [AppController],
   providers: [
