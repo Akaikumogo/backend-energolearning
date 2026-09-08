@@ -342,33 +342,57 @@ export class ElektroArchiveService {
         );
         if (!exists) continue;
 
-        const rows: Array<Record<string, unknown>> =
-          await this.dataSource.query(t.sql, t.params ?? []);
-        tableCounts[t.name] = rows.length;
+        const countRes = await this.dataSource.query(
+          `SELECT COUNT(*)::int AS count FROM (${t.sql}) as _sub`,
+          t.params ?? [],
+        );
+        const totalRows = Number(countRes[0]?.count ?? 0);
+        tableCounts[t.name] = totalRows;
 
-        if (rows.length > 0) {
-          const sample = rows[0]!;
-          const cols = Object.keys(sample);
-          const colDefs = cols
-            .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
-            .join(', ');
-          sqliteDb.run(`CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`);
+        if (totalRows === 0) {
+          sqliteDb.run(
+            `CREATE TABLE IF NOT EXISTS "${t.name}" (id TEXT PRIMARY KEY);`,
+          );
+          continue;
+        }
 
-          const placeholders = cols.map(() => '?').join(', ');
-          const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
-          const insertStmt = sqliteDb.prepare(insertSql);
+        const BATCH_SIZE = 1000;
+        let createdTable = false;
+        let insertStmt: any = null;
+
+        for (let offset = 0; offset < totalRows; offset += BATCH_SIZE) {
+          const chunkSql = `SELECT * FROM (${t.sql}) as _sub LIMIT ${BATCH_SIZE} OFFSET ${offset}`;
+          const rows: Array<Record<string, unknown>> =
+            await this.dataSource.query(chunkSql, t.params ?? []);
+          if (rows.length === 0) break;
+
+          if (!createdTable) {
+            const sample = rows[0]!;
+            const cols = Object.keys(sample);
+            const colDefs = cols
+              .map((c) => `"${c}" ${this.inferSqliteType(sample[c])}`)
+              .join(', ');
+            sqliteDb.run(
+              `CREATE TABLE IF NOT EXISTS "${t.name}" (${colDefs});`,
+            );
+
+            const placeholders = cols.map(() => '?').join(', ');
+            const insertSql = `INSERT INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${placeholders});`;
+            insertStmt = sqliteDb.prepare(insertSql);
+            createdTable = true;
+          }
 
           sqliteDb.run('BEGIN TRANSACTION;');
           for (const row of rows) {
+            const cols = Object.keys(row);
             const values = cols.map((col) => this.serializeValue(row[col]));
             insertStmt.run(values as any[]);
           }
           sqliteDb.run('COMMIT;');
+        }
+
+        if (insertStmt) {
           insertStmt.free();
-        } else {
-          sqliteDb.run(
-            `CREATE TABLE IF NOT EXISTS "${t.name}" (id TEXT PRIMARY KEY);`,
-          );
         }
       }
 
@@ -396,19 +420,8 @@ export class ElektroArchiveService {
         }
       }
 
-      const initialData = sqliteDb.export();
-      fs.writeFileSync(filePath, Buffer.from(initialData));
-      sqliteDb.close();
-      sqliteDb = null;
-
-      const fileBuffer = fs.readFileSync(filePath);
-      const checksumSha256 = crypto
-        .createHash('sha256')
-        .update(fileBuffer)
-        .digest('hex');
-
-      const writerDb = new SQL.Database(fileBuffer);
-      writerDb.run(
+      // Metadata to'g'ridan-to'g'ri sqliteDb ga yoziladi (xotirada 2-marta yuklamaslik uchun)
+      sqliteDb.run(
         `INSERT INTO archive_metadata (
           archive_id, created_at, source_database, schema_version,
           table_counts, checksum_sha256, status, verified_at, executed_by
@@ -419,14 +432,48 @@ export class ElektroArchiveService {
           'elektrolearn_postgres',
           '1.0.0',
           JSON.stringify(tableCounts),
-          checksumSha256,
+          'PENDING',
           'VERIFIED',
           new Date().toISOString(),
           executedBy,
         ],
       );
-      fs.writeFileSync(filePath, Buffer.from(writerDb.export()));
-      writerDb.close();
+
+      // Yagona export va diskka yozish (RAM tejash)
+      const exportedData = sqliteDb.export();
+      sqliteDb.close();
+      sqliteDb = null;
+
+      const checksumSha256 = crypto
+        .createHash('sha256')
+        .update(exportedData)
+        .digest('hex');
+
+      fs.writeFileSync(
+        filePath,
+        Buffer.from(exportedData.buffer, exportedData.byteOffset, exportedData.byteLength),
+      );
+
+      // Qo'shimcha .meta.json fayl yoziladi (listArchives paytida bazani butunligicha RAMga yuklamaslik uchun)
+      const metaJsonPath = path.join(this.archivesDir, `${archiveId}.meta.json`);
+      fs.writeFileSync(
+        metaJsonPath,
+        JSON.stringify(
+          {
+            archiveId,
+            createdAt: new Date().toISOString(),
+            sourceDatabase: 'elektrolearn_postgres',
+            schemaVersion: '1.0.0',
+            tableCounts,
+            checksumSha256,
+            status: 'VERIFIED',
+            verifiedAt: new Date().toISOString(),
+            executedBy,
+          },
+          null,
+          2,
+        ),
+      );
 
       this.logger.log(
         `ElektroLearn arxivi VERIFIED: ${archiveId}, checksum: ${checksumSha256.slice(0, 12)}...`,
@@ -557,6 +604,18 @@ export class ElektroArchiveService {
     const SQL = await getSqlEngine();
 
     for (const file of files) {
+      const archiveId = file.replace(/\.sqlite$/, '');
+      const metaJsonPath = path.join(this.archivesDir, `${archiveId}.meta.json`);
+      if (fs.existsSync(metaJsonPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaJsonPath, 'utf8'));
+          archives.push(meta);
+          continue;
+        } catch {
+          // fallback to sqlite read
+        }
+      }
+
       const filePath = path.join(this.archivesDir, file);
       try {
         const fileBuffer = fs.readFileSync(filePath);
