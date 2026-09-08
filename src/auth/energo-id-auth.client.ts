@@ -248,9 +248,7 @@ export class EnergoIdAuthClient {
   }
 
   createOAuthState() {
-    return createHash('sha256')
-      .update(randomBytes(32))
-      .digest('base64url');
+    return createHash('sha256').update(randomBytes(32)).digest('base64url');
   }
 
   async exchangeAuthorizationCode(
@@ -374,8 +372,7 @@ export class EnergoIdAuthClient {
     const login = (row.login ?? row.email ?? '').trim();
     const personnelNumber =
       (row.personnelNumber ?? row.personnel_number ?? '').trim() || null;
-    const middleName =
-      (row.middleName ?? row.middle_name ?? '').trim() || null;
+    const middleName = (row.middleName ?? row.middle_name ?? '').trim() || null;
     return {
       ...row,
       energoUserId,
@@ -492,9 +489,7 @@ export class EnergoIdAuthClient {
         /\/images\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/i,
       )?.[1];
     if (!imageId) {
-      throw new ServiceUnavailableException(
-        'Energo ID rasm ID qaytarmadi',
-      );
+      throw new ServiceUnavailableException('Energo ID rasm ID qaytarmadi');
     }
     return {
       success: payload.success,
@@ -699,10 +694,7 @@ export class EnergoIdAuthClient {
     }
 
     const timeoutMs = Number(process.env.ENERGO_ID_TIMEOUT_MS ?? 5000);
-    const heavyTimeoutMs = Number(
-      process.env.ENERGO_ID_HEAVY_TIMEOUT_MS ??
-        Math.max(timeoutMs, 180_000),
-    );
+    const heavyTimeoutMs = Number(process.env.ENERGO_ID_HEAVY_TIMEOUT_MS ?? 0);
     return {
       baseUrl,
       platform,
@@ -725,12 +717,15 @@ export class EnergoIdAuthClient {
     timeoutMs: number,
   ): Promise<Response> {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let timeout: NodeJS.Timeout | null = null;
+    if (timeoutMs > 0) {
+      timeout = setTimeout(() => controller.abort(), timeoutMs);
+    }
 
     try {
       return await fetch(url, {
         ...init,
-        signal: controller.signal,
+        signal: timeoutMs > 0 ? controller.signal : undefined,
       });
     } catch (error) {
       if (
@@ -747,7 +742,7 @@ export class EnergoIdAuthClient {
       );
       throw new ServiceUnavailableException('Auth service unavailable');
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
     }
   }
 
@@ -755,7 +750,9 @@ export class EnergoIdAuthClient {
     const status = response.status;
     let message = 'Auth service unavailable';
     try {
-      const payload = (await response.json()) as { message?: string | string[] };
+      const payload = (await response.json()) as {
+        message?: string | string[];
+      };
       if (typeof payload.message === 'string') {
         message = payload.message;
       } else if (Array.isArray(payload.message)) {
