@@ -746,7 +746,10 @@ export class ElektroArchiveService {
       .catch(() => undefined);
   }
 
-  async abortSyncAndClearLocks(): Promise<{ success: boolean; message: string }> {
+  async abortSyncAndClearLocks(): Promise<{
+    success: boolean;
+    message: string;
+  }> {
     await this.dataSource
       .query(
         `DELETE FROM "app_sync_locks" WHERE "name" IN ('elektrolearn-prod-cutover-lock', 'elektrolearn-energo-employee-sync')`,
@@ -760,4 +763,3 @@ export class ElektroArchiveService {
     };
   }
 }
-
