@@ -34,7 +34,6 @@ export class ElektroArchiveService {
     'archives',
   );
 
-  constructor(private readonly dataSource: DataSource) {
   constructor(
     private readonly dataSource: DataSource,
     private readonly energoIdAuthClient: EnergoIdAuthClient,
@@ -587,8 +586,6 @@ export class ElektroArchiveService {
     `);
     await this.dataSource.query(
       `DELETE FROM "app_sync_locks"
-       WHERE "name" = $1 AND "locked_at" < now() - interval '2 hours'`,
-      ['elektrolearn-prod-cutover-lock'],
        WHERE "locked_at" < now() - interval '2 hours'`,
     );
 
@@ -609,7 +606,6 @@ export class ElektroArchiveService {
        RETURNING "name"`,
       ['elektrolearn-prod-cutover-lock'],
     );
-    return rows.length > 0;
     if (rows.length === 0) {
       return false;
     }
@@ -626,9 +622,6 @@ export class ElektroArchiveService {
 
   private async releaseCutoverLock() {
     await this.dataSource
-      .query('DELETE FROM "app_sync_locks" WHERE "name" = $1', [
-        'elektrolearn-prod-cutover-lock',
-      ])
       .query(
         `DELETE FROM "app_sync_locks" WHERE "name" IN ('elektrolearn-prod-cutover-lock', 'elektrolearn-energo-employee-sync')`,
       )

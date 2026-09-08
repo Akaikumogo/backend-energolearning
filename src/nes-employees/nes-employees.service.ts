@@ -147,7 +147,10 @@ export class NesEmployeesService {
       if (!this.energoIdAuthClient.isConfigured()) return;
       await this.syncFromEnergoIdIfDue();
     } catch (error) {
-      this.logger.error('Energo ID employee scheduled sync failed', error as Error);
+      this.logger.error(
+        'Energo ID employee scheduled sync failed',
+        error as Error,
+      );
     }
   }
 
@@ -352,8 +355,6 @@ export class NesEmployeesService {
     `);
     await this.dataSource.query(
       `DELETE FROM "app_sync_locks"
-       WHERE "name" = $1 AND "locked_at" < now() - interval '2 hours'`,
-      ['elektrolearn-energo-employee-sync'],
        WHERE "locked_at" < now() - interval '2 hours'`,
     );
 
@@ -406,7 +407,9 @@ export class NesEmployeesService {
         where: { id: In(filters.allowedOrgIds) },
         select: ['name'],
       });
-      const names = orgs.map((o) => o.name.trim().toLowerCase()).filter(Boolean);
+      const names = orgs
+        .map((o) => o.name.trim().toLowerCase())
+        .filter(Boolean);
       if (!names.length) {
         return { data: [], total: 0, page, limit };
       }
@@ -511,7 +514,9 @@ export class NesEmployeesService {
       return 0;
     }
 
-    const uniqueIds = [...new Set(activeEnergoIds.map((id) => id.trim()).filter(Boolean))];
+    const uniqueIds = [
+      ...new Set(activeEnergoIds.map((id) => id.trim()).filter(Boolean)),
+    ];
 
     return this.dataSource.transaction(async (manager) => {
       await manager.query(`
@@ -537,7 +542,8 @@ export class NesEmployeesService {
         email: string;
         first_name: string;
         last_name: string;
-      }> = await manager.query(`
+      }> = await manager.query(
+        `
         SELECT u.id, u.energo_id, u.email, u.first_name, u.last_name
         FROM users u
         WHERE u.role = $1
@@ -545,7 +551,9 @@ export class NesEmployeesService {
           AND NOT EXISTS (
             SELECT 1 FROM sync_active_energo_ids a WHERE a.id = u.energo_id
           )
-      `, [Role.USER]);
+      `,
+        [Role.USER],
+      );
 
       for (const user of staleUsers) {
         const employees: Array<{
@@ -588,7 +596,8 @@ export class NesEmployeesService {
         );
       }
 
-      const hideRows: Array<{ cnt: string }> = await manager.query(`
+      const hideRows: Array<{ cnt: string }> = await manager.query(
+        `
         WITH updated AS (
           UPDATE users u
           SET
@@ -605,7 +614,9 @@ export class NesEmployeesService {
           RETURNING u.id
         )
         SELECT COUNT(*)::int AS cnt FROM updated
-      `, [Role.USER]);
+      `,
+        [Role.USER],
+      );
 
       const staleIds = staleUsers.map((u) => u.id);
       if (staleIds.length > 0) {
@@ -619,7 +630,8 @@ export class NesEmployeesService {
       }
 
       // Orphan mirror: user yo‘q yoki energo_id null / syncda yo‘q
-      await manager.query(`
+      await manager.query(
+        `
         DELETE FROM nes_employees e
         USING users u
         WHERE e.user_id = u.id
@@ -630,7 +642,9 @@ export class NesEmployeesService {
               SELECT 1 FROM sync_active_energo_ids a WHERE a.id = u.energo_id
             )
           )
-      `, [Role.USER]);
+      `,
+        [Role.USER],
+      );
 
       const hidden = Number(hideRows[0]?.cnt ?? staleUsers.length);
 
@@ -928,7 +942,10 @@ export class NesEmployeesService {
       startSuffix =
         personnelNumber === basePersonnelNumber
           ? 1
-          : Number.parseInt(personnelNumber.slice(basePersonnelNumber.length), 10) + 1;
+          : Number.parseInt(
+              personnelNumber.slice(basePersonnelNumber.length),
+              10,
+            ) + 1;
 
       const record = {
         ...payload,
@@ -940,7 +957,9 @@ export class NesEmployeesService {
 
       try {
         if (!mirror) {
-          mirror = await this.employeeRepo.save(this.employeeRepo.create(record));
+          mirror = await this.employeeRepo.save(
+            this.employeeRepo.create(record),
+          );
         } else {
           Object.assign(mirror, record);
           mirror = await this.employeeRepo.save(mirror);
@@ -1006,7 +1025,8 @@ export class NesEmployeesService {
           .filter(Boolean)
           .join(' '),
         lastName: (employee.lastName ?? '').trim() || existing?.lastName || '',
-        firstName: (employee.firstName ?? '').trim() || existing?.firstName || '',
+        firstName:
+          (employee.firstName ?? '').trim() || existing?.firstName || '',
         middleName:
           (employee.middleName ?? '').trim() || existing?.middleName || '',
         modifiedAt: null,
@@ -1223,7 +1243,8 @@ export class NesEmployeesService {
       }
       if (!base) continue;
 
-      const org = (row.organizationId || row.organizationName || '').trim() || '_';
+      const org =
+        (row.organizationId || row.organizationName || '').trim() || '_';
       const baseKey = `${org}|${base}`;
       const baseRows = byOrgBase.get(baseKey) ?? [];
       const match = baseRows.find(
@@ -1477,8 +1498,7 @@ export class NesEmployeesService {
     const groups = await Promise.all(
       clusters.map(async (c) => ({
         keeperId: c.keeperId,
-        keeperEmail:
-          users.find((u) => u.id === c.keeperId)?.email ?? null,
+        keeperEmail: users.find((u) => u.id === c.keeperId)?.email ?? null,
         members: c.memberIds.map((id) => {
           const u = users.find((x) => x.id === id)!;
           const mirror = mirrorByUser.get(id);
@@ -1609,7 +1629,11 @@ export class NesEmployeesService {
 
       // Bir xil odam: aktiv (energo_id bor) + soft F.I.O / tabel
       if (!holder && orphan.personnel_number) {
-        const fullName = [orphan.last_name, orphan.first_name, orphan.middle_name]
+        const fullName = [
+          orphan.last_name,
+          orphan.first_name,
+          orphan.middle_name,
+        ]
           .map((p) => (p ?? '').trim())
           .filter(Boolean)
           .join(' ');
@@ -1702,10 +1726,9 @@ export class NesEmployeesService {
             where: { userId: orphan.id },
           });
           if (!existingMirror) {
-            const login =
-              orphan.email?.includes('@')
-                ? orphan.email.split('@')[0]!
-                : orphan.email || pn;
+            const login = orphan.email?.includes('@')
+              ? orphan.email.split('@')[0]!
+              : orphan.email || pn;
             await this.employeeRepo.save(
               this.employeeRepo.create({
                 userId: orphan.id,
@@ -1778,7 +1801,9 @@ export class NesEmployeesService {
         JOIN user_question_attempts a ON a.user_id = u.id
         WHERE u.energo_id IS NOT NULL AND u.role IN ('USER', 'MODERATOR')
       `),
-      this.dataSource.query(`SELECT COUNT(*)::int AS cnt FROM terminated_employees`),
+      this.dataSource.query(
+        `SELECT COUNT(*)::int AS cnt FROM terminated_employees`,
+      ),
       this.dataSource.query(`
         SELECT
           u.email,
@@ -1887,7 +1912,9 @@ export class NesEmployeesService {
         where: { id: In(allowedOrgIds) },
         select: ['name'],
       });
-      const names = orgs.map((o) => o.name.trim().toLowerCase()).filter(Boolean);
+      const names = orgs
+        .map((o) => o.name.trim().toLowerCase())
+        .filter(Boolean);
       if (names.length) {
         terminatedEmployees = await this.terminatedRepo
           .createQueryBuilder('t')
@@ -1997,7 +2024,9 @@ export class NesEmployeesService {
       const staleByBranch = await this.orgRepo
         .createQueryBuilder('o')
         .where('o.energo_branch_id IS NOT NULL')
-        .andWhere('o.energo_branch_id NOT IN (:...ids)', { ids: uniqueBranchIds })
+        .andWhere('o.energo_branch_id NOT IN (:...ids)', {
+          ids: uniqueBranchIds,
+        })
         .andWhere('o.archived_at IS NULL')
         .getMany();
 
@@ -2102,7 +2131,9 @@ export class NesEmployeesService {
         if (!displayName && !sourceName) continue;
         const existing =
           (sourceName
-            ? await this.departmentRepo.findOne({ where: { name1c: sourceName } })
+            ? await this.departmentRepo.findOne({
+                where: { name1c: sourceName },
+              })
             : null) ??
           (await this.departmentRepo.findOne({ where: { name: displayName } }));
         const employeeCount = Number(row.employeeCount ?? 0) || 0;
@@ -2190,7 +2221,7 @@ export class NesEmployeesService {
       .orderBy('d.name', 'ASC');
     if (filters?.search?.trim()) {
       qb.andWhere(
-        '(LOWER(d.name) LIKE :q OR LOWER(COALESCE(d.name1c, \'\')) LIKE :q)',
+        "(LOWER(d.name) LIKE :q OR LOWER(COALESCE(d.name1c, '')) LIKE :q)",
         {
           q: `%${filters.search.trim().toLowerCase()}%`,
         },
@@ -2292,7 +2323,11 @@ export class NesEmployeesService {
   }
 
   private isUniqueNameViolation(error: unknown): boolean {
-    const err = error as { code?: string; message?: string; driverError?: { code?: string } };
+    const err = error as {
+      code?: string;
+      message?: string;
+      driverError?: { code?: string };
+    };
     const code = err?.code ?? err?.driverError?.code;
     const message = error instanceof Error ? error.message : String(error);
     return (
@@ -2379,10 +2414,8 @@ export class NesEmployeesService {
       if (await this.canRemoveOrganization(conflict.id)) {
         await this.orgRepo.delete(conflict.id);
       } else {
-        const legacyName = `legacy-${conflict.id.slice(0, 8)}-${conflict.name}`.slice(
-          0,
-          180,
-        );
+        const legacyName =
+          `legacy-${conflict.id.slice(0, 8)}-${conflict.name}`.slice(0, 180);
         await this.orgRepo.update(conflict.id, {
           name: legacyName,
           archivedAt: new Date(),
@@ -2391,11 +2424,17 @@ export class NesEmployeesService {
       return;
     }
 
-    const legacyName = `legacy-${conflict.id.slice(0, 8)}-${name}`.slice(0, 180);
+    const legacyName = `legacy-${conflict.id.slice(0, 8)}-${name}`.slice(
+      0,
+      180,
+    );
     await this.orgRepo.update(conflict.id, { name: legacyName });
   }
 
-  private async attachUserToOrganization(userId: string, organizationId: string) {
+  private async attachUserToOrganization(
+    userId: string,
+    organizationId: string,
+  ) {
     await this.userOrgRepo
       .createQueryBuilder()
       .delete()
@@ -2440,7 +2479,9 @@ export class NesEmployeesService {
   ) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user?.energoId) {
-      throw new BadRequestException('Energo ID bilan bog`langan xodim topilmadi');
+      throw new BadRequestException(
+        'Energo ID bilan bog`langan xodim topilmadi',
+      );
     }
 
     const resolved = (await this.energoIdAuthClient.patchEmployeeFields(
@@ -2480,7 +2521,11 @@ export class NesEmployeesService {
 
     let mirror = await this.employeeRepo.findOne({ where: { userId } });
 
-    const nextFirst = pick(fields.firstName, resolved.firstName, user.firstName);
+    const nextFirst = pick(
+      fields.firstName,
+      resolved.firstName,
+      user.firstName,
+    );
     const nextLast = pick(fields.lastName, resolved.lastName, user.lastName);
     const nextMiddle = pick(
       fields.middleName,
