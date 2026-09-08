@@ -451,11 +451,18 @@ export class ElektroArchiveService {
 
       fs.writeFileSync(
         filePath,
-        Buffer.from(exportedData.buffer, exportedData.byteOffset, exportedData.byteLength),
+        Buffer.from(
+          exportedData.buffer,
+          exportedData.byteOffset,
+          exportedData.byteLength,
+        ),
       );
 
       // Qo'shimcha .meta.json fayl yoziladi (listArchives paytida bazani butunligicha RAMga yuklamaslik uchun)
-      const metaJsonPath = path.join(this.archivesDir, `${archiveId}.meta.json`);
+      const metaJsonPath = path.join(
+        this.archivesDir,
+        `${archiveId}.meta.json`,
+      );
       fs.writeFileSync(
         metaJsonPath,
         JSON.stringify(
@@ -605,7 +612,10 @@ export class ElektroArchiveService {
 
     for (const file of files) {
       const archiveId = file.replace(/\.sqlite$/, '');
-      const metaJsonPath = path.join(this.archivesDir, `${archiveId}.meta.json`);
+      const metaJsonPath = path.join(
+        this.archivesDir,
+        `${archiveId}.meta.json`,
+      );
       if (fs.existsSync(metaJsonPath)) {
         try {
           const meta = JSON.parse(fs.readFileSync(metaJsonPath, 'utf8'));
