@@ -17,18 +17,27 @@ function normalizePath(originalUrl: string) {
   return noQuery.replace(/^\/api\b/, '') || '/';
 }
 
-function resolveAction(method: string, path: string): { module: ModuleKey; action: CrudAction } | null {
+function resolveAction(
+  method: string,
+  path: string,
+): { module: ModuleKey; action: CrudAction } | null {
   const m = method.toUpperCase();
 
   // Telegram bot — view + mutations
-  if (path === '/admin/telegram-bot/settings' || path.startsWith('/admin/telegram-bot/')) {
+  if (
+    path === '/admin/telegram-bot/settings' ||
+    path.startsWith('/admin/telegram-bot/')
+  ) {
     if (m === 'GET' || m === 'HEAD') {
       return { module: 'telegramBot', action: 'view' };
     }
     if (path === '/admin/telegram-bot/settings' && m === 'PATCH') {
       return { module: 'telegramBot', action: 'update' };
     }
-    if (/^\/admin\/telegram-bot\/chats\/[^/]+\/reply$/.test(path) && m === 'POST') {
+    if (
+      /^\/admin\/telegram-bot\/chats\/[^/]+\/reply$/.test(path) &&
+      m === 'POST'
+    ) {
       return { module: 'telegramBot', action: 'create' };
     }
     if (
@@ -45,50 +54,87 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return null;
 
   // Content
-  if (path === '/admin/levels') return { module: 'contentLevels', action: 'create' };
-  if (/^\/admin\/levels\/[^/]+$/.test(path) && m === 'PUT') return { module: 'contentLevels', action: 'update' };
-  if (/^\/admin\/levels\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'contentLevels', action: 'delete' };
+  if (path === '/admin/levels')
+    return { module: 'contentLevels', action: 'create' };
+  if (/^\/admin\/levels\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'contentLevels', action: 'update' };
+  if (/^\/admin\/levels\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'contentLevels', action: 'delete' };
 
-  if (path === '/admin/theories') return { module: 'contentTheories', action: 'create' };
-  if (/^\/admin\/theories\/[^/]+$/.test(path) && m === 'PUT') return { module: 'contentTheories', action: 'update' };
-  if (/^\/admin\/theories\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'contentTheories', action: 'delete' };
+  if (path === '/admin/theories')
+    return { module: 'contentTheories', action: 'create' };
+  if (/^\/admin\/theories\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'contentTheories', action: 'update' };
+  if (/^\/admin\/theories\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'contentTheories', action: 'delete' };
 
-  if (path === '/admin/questions') return { module: 'contentQuestions', action: 'create' };
-  if (/^\/admin\/questions\/[^/]+$/.test(path) && m === 'PUT') return { module: 'contentQuestions', action: 'update' };
-  if (/^\/admin\/questions\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'contentQuestions', action: 'delete' };
-  if (/^\/admin\/question-options\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'contentQuestions', action: 'delete' };
+  if (path === '/admin/questions')
+    return { module: 'contentQuestions', action: 'create' };
+  if (/^\/admin\/questions\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'contentQuestions', action: 'update' };
+  if (/^\/admin\/questions\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'contentQuestions', action: 'delete' };
+  if (/^\/admin\/question-options\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'contentQuestions', action: 'delete' };
 
   // Organizations
-  if (path === '/admin/organizations' && m === 'POST') return { module: 'organizations', action: 'create' };
-  if (/^\/admin\/organizations\/[^/]+$/.test(path) && m === 'PUT') return { module: 'organizations', action: 'update' };
-  if (/^\/admin\/organizations\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'organizations', action: 'delete' };
+  if (path === '/admin/organizations' && m === 'POST')
+    return { module: 'organizations', action: 'create' };
+  if (/^\/admin\/organizations\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'organizations', action: 'update' };
+  if (/^\/admin\/organizations\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'organizations', action: 'delete' };
   if (/^\/admin\/organizations\/[^/]+\/users$/.test(path) && m === 'POST') {
     return { module: 'organizations', action: 'update' };
   }
-  if (/^\/admin\/organizations\/[^/]+\/users\/[^/]+$/.test(path) && m === 'DELETE') {
+  if (
+    /^\/admin\/organizations\/[^/]+\/users\/[^/]+$/.test(path) &&
+    m === 'DELETE'
+  ) {
     return { module: 'organizations', action: 'update' };
   }
 
   // Exams (lavozimlar, imtihonlar, imtihon savollari, jadval, korzinka)
-  if (path === '/admin/positions' && m === 'POST') return { module: 'exams', action: 'create' };
-  if (/^\/admin\/positions\/[^/]+$/.test(path) && m === 'PUT') return { module: 'exams', action: 'update' };
-  if (/^\/admin\/positions\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'exams', action: 'delete' };
+  if (path === '/admin/positions' && m === 'POST')
+    return { module: 'exams', action: 'create' };
+  if (/^\/admin\/positions\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'exams', action: 'update' };
+  if (/^\/admin\/positions\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'exams', action: 'delete' };
 
-  if (path === '/admin/exams' && m === 'POST') return { module: 'exams', action: 'create' };
-  if (/^\/admin\/exams\/[^/]+$/.test(path) && m === 'PUT') return { module: 'exams', action: 'update' };
-  if (/^\/admin\/exams\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'exams', action: 'delete' };
+  if (path === '/admin/exams' && m === 'POST')
+    return { module: 'exams', action: 'create' };
+  if (/^\/admin\/exams\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'exams', action: 'update' };
+  if (/^\/admin\/exams\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'exams', action: 'delete' };
 
-  if (path === '/admin/exam-questions' && m === 'POST') return { module: 'exams', action: 'create' };
-  if (/^\/admin\/exam-questions\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'exams', action: 'delete' };
+  if (path === '/admin/exam-questions' && m === 'POST')
+    return { module: 'exams', action: 'create' };
+  if (/^\/admin\/exam-questions\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'exams', action: 'delete' };
 
-  if (/^\/admin\/exam-assignments\/[^/]+\/schedule$/.test(path) && m === 'POST') {
+  if (
+    /^\/admin\/exam-assignments\/[^/]+\/schedule$/.test(path) &&
+    m === 'POST'
+  ) {
     return { module: 'exams', action: 'update' };
   }
 
-  if (/^\/admin\/basket\/(positions|exams|exam-questions)\/[^/]+\/restore$/.test(path) && m === 'POST') {
+  if (
+    /^\/admin\/basket\/(positions|exams|exam-questions)\/[^/]+\/restore$/.test(
+      path,
+    ) &&
+    m === 'POST'
+  ) {
     return { module: 'exams', action: 'update' };
   }
-  if (/^\/admin\/basket\/(positions|exams|exam-questions)\/[^/]+\/purge$/.test(path) && m === 'DELETE') {
+  if (
+    /^\/admin\/basket\/(positions|exams|exam-questions)\/[^/]+\/purge$/.test(
+      path,
+    ) &&
+    m === 'DELETE'
+  ) {
     return { module: 'exams', action: 'delete' };
   }
 
@@ -97,12 +143,10 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
     return { module: 'users', action: 'update' };
   }
 
-  // Reporting activation: filial / bo‘lim — organizations.update
   // Reporting activation: filial / bo‘lim / lavozim — organizations.update
   if (
     m === 'PATCH' &&
     (/^\/admin\/reporting-activation\/organizations\/[^/]+$/.test(path) ||
-      path === '/admin/reporting-activation/divisions')
       path === '/admin/reporting-activation/divisions' ||
       path === '/admin/reporting-activation/positions')
   ) {
@@ -118,7 +162,10 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   }
 
   // Field overrides (Energo ID master)
-  if (/^\/admin\/field-overrides\/employees\/[^/]+$/.test(path) && m === 'PATCH') {
+  if (
+    /^\/admin\/field-overrides\/employees\/[^/]+$/.test(path) &&
+    m === 'PATCH'
+  ) {
     return { module: 'students', action: 'update' };
   }
   if (
@@ -130,11 +177,19 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   }
 
   // Employees: legacy /admin/students is still supported by the controller.
-  if ((path === '/admin/students' || path === '/admin/employees') && m === 'POST') {
+  if (
+    (path === '/admin/students' || path === '/admin/employees') &&
+    m === 'POST'
+  ) {
     return { module: 'students', action: 'create' };
   }
-  if (/^\/admin\/(students|employees)\/[^/]+$/.test(path) && (m === 'PUT' || m === 'PATCH')) return { module: 'students', action: 'update' };
-  if (/^\/admin\/(students|employees)\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'students', action: 'delete' };
+  if (
+    /^\/admin\/(students|employees)\/[^/]+$/.test(path) &&
+    (m === 'PUT' || m === 'PATCH')
+  )
+    return { module: 'students', action: 'update' };
+  if (/^\/admin\/(students|employees)\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'students', action: 'delete' };
 
   // Certificates (guvohnoma berish / bekor qilish)
   if (/^\/admin\/certificates\/employees\/[^/]+$/.test(path) && m === 'POST') {
@@ -157,14 +212,20 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   }
 
   // Users / Moderators management
-  if (path === '/admin/users/moderators' && m === 'POST') return { module: 'moderators', action: 'create' };
-  if (path === '/admin/users' && m === 'POST') return { module: 'users', action: 'create' };
-  if (/^\/admin\/users\/[^/]+$/.test(path) && m === 'PUT') return { module: 'users', action: 'update' };
-  if (/^\/admin\/users\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'users', action: 'delete' };
+  if (path === '/admin/users/moderators' && m === 'POST')
+    return { module: 'moderators', action: 'create' };
+  if (path === '/admin/users' && m === 'POST')
+    return { module: 'users', action: 'create' };
+  if (/^\/admin\/users\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'users', action: 'update' };
+  if (/^\/admin\/users\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'users', action: 'delete' };
 
   // Profile actions from admin-panel
-  if (path === '/auth/me' && (m === 'PATCH' || m === 'PUT')) return { module: 'profile', action: 'update' };
-  if (path === '/auth/change-password' && m === 'POST') return { module: 'profile', action: 'update' };
+  if (path === '/auth/me' && (m === 'PATCH' || m === 'PUT'))
+    return { module: 'profile', action: 'update' };
+  if (path === '/auth/change-password' && m === 'POST')
+    return { module: 'profile', action: 'update' };
 
   // Exam live (moderator / superadmin)
   if (path.startsWith('/exams/live/moderator') && m === 'POST') {
@@ -175,15 +236,24 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   }
 
   // Audio library (admin CRUD)
-  if (path === '/admin/audio-books' && m === 'POST') return { module: 'audioLibrary', action: 'create' };
-  if (/^\/admin\/audio-books\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
-  if (/^\/admin\/audio-books\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
-  if (/^\/admin\/audio-books\/[^/]+\/chapters$/.test(path) && m === 'POST') return { module: 'audioLibrary', action: 'create' };
-  if (/^\/admin\/audio-chapters\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
-  if (/^\/admin\/audio-chapters\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
-  if (/^\/admin\/audio-chapters\/[^/]+\/paragraphs$/.test(path) && m === 'POST') return { module: 'audioLibrary', action: 'create' };
-  if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'PUT') return { module: 'audioLibrary', action: 'update' };
-  if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'DELETE') return { module: 'audioLibrary', action: 'delete' };
+  if (path === '/admin/audio-books' && m === 'POST')
+    return { module: 'audioLibrary', action: 'create' };
+  if (/^\/admin\/audio-books\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'audioLibrary', action: 'update' };
+  if (/^\/admin\/audio-books\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'audioLibrary', action: 'delete' };
+  if (/^\/admin\/audio-books\/[^/]+\/chapters$/.test(path) && m === 'POST')
+    return { module: 'audioLibrary', action: 'create' };
+  if (/^\/admin\/audio-chapters\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'audioLibrary', action: 'update' };
+  if (/^\/admin\/audio-chapters\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'audioLibrary', action: 'delete' };
+  if (/^\/admin\/audio-chapters\/[^/]+\/paragraphs$/.test(path) && m === 'POST')
+    return { module: 'audioLibrary', action: 'create' };
+  if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'PUT')
+    return { module: 'audioLibrary', action: 'update' };
+  if (/^\/admin\/audio-paragraphs\/[^/]+$/.test(path) && m === 'DELETE')
+    return { module: 'audioLibrary', action: 'delete' };
 
   // Library documents (PDF / Word) — same permission as audio library
   if (path === '/admin/library-documents' && m === 'POST') {
@@ -214,7 +284,11 @@ function safeBodyPreview(body: unknown) {
   if (body === undefined || body === null) return null;
   try {
     const raw =
-      typeof body === 'string' ? body : JSON.stringify(body, (_k, v) => (typeof v === 'bigint' ? String(v) : v));
+      typeof body === 'string'
+        ? body
+        : JSON.stringify(body, (_k, v) =>
+            typeof v === 'bigint' ? String(v) : v,
+          );
     const max = 1200;
     return raw.length > max ? `${raw.slice(0, max)}…` : raw;
   } catch {
@@ -244,7 +318,11 @@ export class ModeratorPermissionsGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context
       .switchToHttp()
-      .getRequest<Request & { user?: { id: string; role: Role; organizationIds?: string[] } }>();
+      .getRequest<
+        Request & {
+          user?: { id: string; role: Role; organizationIds?: string[] };
+        }
+      >();
 
     const user = request.user;
     if (!user || user.role !== Role.MODERATOR) return true;
