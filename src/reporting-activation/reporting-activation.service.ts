@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import { In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { Organization } from '../database/entities/organization.entity';
 import { OrganizationDivisionSetting } from '../database/entities/organization-division-setting.entity';
 import {
@@ -190,10 +191,53 @@ export class ReportingActivationService {
 
     if (org.reportActive === isActive) {
       return { id: org.id, reportActive: org.reportActive };
+    org.reportActive = isActive;
+    await this.orgRepo.save(org);
+
+    // 1. Kaskad bo'limlar: Filial ostidagi barcha bo'limlarni yangilash
+    const divisionRows = await this.orgRepo.manager.query(
+      `SELECT DISTINCT COALESCE(TRIM(division), '') AS division
+       FROM nes_employees
+       WHERE organization_id = $1`,
+      [orgId],
+    );
+    const divNames = new Set<string>(
+      divisionRows.map((r: { division: string }) => r.division ?? ''),
+    );
+    divNames.add('');
+
+    const existingDivs = await this.divisionRepo.find({
+      where: { organizationId: orgId },
+      select: ['divisionName'],
+    });
+    for (const ed of existingDivs) {
+      divNames.add(ed.divisionName ?? '');
     }
 
     org.reportActive = isActive;
     await this.orgRepo.save(org);
+    for (const dName of divNames) {
+      await this.orgRepo.manager.query(
+        `INSERT INTO organization_division_settings (id, organization_id, division_name, is_active, created_at, updated_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW())
+         ON CONFLICT (organization_id, division_name)
+         DO UPDATE SET is_active = $3, updated_at = NOW()`,
+        [orgId, dName, isActive],
+      );
+    }
+
+    // 2. Kaskad xodimlar: Filial ostidagi barcha xodimlarni (users) report_active = isActive qilish
+    await this.orgRepo.manager.query(
+      `UPDATE users
+       SET report_active = $2
+       WHERE id IN (
+         SELECT DISTINCT "userId" FROM user_organizations WHERE "organizationId" = $1
+         UNION
+         SELECT DISTINCT user_id FROM nes_employees WHERE organization_id = $1 AND user_id IS NOT NULL
+       )`,
+      [orgId, isActive],
+    );
+
     await this.appendHistory({
       scopeType: 'organization',
       organizationId: orgId,
@@ -211,6 +255,12 @@ export class ReportingActivationService {
   ) {
     const org = await this.orgRepo.findOne({ where: { id: organizationId } });
     if (!org) throw new NotFoundException('Tashkilot topilmadi');
+
+    if (isActive && org.reportActive === false) {
+      throw new BadRequestException(
+        'Filial o‘chiq holatda. Filial o‘chiq bo‘lsa, uning ichidagi bo‘limni yoqib bo‘lmaydi. Avval filialni yoqing.',
+      );
+    }
 
     const divisionName = this.normalizeDivision(division);
     let row = await this.divisionRepo.findOne({
@@ -234,6 +284,36 @@ export class ReportingActivationService {
     }
 
     await this.divisionRepo.save(row);
+
+    // Kaskad: Ushbu bo'limdagi barcha xodimlarni report_active = isActive qilish
+    if (divisionName === '') {
+      await this.orgRepo.manager.query(
+        `UPDATE users
+         SET report_active = $2
+         WHERE id IN (
+           SELECT DISTINCT user_id
+           FROM nes_employees
+           WHERE organization_id = $1
+             AND (division IS NULL OR TRIM(division) = '')
+             AND user_id IS NOT NULL
+         )`,
+        [organizationId, isActive],
+      );
+    } else {
+      await this.orgRepo.manager.query(
+        `UPDATE users
+         SET report_active = $3
+         WHERE id IN (
+           SELECT DISTINCT user_id
+           FROM nes_employees
+           WHERE organization_id = $1
+             AND TRIM(division) = $2
+             AND user_id IS NOT NULL
+         )`,
+        [organizationId, divisionName, isActive],
+      );
+    }
+
     await this.appendHistory({
       scopeType: 'division',
       organizationId,
@@ -248,13 +328,162 @@ export class ReportingActivationService {
     };
   }
 
+  async setPositionActive(
+    organizationId: string,
+    division: string | undefined,
+    post: string,
+    isActive: boolean,
+    changedByUserId?: string,
+  ) {
+    const org = await this.orgRepo.findOne({ where: { id: organizationId } });
+    if (!org) throw new NotFoundException('Tashkilot topilmadi');
+
+    if (isActive && org.reportActive === false) {
+      throw new BadRequestException(
+        'Filial o‘chiq holatda. Filial o‘chiq bo‘lsa, uning ichidagi lavozimni yoqib bo‘lmaydi. Avval filialni yoqing.',
+      );
+    }
+
+    const divisionName = this.normalizeDivision(division);
+    const postName = (post ?? '').trim();
+
+    if (isActive && divisionName) {
+      const divSetting = await this.divisionRepo.findOne({
+        where: { organizationId, divisionName },
+      });
+      if (divSetting && divSetting.isActive === false) {
+        throw new BadRequestException(
+          'Bo‘lim o‘chiq holatda. Bo‘lim o‘chiq bo‘lsa, uning ichidagi lavozimni yoqib bo‘lmaydi. Avval bo‘limni yoqing.',
+        );
+      }
+    }
+
+    // Shu lavozimdagi barcha xodimlarni yangilash
+    let updatedUsers: Array<{ id: string }> = [];
+    if (divisionName === '' && postName === '') {
+      updatedUsers = await this.orgRepo.manager.query(
+        `UPDATE users
+         SET report_active = $2
+         WHERE id IN (
+           SELECT DISTINCT user_id
+           FROM nes_employees
+           WHERE organization_id = $1
+             AND (division IS NULL OR TRIM(division) = '')
+             AND (post IS NULL OR TRIM(post) = '')
+             AND user_id IS NOT NULL
+         )
+         RETURNING id`,
+        [organizationId, isActive],
+      );
+    } else if (divisionName === '') {
+      updatedUsers = await this.orgRepo.manager.query(
+        `UPDATE users
+         SET report_active = $3
+         WHERE id IN (
+           SELECT DISTINCT user_id
+           FROM nes_employees
+           WHERE organization_id = $1
+             AND (division IS NULL OR TRIM(division) = '')
+             AND TRIM(post) = $2
+             AND user_id IS NOT NULL
+         )
+         RETURNING id`,
+        [organizationId, postName, isActive],
+      );
+    } else if (postName === '') {
+      updatedUsers = await this.orgRepo.manager.query(
+        `UPDATE users
+         SET report_active = $3
+         WHERE id IN (
+           SELECT DISTINCT user_id
+           FROM nes_employees
+           WHERE organization_id = $1
+             AND TRIM(division) = $2
+             AND (post IS NULL OR TRIM(post) = '')
+             AND user_id IS NOT NULL
+         )
+         RETURNING id`,
+        [organizationId, divisionName, isActive],
+      );
+    } else {
+      updatedUsers = await this.orgRepo.manager.query(
+        `UPDATE users
+         SET report_active = $4
+         WHERE id IN (
+           SELECT DISTINCT user_id
+           FROM nes_employees
+           WHERE organization_id = $1
+             AND TRIM(division) = $2
+             AND TRIM(post) = $3
+             AND user_id IS NOT NULL
+         )
+         RETURNING id`,
+        [organizationId, divisionName, postName, isActive],
+      );
+    }
+
+    return {
+      organizationId,
+      division: divisionName,
+      post: postName,
+      isActive,
+      affectedCount: updatedUsers.length,
+    };
+  }
+
   async setEmployeeActive(
     userId: string,
     isActive: boolean,
     changedByUserId?: string,
   ) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['organizations', 'organizations.organization'],
+    });
     if (!user) throw new NotFoundException('Xodim topilmadi');
+
+    if (isActive) {
+      // Filial holatini tekshirish
+      const orgIds = await this.orgRepo.manager.query(
+        `SELECT DISTINCT org_id FROM (
+           SELECT "organizationId" AS org_id FROM user_organizations WHERE "userId" = $1
+           UNION
+           SELECT organization_id AS org_id FROM nes_employees WHERE user_id = $1 AND organization_id IS NOT NULL
+         ) AS o`,
+        [userId],
+      );
+      if (orgIds.length > 0) {
+        const inactiveOrg = await this.orgRepo.findOne({
+          where: {
+            id: In(orgIds.map((r: { org_id: string }) => r.org_id)),
+            reportActive: false,
+          },
+        });
+        if (inactiveOrg) {
+          throw new BadRequestException(
+            'Filial o‘chiq holatda. Filial o‘chiq bo‘lsa, xodimni yoqib bo‘lmaydi. Avval filialni yoqing.',
+          );
+        }
+      }
+
+      // Bo'lim holatini tekshirish
+      const nes = await this.orgRepo.manager.query(
+        `SELECT organization_id, division FROM nes_employees WHERE user_id = $1 LIMIT 1`,
+        [userId],
+      );
+      if (nes.length > 0 && nes[0].organization_id) {
+        const divName = this.normalizeDivision(nes[0].division);
+        const divSetting = await this.divisionRepo.findOne({
+          where: { organizationId: nes[0].organization_id, divisionName: divName },
+        });
+        if (divSetting && divSetting.isActive === false) {
+          throw new BadRequestException(
+            'Bo‘lim o‘chiq holatda. Bo‘lim o‘chiq bo‘lsa, xodimni yoqib bo‘lmaydi. Avval bo‘limni yoqing.',
+          );
+        }
+      }
+    }
 
     if (user.reportActive === isActive) {
       return { id: user.id, reportActive: user.reportActive };

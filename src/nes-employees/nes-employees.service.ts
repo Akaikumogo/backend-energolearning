@@ -306,6 +306,8 @@ export class NesEmployeesService {
         );
       }
 
+      await this.enforceInactiveOrganizationsCascade();
+
       this.syncState.hidden = hidden;
       this.syncState.status = 'SUCCESS';
       this.syncState.finishedAt = new Date();
@@ -388,6 +390,61 @@ export class NesEmployeesService {
         'elektrolearn-energo-employee-sync',
       ])
       .catch(() => undefined);
+  }
+
+  /**
+   * OFF (reportActive = false) qilingan filiallar ostidagi barcha
+   * bo'limlar va xodimlarning OFF holatda qolishini ta'minlash.
+   */
+  private async enforceInactiveOrganizationsCascade(): Promise<void> {
+    try {
+      // 1. Inactive filiallar xodimlari -> report_active = false
+      await this.dataSource.query(`
+        UPDATE users
+        SET report_active = false
+        WHERE id IN (
+          SELECT DISTINCT uo."userId"
+          FROM user_organizations uo
+          JOIN organizations o ON o.id = uo."organizationId"
+          WHERE o.report_active = false
+          UNION
+          SELECT DISTINCT ne.user_id
+          FROM nes_employees ne
+          JOIN organizations o ON o.id = ne.organization_id
+          WHERE o.report_active = false AND ne.user_id IS NOT NULL
+        )
+        AND report_active = true
+      `);
+
+      // 2. Inactive filiallar bo'limlari -> is_active = false
+      await this.dataSource.query(`
+        UPDATE organization_division_settings ods
+        SET is_active = false, updated_at = NOW()
+        FROM organizations o
+        WHERE o.id = ods.organization_id
+          AND o.report_active = false
+          AND ods.is_active = true
+      `);
+
+      // 3. Yangi sinxron qilingan bo'limlar bo'lsa, ularni ham is_active = false qilib qo'yish
+      await this.dataSource.query(`
+        INSERT INTO organization_division_settings (id, organization_id, division_name, is_active, created_at, updated_at)
+        SELECT gen_random_uuid(), o.id, COALESCE(TRIM(ne.division), ''), false, NOW(), NOW()
+        FROM organizations o
+        JOIN nes_employees ne ON ne.organization_id = o.id
+        WHERE o.report_active = false
+        ON CONFLICT (organization_id, division_name)
+        DO UPDATE SET is_active = false, updated_at = NOW()
+      `);
+
+      this.logger.log('Inactive filiallar kaskad nazorati yakunlandi');
+    } catch (err) {
+      this.logger.error(
+        `enforceInactiveOrganizationsCascade xatosi: ${
+          err instanceof Error ? err.message : err
+        }`,
+      );
+    }
   }
 
   async listTerminatedEmployees(filters?: {
@@ -1696,17 +1753,13 @@ export class NesEmployeesService {
       });
 
       if (!dryRun) {
-        await this.userRepo.update(orphan.id, {
-          energoId: oldEnergoId,
-          reportActive: true,
-          loginBlocked: false,
-        });
-
         const orgName = orphan.organization_name?.trim() || '';
         let organizationId: string | null = null;
+        let orgReportActive = true;
         if (orgName) {
           const org = await this.upsertOrganizationMirror({ name: orgName });
           organizationId = org.id;
+          orgReportActive = org.reportActive !== false;
           const exists = await this.dataSource.query(
             `SELECT 1 FROM user_organizations
              WHERE "userId" = $1::uuid AND "organizationId" = $2::uuid
@@ -1722,6 +1775,12 @@ export class NesEmployeesService {
             );
           }
         }
+
+        await this.userRepo.update(orphan.id, {
+          energoId: oldEnergoId,
+          reportActive: orgReportActive,
+          loginBlocked: false,
+        });
 
         const pn = orphan.personnel_number?.trim();
         if (pn && organizationId) {

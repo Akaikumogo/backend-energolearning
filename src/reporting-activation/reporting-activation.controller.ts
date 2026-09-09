@@ -1,4 +1,4 @@
-﻿import {
+import {
   Body,
   Controller,
   Get,
@@ -24,6 +24,7 @@ import { Role } from '../common/enums/role.enum';
 import { OrganizationsService } from '../organizations/organizations.service';
 import {
   SetDivisionReportActiveDto,
+  SetPositionReportActiveDto,
   SetReportActiveDto,
 } from './dto/set-report-active.dto';
 import { ReportingActivationService } from './reporting-activation.service';
@@ -114,6 +115,33 @@ export class ReportingActivationController {
     return this.activationService.setDivisionActive(
       dto.organizationId,
       dto.division ?? '',
+      dto.isActive,
+      req.user.id,
+    );
+  }
+
+  @Patch('positions')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({
+    summary: 'Lavozim switch — OFF = uning barcha xodimlarini hisobotdan chiqarish',
+  })
+  @ApiBody({ type: SetPositionReportActiveDto })
+  async setPosition(
+    @Req()
+    req: Request & {
+      user: { id: string; role: Role; organizationIds: string[] };
+    },
+    @Body() dto: SetPositionReportActiveDto,
+  ) {
+    await this.orgService.assertModeratorOrgAccess(
+      req.user.role,
+      req.user.organizationIds,
+      dto.organizationId,
+    );
+    return this.activationService.setPositionActive(
+      dto.organizationId,
+      dto.division,
+      dto.post,
       dto.isActive,
       req.user.id,
     );
