@@ -22,8 +22,19 @@ export function mapUserOrganizations(user: User): UserOrganizationSummary[] {
   return Array.from(byId.values());
 }
 
-export function mapUserToProfile(user: User): UserProfileDto & { energoId?: string | null } {
+export type NesEmployeeInfo = {
+  organizationId?: string | null;
+  organizationName?: string | null;
+  personnelNumber?: string | null;
+  post?: string | null;
+  middleName?: string | null;
+};
+
+export function mapUserToProfile(
+  user: User & { nesEmployee?: NesEmployeeInfo | null },
+): UserProfileDto & { energoId?: string | null } {
   const organizations = mapUserOrganizations(user);
+  const nes = user.nesEmployee;
   return {
     id: user.id,
     email: user.email,
@@ -33,6 +44,15 @@ export function mapUserToProfile(user: User): UserProfileDto & { energoId?: stri
     avatarUrl: resolveStoredAvatarUrl(user.avatarUrl),
     organizationIds: organizations.map((o) => o.id),
     organizations,
+    primaryOrganization: nes?.organizationName
+      ? {
+          id: nes.organizationId || '',
+          name: nes.organizationName,
+        }
+      : null,
+    middleName: nes?.middleName || null,
+    personnelNumber: nes?.personnelNumber || null,
+    post: nes?.post || null,
     mustChangePassword: user.mustChangePassword ?? false,
     energoId: user.energoId ?? null,
   };
