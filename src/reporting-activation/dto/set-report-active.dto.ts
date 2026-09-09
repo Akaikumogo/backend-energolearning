@@ -24,3 +24,29 @@ export class SetDivisionReportActiveDto {
   @IsBoolean()
   isActive: boolean;
 }
+
+export class SetPositionReportActiveDto {
+  @ApiProperty()
+  @IsUUID()
+  organizationId: string;
+
+  @ApiProperty({
+    description: 'Bo‘lim nomi. Bo‘sh string = Bo‘limsiz',
+    example: 'Buxgalteriya',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  division?: string;
+
+  @ApiProperty({
+    description: 'Lavozim nomi',
+    example: 'Bosh mutaxassis',
+  })
+  @IsString()
+  post: string;
+
+  @ApiProperty({ example: false })
+  @IsBoolean()
+  isActive: boolean;
+}

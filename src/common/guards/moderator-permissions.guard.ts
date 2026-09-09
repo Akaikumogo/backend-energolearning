@@ -98,10 +98,13 @@ function resolveAction(method: string, path: string): { module: ModuleKey; actio
   }
 
   // Reporting activation: filial / bo‘lim — organizations.update
+  // Reporting activation: filial / bo‘lim / lavozim — organizations.update
   if (
     m === 'PATCH' &&
     (/^\/admin\/reporting-activation\/organizations\/[^/]+$/.test(path) ||
       path === '/admin/reporting-activation/divisions')
+      path === '/admin/reporting-activation/divisions' ||
+      path === '/admin/reporting-activation/positions')
   ) {
     return { module: 'organizations', action: 'update' };
   }
