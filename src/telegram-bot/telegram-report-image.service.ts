@@ -9,6 +9,7 @@ export type ReportBranchRow = {
   plan?: number;
   averageMonthlyPercent?: number;
   orgId?: string;
+  reportActive?: boolean;
   /** Oylik card: kunlik foizlar (1..N), kelajak kunlar 0 */
   dailyPercents?: number[];
 };
@@ -81,6 +82,9 @@ export class TelegramReportImageService {
 
     const sorted = [...daily.branches]
       .filter((b) => !this.isHeadOfficeOrg(b.orgName))
+      .filter(
+        (b) => !this.isHeadOfficeOrg(b.orgName) && b.reportActive !== false,
+      )
       .sort((a, b) => b.percent - a.percent);
     const names = sorted.map((b) => this.displayOrgName(b.orgName));
     const submitted = sorted.filter(
@@ -161,6 +165,9 @@ export class TelegramReportImageService {
 
     const ranked = [...monthly.branches]
       .filter((b) => !this.isHeadOfficeOrg(b.orgName))
+      .filter(
+        (b) => !this.isHeadOfficeOrg(b.orgName) && b.reportActive !== false,
+      )
       .sort(
       (a, b) =>
         (b.averageMonthlyPercent ?? b.percent) -

@@ -123,11 +123,13 @@ export class BranchAnalyticsService {
   }
 
   /** Tashkilotlar sahifasi bilan bir xil: arxiv emas + aktiv Energo ID xodimi bor */
+  /** Tashkilotlar sahifasi bilan bir xil: arxiv emas + hisobot beradi + aktiv Energo ID xodimi bor */
   private applyActiveEnergoOrgFilter<T extends { andWhere: (...args: any[]) => T }>(
     qb: T,
   ): T {
     return qb
       .andWhere('o.archivedAt IS NULL')
+      .andWhere('o.reportActive = true')
       .andWhere(
         `EXISTS (
           SELECT 1
@@ -1508,6 +1510,7 @@ export class BranchAnalyticsService {
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault']);
+      .select(['o.id', 'o.name', 'o.isDefault', 'o.reportActive']);
     if (allowedOrgIds !== null) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
@@ -1598,6 +1601,7 @@ export class BranchAnalyticsService {
           orgId: o.id,
           orgName: o.name,
           isDefault: !!o.isDefault,
+          reportActive: o.reportActive !== false,
           totalEmployees: employees,
           completedDays,
           averageMonthlyPercent:
@@ -1787,6 +1791,7 @@ export class BranchAnalyticsService {
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault']);
+      .select(['o.id', 'o.name', 'o.isDefault', 'o.reportActive']);
     if (allowedOrgIds !== null) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
@@ -1841,6 +1846,7 @@ export class BranchAnalyticsService {
           orgId: o.id,
           orgName: o.name,
           isDefault: !!o.isDefault,
+          reportActive: o.reportActive !== false,
           totalEmployees: employees,
           plan,
           completed,
