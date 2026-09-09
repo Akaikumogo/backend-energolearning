@@ -73,11 +73,13 @@ export class AnalyticsService {
       ? this.orgRepo
           .createQueryBuilder('o')
           .where('o.archivedAt IS NULL')
+          .andWhere('o.reportActive = true')
           .select('COUNT(*)', 'c')
       : this.orgRepo
           .createQueryBuilder('o')
           .where('o.id = :orgId', { orgId })
           .andWhere('o.archivedAt IS NULL')
+          .andWhere('o.reportActive = true')
           .select('COUNT(*)', 'c');
 
     const modCountQb = (() => {
@@ -396,6 +398,8 @@ export class AnalyticsService {
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.name', 'o.isDefault'])
+      .where('o.archivedAt IS NULL')
+      .andWhere('o.reportActive = true')
       .orderBy('o.isDefault', 'DESC')
       .addOrderBy('o.name', 'ASC');
     if (allowedOrgIds !== null) {
