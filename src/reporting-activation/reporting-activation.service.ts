@@ -4,7 +4,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { In, ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { Organization } from '../database/entities/organization.entity';
 import { OrganizationDivisionSetting } from '../database/entities/organization-division-setting.entity';
@@ -60,7 +59,9 @@ export class ReportingActivationService {
     const asOf = opts?.asOfDate?.trim();
 
     if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
-      throw new BadRequestException('asOfDate YYYY-MM-DD formatida bo‘lishi kerak');
+      throw new BadRequestException(
+        'asOfDate YYYY-MM-DD formatida bo‘lishi kerak',
+      );
     }
 
     // Hisobot/KPI: faqat Energo ID orqali kelgan xodimlar
@@ -152,7 +153,9 @@ export class ReportingActivationService {
     )`;
   }
 
-  async getSnapshot(orgIds?: string[] | null): Promise<ReportingActivationSnapshot> {
+  async getSnapshot(
+    orgIds?: string[] | null,
+  ): Promise<ReportingActivationSnapshot> {
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
       .select(['o.id', 'o.reportActive'])
@@ -189,8 +192,6 @@ export class ReportingActivationService {
     const org = await this.orgRepo.findOne({ where: { id: orgId } });
     if (!org) throw new NotFoundException('Tashkilot topilmadi');
 
-    if (org.reportActive === isActive) {
-      return { id: org.id, reportActive: org.reportActive };
     org.reportActive = isActive;
     await this.orgRepo.save(org);
 
@@ -214,8 +215,6 @@ export class ReportingActivationService {
       divNames.add(ed.divisionName ?? '');
     }
 
-    org.reportActive = isActive;
-    await this.orgRepo.save(org);
     for (const dName of divNames) {
       await this.orgRepo.manager.query(
         `INSERT INTO organization_division_settings (id, organization_id, division_name, is_active, created_at, updated_at)
@@ -436,7 +435,6 @@ export class ReportingActivationService {
     isActive: boolean,
     changedByUserId?: string,
   ) {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
     const user = await this.userRepo.findOne({
       where: { id: userId },
       relations: ['organizations', 'organizations.organization'],
@@ -475,7 +473,10 @@ export class ReportingActivationService {
       if (nes.length > 0 && nes[0].organization_id) {
         const divName = this.normalizeDivision(nes[0].division);
         const divSetting = await this.divisionRepo.findOne({
-          where: { organizationId: nes[0].organization_id, divisionName: divName },
+          where: {
+            organizationId: nes[0].organization_id,
+            divisionName: divName,
+          },
         });
         if (divSetting && divSetting.isActive === false) {
           throw new BadRequestException(
