@@ -113,7 +113,10 @@ export class BranchAnalyticsService {
     user: { role: Role; organizationIds: string[] },
   ): Promise<string | undefined> {
     if (!orgId?.trim() || orgId === 'all') {
-      if (orgId === 'all' && (user.role === Role.MODERATOR || user.role === Role.ACCOUNTING)) {
+      if (
+        orgId === 'all' &&
+        (user.role === Role.MODERATOR || user.role === Role.ACCOUNTING)
+      ) {
         // Moderator/Hisob "all" deb so‘rasa ham faqat o‘z scope'i (allowedOrgIds) ishlatiladi
         return undefined;
       }
@@ -124,9 +127,9 @@ export class BranchAnalyticsService {
 
   /** Tashkilotlar sahifasi bilan bir xil: arxiv emas + aktiv Energo ID xodimi bor */
   /** Tashkilotlar sahifasi bilan bir xil: arxiv emas + hisobot beradi + aktiv Energo ID xodimi bor */
-  private applyActiveEnergoOrgFilter<T extends { andWhere: (...args: any[]) => T }>(
-    qb: T,
-  ): T {
+  private applyActiveEnergoOrgFilter<
+    T extends { andWhere: (...args: any[]) => T },
+  >(qb: T): T {
     return qb
       .andWhere('o.archivedAt IS NULL')
       .andWhere('o.reportActive = true')
@@ -143,7 +146,10 @@ export class BranchAnalyticsService {
       );
   }
 
-  private parseRange(from?: string, to?: string): {
+  private parseRange(
+    from?: string,
+    to?: string,
+  ): {
     from: Date;
     to: Date;
     fromStr: string;
@@ -271,12 +277,13 @@ export class BranchAnalyticsService {
     return qb.getRawMany();
   }
 
-  async getSummary(
-    orgId: string,
-    from?: string,
-    to?: string,
-  ) {
-    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
+  async getSummary(orgId: string, from?: string, to?: string) {
+    const {
+      from: rangeFrom,
+      to: rangeTo,
+      fromStr,
+      toStr,
+    } = this.parseRange(from, to);
     const employees = await this.getEmployeeIds(orgId, toStr);
     const userIds = employees.map((e) => e.userId);
 
@@ -388,7 +395,12 @@ export class BranchAnalyticsService {
   }
 
   async getActivityMatrix(orgId: string, from?: string, to?: string) {
-    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
+    const {
+      from: rangeFrom,
+      to: rangeTo,
+      fromStr,
+      toStr,
+    } = this.parseRange(from, to);
     const days = this.listDays(fromStr, toStr);
     const employees = await this.getEmployeeIds(orgId, toStr);
     const userIds = employees.map((e) => e.userId);
@@ -400,7 +412,10 @@ export class BranchAnalyticsService {
     const attemptRows = await this.attemptRepo
       .createQueryBuilder('a')
       .select('a.user_id', 'userId')
-      .addSelect("TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')", 'day')
+      .addSelect(
+        "TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')",
+        'day',
+      )
       .addSelect('COUNT(*)::int', 'count')
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
@@ -409,13 +424,18 @@ export class BranchAnalyticsService {
         to: rangeTo,
       })
       .groupBy('a.user_id')
-      .addGroupBy("TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')")
+      .addGroupBy(
+        "TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')",
+      )
       .getRawMany<{ userId: string; day: string; count: number }>();
 
     const sessionRows = await this.sessionRepo
       .createQueryBuilder('s')
       .select('s.user_id', 'userId')
-      .addSelect("TO_CHAR(s.login_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')", 'day')
+      .addSelect(
+        "TO_CHAR(s.login_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')",
+        'day',
+      )
       .where('s.user_id IN (:...userIds)', { userIds })
       .andWhere('s.organization_id = :orgId', { orgId })
       .andWhere('s.login_at >= :from AND s.login_at < :to', {
@@ -423,7 +443,9 @@ export class BranchAnalyticsService {
         to: rangeTo,
       })
       .groupBy('s.user_id')
-      .addGroupBy("TO_CHAR(s.login_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')")
+      .addGroupBy(
+        "TO_CHAR(s.login_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')",
+      )
       .getRawMany<{ userId: string; day: string }>();
 
     const firstLoginRows = await this.sessionRepo
@@ -886,7 +908,9 @@ export class BranchAnalyticsService {
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
       .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
       .groupBy('a.user_id')
-      .addGroupBy(`TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`)
+      .addGroupBy(
+        `TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD')`,
+      )
       .getRawMany<{ userId: string; day: string; correct: number }>();
 
     const daysCompletedMap = new Map<string, number>();
@@ -1016,9 +1040,7 @@ export class BranchAnalyticsService {
     const page = Math.max(1, opts?.page ?? 1);
     const rawLimit = opts?.limit;
     const unlimited = rawLimit === 0 || rawLimit === -1;
-    const limit = unlimited
-      ? 0
-      : Math.min(200, Math.max(1, rawLimit ?? 50));
+    const limit = unlimited ? 0 : Math.min(200, Math.max(1, rawLimit ?? 50));
 
     const base = {
       orgId: orgs.length === 1 ? orgs[0].id : '',
@@ -1267,8 +1289,9 @@ export class BranchAnalyticsService {
     const y = /^\d{4}$/.test(year?.trim() ?? '')
       ? (year as string).trim()
       : tashkentToday().slice(0, 4);
-    const months = Array.from({ length: 12 }, (_, i) =>
-      `${y}-${String(i + 1).padStart(2, '0')}`,
+    const months = Array.from(
+      { length: 12 },
+      (_, i) => `${y}-${String(i + 1).padStart(2, '0')}`,
     );
     const yearFrom = new Date(`${y}-01-01T00:00:00.000+05:00`);
     const yearTo = new Date(`${Number(y) + 1}-01-01T00:00:00.000+05:00`);
@@ -1436,8 +1459,7 @@ export class BranchAnalyticsService {
         wrongTotal += monthWrong;
         extraCorrectTotal += monthExtra;
         daysCompletedYear += daysCompleted;
-        const percent =
-          Math.round((daysCompleted / daysInMonth) * 1000) / 10;
+        const percent = Math.round((daysCompleted / daysInMonth) * 1000) / 10;
         return {
           month: monthKey,
           daysInMonth,
@@ -1500,16 +1522,23 @@ export class BranchAnalyticsService {
    * Filiallar oylik reytingi: har filial uchun o'rtacha oylik progress %.
    * allowedOrgIds = null — barcha filiallar (SUPERADMIN).
    */
-  async getBranchComparison(month?: string, allowedOrgIds: string[] | null = null) {
+  async getBranchComparison(
+    month?: string,
+    allowedOrgIds: string[] | null = null,
+  ) {
     const { month: m, daysInMonth, from, to } = tashkentMonthBounds(month);
 
     if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
-      return { month: m, daysInMonth, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches: [] };
+      return {
+        month: m,
+        daysInMonth,
+        dailyGoalCorrect: DAILY_GOAL_CORRECT,
+        branches: [],
+      };
     }
 
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
-      .select(['o.id', 'o.name', 'o.isDefault']);
       .select(['o.id', 'o.name', 'o.isDefault', 'o.reportActive']);
     if (allowedOrgIds !== null) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
@@ -1517,7 +1546,12 @@ export class BranchAnalyticsService {
     this.applyActiveEnergoOrgFilter(orgQb);
     const orgs = await orgQb.getMany();
     if (orgs.length === 0) {
-      return { month: m, daysInMonth, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches: [] };
+      return {
+        month: m,
+        daysInMonth,
+        dailyGoalCorrect: DAILY_GOAL_CORRECT,
+        branches: [],
+      };
     }
     const orgIds = orgs.map((o) => o.id);
 
@@ -1536,8 +1570,13 @@ export class BranchAnalyticsService {
     this.reportingActivation.applyEmployeeReportActiveFilter(empQb, {
       asOfDate: `${m}-${String(daysInMonth).padStart(2, '0')}`,
     });
-    const empRows = await empQb.getRawMany<{ orgId: string; employees: number }>();
-    const empMap = new Map(empRows.map((r) => [r.orgId, Number(r.employees) || 0]));
+    const empRows = await empQb.getRawMany<{
+      orgId: string;
+      employees: number;
+    }>();
+    const empMap = new Map(
+      empRows.map((r) => [r.orgId, Number(r.employees) || 0]),
+    );
 
     // Har filial bo'yicha jami bajarilgan kunlar (user+kun juftliklari,
     // correct >= goal bo'lganlari). Faqat report-active xodimlar.
@@ -1617,7 +1656,12 @@ export class BranchAnalyticsService {
       )
       .map((b, i) => ({ ...b, rank: i + 1 }));
 
-    return { month: m, daysInMonth, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches };
+    return {
+      month: m,
+      daysInMonth,
+      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      branches,
+    };
   }
 
   private parsePlanDate(date?: string): string {
@@ -1636,7 +1680,10 @@ export class BranchAnalyticsService {
     planDate: string,
     userIds?: string[],
   ): Promise<
-    Map<string, { planCorrect: number; extraCorrect: number; rawCorrect: number }>
+    Map<
+      string,
+      { planCorrect: number; extraCorrect: number; rawCorrect: number }
+    >
   > {
     if (orgIds.length === 0) return new Map();
     const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
@@ -1734,7 +1781,9 @@ export class BranchAnalyticsService {
         branchCount: 0,
       };
     }
-    const orgQb = this.orgRepo.createQueryBuilder('o').select(['o.id', 'o.name']);
+    const orgQb = this.orgRepo
+      .createQueryBuilder('o')
+      .select(['o.id', 'o.name']);
     if (allowedOrgIds !== null) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
     }
@@ -1780,17 +1829,13 @@ export class BranchAnalyticsService {
   }
 
   /** Kunlik filiallar reytingi (reja / bajarildi / %). */
-  async getBranchRanking(
-    date?: string,
-    allowedOrgIds: string[] | null = null,
-  ) {
+  async getBranchRanking(date?: string, allowedOrgIds: string[] | null = null) {
     const planDate = this.parsePlanDate(date);
     if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
       return { planDate, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches: [] };
     }
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
-      .select(['o.id', 'o.name', 'o.isDefault']);
       .select(['o.id', 'o.name', 'o.isDefault', 'o.reportActive']);
     if (allowedOrgIds !== null) {
       orgQb.where('o.id IN (:...ids)', { ids: allowedOrgIds });
@@ -1841,7 +1886,8 @@ export class BranchAnalyticsService {
           extraCorrect += dayStatsMap.get(uid)?.extraCorrect ?? 0;
           if (c >= DAILY_GOAL_CORRECT) completedEmployees++;
         }
-        const percent = plan > 0 ? Math.round((completed / plan) * 1000) / 10 : 0;
+        const percent =
+          plan > 0 ? Math.round((completed / plan) * 1000) / 10 : 0;
         return {
           orgId: o.id,
           orgName: o.name,
@@ -1856,7 +1902,9 @@ export class BranchAnalyticsService {
           status: this.statusFromPercent(percent),
         };
       })
-      .sort((a, b) => b.percent - a.percent || a.orgName.localeCompare(b.orgName))
+      .sort(
+        (a, b) => b.percent - a.percent || a.orgName.localeCompare(b.orgName),
+      )
       .map((b, i) => ({ ...b, rank: i + 1 }));
 
     return { planDate, dailyGoalCorrect: DAILY_GOAL_CORRECT, branches };
@@ -1887,13 +1935,23 @@ export class BranchAnalyticsService {
 
     const divStats = new Map<
       string,
-      { employees: number; plan: number; completed: number; completedEmployees: number }
+      {
+        employees: number;
+        plan: number;
+        completed: number;
+        completedEmployees: number;
+      }
     >();
 
     for (const emp of employees) {
       const div = divisionByUser.get(emp.userId) ?? "Bo'lim belgilanmagan";
       if (!divStats.has(div)) {
-        divStats.set(div, { employees: 0, plan: 0, completed: 0, completedEmployees: 0 });
+        divStats.set(div, {
+          employees: 0,
+          plan: 0,
+          completed: 0,
+          completedEmployees: 0,
+        });
       }
       const s = divStats.get(div)!;
       s.employees++;
@@ -1905,7 +1963,8 @@ export class BranchAnalyticsService {
 
     const divisions = [...divStats.entries()]
       .map(([division, s]) => {
-        const percent = s.plan > 0 ? Math.round((s.completed / s.plan) * 1000) / 10 : 0;
+        const percent =
+          s.plan > 0 ? Math.round((s.completed / s.plan) * 1000) / 10 : 0;
         return {
           division,
           totalEmployees: s.employees,
@@ -1916,7 +1975,9 @@ export class BranchAnalyticsService {
           status: this.statusFromPercent(percent),
         };
       })
-      .sort((a, b) => b.percent - a.percent || a.division.localeCompare(b.division));
+      .sort(
+        (a, b) => b.percent - a.percent || a.division.localeCompare(b.division),
+      );
 
     const org = await this.orgRepo.findOne({ where: { id: orgId } });
     let branchTotal = { plan: 0, completed: 0, employees: employees.length };
@@ -1967,7 +2028,11 @@ export class BranchAnalyticsService {
 
     const userIds = employees.map((e) => e.userId);
     const correctMap = await this.getUserCorrectMap([orgId], planDate, userIds);
-    const dayStatsMap = await this.getUserDayStatsMap([orgId], planDate, userIds);
+    const dayStatsMap = await this.getUserDayStatsMap(
+      [orgId],
+      planDate,
+      userIds,
+    );
 
     const employees_ranked = employees
       .map((emp) => {
@@ -1989,7 +2054,9 @@ export class BranchAnalyticsService {
           status: this.statusFromPercent(percent),
         };
       })
-      .sort((a, b) => b.percent - a.percent || a.fullName.localeCompare(b.fullName))
+      .sort(
+        (a, b) => b.percent - a.percent || a.fullName.localeCompare(b.fullName),
+      )
       .map((e, i) => ({ ...e, rank: i + 1 }));
 
     return {
@@ -2069,12 +2136,18 @@ export class BranchAnalyticsService {
     )) as Array<{ hour: number; completed_employees: number }>;
 
     const hours = Array.from({ length: 15 }, (_, i) => i + 6);
-    const byHour = new Map(rows.map((r) => [Number(r.hour), Number(r.completed_employees) || 0]));
+    const byHour = new Map(
+      rows.map((r) => [Number(r.hour), Number(r.completed_employees) || 0]),
+    );
     let max = 1;
     const points = hours.map((h) => {
       const v = byHour.get(h) ?? 0;
       if (v > max) max = v;
-      return { hour: h, label: `${String(h).padStart(2, '0')}:00`, completedEmployees: v };
+      return {
+        hour: h,
+        label: `${String(h).padStart(2, '0')}:00`,
+        completedEmployees: v,
+      };
     });
 
     return { planDate, orgId: orgId ?? null, points, maxCompleted: max };
@@ -2087,7 +2160,12 @@ export class BranchAnalyticsService {
     orgId?: string,
     allowedOrgIds: string[] | null = null,
   ) {
-    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
+    const {
+      from: rangeFrom,
+      to: rangeTo,
+      fromStr,
+      toStr,
+    } = this.parseRange(from, to);
     // 31 kunlik oyda 1-kun tushib qolmasin
     const days = this.listDays(fromStr, toStr).slice(-31);
 
@@ -2106,7 +2184,12 @@ export class BranchAnalyticsService {
     }
 
     // Har kun uchun numerator asOf=day; denominator o‘sha kun.
-    const points: Array<{ date: string; percent: number; completed: number; plan: number }> = [];
+    const points: Array<{
+      date: string;
+      percent: number;
+      completed: number;
+      plan: number;
+    }> = [];
     for (const day of days) {
       const dayEmpMap = await this.countEmployeesByOrg(orgIds, day);
       const dayEmployees = [...dayEmpMap.values()].reduce((s, n) => s + n, 0);
@@ -2114,7 +2197,8 @@ export class BranchAnalyticsService {
       const correctMap = await this.getUserCorrectMap(orgIds, day);
       let completed = 0;
       for (const [, c] of correctMap) completed += c;
-      const percent = dailyPlan > 0 ? Math.round((completed / dailyPlan) * 1000) / 10 : 0;
+      const percent =
+        dailyPlan > 0 ? Math.round((completed / dailyPlan) * 1000) / 10 : 0;
       points.push({ date: day, percent, completed, plan: dailyPlan });
     }
 
@@ -2192,7 +2276,10 @@ export class BranchAnalyticsService {
 
     const map = new Map<string, number>();
     for (const r of rows) {
-      const planCorrect = Math.min(Number(r.rawCorrect) || 0, DAILY_GOAL_CORRECT);
+      const planCorrect = Math.min(
+        Number(r.rawCorrect) || 0,
+        DAILY_GOAL_CORRECT,
+      );
       map.set(r.orgId, (map.get(r.orgId) ?? 0) + planCorrect);
     }
     return map;
@@ -2205,7 +2292,12 @@ export class BranchAnalyticsService {
     allowedOrgIds: string[] | null = null,
     orgId?: string,
   ) {
-    const { from: rangeFrom, to: rangeTo, fromStr, toStr } = this.parseRange(from, to);
+    const {
+      from: rangeFrom,
+      to: rangeTo,
+      fromStr,
+      toStr,
+    } = this.parseRange(from, to);
     const days = this.listDays(fromStr, toStr);
     const orgQb = this.orgRepo
       .createQueryBuilder('o')
@@ -2227,7 +2319,12 @@ export class BranchAnalyticsService {
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
     if (!orgIds.length) {
-      return { weekdays: ['Dush', 'Sesh', 'Chor', 'Pay', 'Juma'], branches: [], rangeFrom: '', rangeTo: '' };
+      return {
+        weekdays: ['Dush', 'Sesh', 'Chor', 'Pay', 'Juma'],
+        branches: [],
+        rangeFrom: '',
+        rangeTo: '',
+      };
     }
 
     const empCountMap = await this.countEmployeesByOrg(orgIds, toStr);
@@ -2273,7 +2370,12 @@ export class BranchAnalyticsService {
       GROUP BY 1, 2, 3
       `,
       [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT, PLAN_RULE_CUTOFF],
-    )) as Array<{ orgId: string; day: string; userId: string; correct: number }>;
+    )) as Array<{
+      orgId: string;
+      day: string;
+      userId: string;
+      correct: number;
+    }>;
 
     // orgId -> day -> userId -> correct
     const correctLookup = new Map<string, Map<string, Map<string, number>>>();
@@ -2297,7 +2399,10 @@ export class BranchAnalyticsService {
       const userIds = usersByOrg.get(o.id) ?? [];
       const dailyPlan = totalEmployees * DAILY_GOAL_CORRECT;
 
-      const dowBuckets = new Map<number, { sumPct: number; dayCount: number }>();
+      const dowBuckets = new Map<
+        number,
+        { sumPct: number; dayCount: number }
+      >();
       for (const dow of weekdayDows) {
         dowBuckets.set(dow, { sumPct: 0, dayCount: 0 });
       }
@@ -2334,7 +2439,13 @@ export class BranchAnalyticsService {
         };
       });
 
-      return { orgId: o.id, orgName: o.name, isDefault: !!o.isDefault, totalEmployees, cells };
+      return {
+        orgId: o.id,
+        orgName: o.name,
+        isDefault: !!o.isDefault,
+        totalEmployees,
+        cells,
+      };
     });
 
     const rangeFromStr = days[0] ?? '';
@@ -2364,7 +2475,11 @@ export class BranchAnalyticsService {
       orgId: string;
       orgName: string;
       percent: number;
-      divisions: Array<{ division: string; percent: number; employees: number }>;
+      divisions: Array<{
+        division: string;
+        percent: number;
+        employees: number;
+      }>;
     }> = [];
 
     for (const b of badBranches) {
@@ -2484,7 +2599,12 @@ export class BranchAnalyticsService {
     const today = tashkentToday();
     // Kelajak kunlari 0% bo'lib chiqmasin — faqat bugungacha
     const lastDay = today < monthEnd ? today : monthEnd;
-    const trend = await this.getDailyTrend(`${m}-01`, lastDay, undefined, scope);
+    const trend = await this.getDailyTrend(
+      `${m}-01`,
+      lastDay,
+      undefined,
+      scope,
+    );
 
     const branchRows: Array<{
       orgId: string;
