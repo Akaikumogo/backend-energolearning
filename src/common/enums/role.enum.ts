@@ -30,6 +30,16 @@ export function isOrgScopedAdminRole(role: Role | string): boolean {
   );
 }
 
+/** Energo ID sync paytida roli yoki tashkiloti overwrite qilinmaydigan ma'muriy rollar. */
+export function isProtectedRole(role: Role | string): boolean {
+  return (
+    role === Role.MODERATOR ||
+    role === Role.SUPERADMIN ||
+    role === Role.APPROVER ||
+    role === Role.ACCOUNTING
+  );
+}
+
 /** Analitika / hisobot / Excel — filial scope qo‘llanadigan rollar. */
 export function isAnalyticsOrgScopedRole(role: Role | string): boolean {
   return role === Role.MODERATOR || role === Role.ACCOUNTING;

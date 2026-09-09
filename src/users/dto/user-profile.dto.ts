@@ -43,6 +43,14 @@ export class UserProfileDto {
   })
   mustChangePassword: boolean;
 
+  @ApiProperty({
+    description:
+      'Xodimning Energo ID / 1C dagi asosiy ish joyi (filiali)',
+    required: false,
+    nullable: true,
+  })
+  primaryOrganization?: { id: string; name: string } | null;
+
   @ApiProperty({ required: false, nullable: true })
   energoId?: string | null;
 

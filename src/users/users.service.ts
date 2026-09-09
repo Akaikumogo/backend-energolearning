@@ -6,7 +6,7 @@ import {
 import * as bcrypt from 'bcrypt';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Brackets, Repository } from 'typeorm';
-import { Role } from '../common/enums/role.enum';
+import { isProtectedRole, Role } from '../common/enums/role.enum';
 import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
@@ -170,6 +170,47 @@ export class UsersService {
       .take(limit)
       .getManyAndCount();
 
+    if (data.length > 0) {
+      const userIds = data.map((u) => u.id);
+      try {
+        const nesRows = await this.dataSource.query<
+          Array<{
+            user_id: string;
+            organization_id: string | null;
+            organization_name: string | null;
+            personnel_number: string | null;
+            post: string | null;
+            middle_name: string | null;
+          }>
+        >(
+          `SELECT user_id, organization_id, organization_name, personnel_number, post, middle_name
+           FROM nes_employees
+           WHERE user_id = ANY($1::uuid[])`,
+          [userIds],
+        );
+        const nesMap = new Map(
+          nesRows.map((r) => [
+            r.user_id,
+            {
+              organizationId: r.organization_id,
+              organizationName: r.organization_name,
+              personnelNumber: r.personnel_number,
+              post: r.post,
+              middleName: r.middle_name,
+            },
+          ]),
+        );
+        for (const u of data) {
+          const nes = nesMap.get(u.id);
+          if (nes) {
+            (u as any).nesEmployee = nes;
+          }
+        }
+      } catch {
+        // nes_employees jadvali bo'lmasa yoki xato bo'lsa graceful o'tkazib yuboriladi
+      }
+    }
+
     return { data, total, page, limit };
   }
 
@@ -245,11 +286,12 @@ export class UsersService {
       if ((data.lastName ?? '').trim()) patch.lastName = data.lastName.trim();
       if (!this.isProtectedRole(user.role)) {
         patch.role = role;
+        user.role = role;
       }
       await this.usersRepo.update(user.id, patch);
     }
 
-    if (data.organization?.name) {
+    if (data.organization?.name && !this.isProtectedRole(user.role)) {
       const organization = await this.ensureOrganization(
         data.organization.name,
         data.organization.externalId,
@@ -474,6 +516,8 @@ export class UsersService {
       mustChangePassword: false,
     });
 
+    await this.restoreEmployeeHomeOrganization(user.id);
+
     return this.findById(user.id) as Promise<User>;
   }
 
@@ -533,6 +577,8 @@ export class UsersService {
       initialPassword: null,
       mustChangePassword: false,
     });
+
+    await this.restoreEmployeeHomeOrganization(user.id);
 
     return this.findById(user.id) as Promise<User>;
   }
@@ -594,6 +640,8 @@ export class UsersService {
       initialPassword: null,
       mustChangePassword: false,
     });
+
+    await this.restoreEmployeeHomeOrganization(user.id);
 
     return this.findById(user.id) as Promise<User>;
   }
@@ -803,11 +851,7 @@ export class UsersService {
   }
 
   private isProtectedRole(role: Role): boolean {
-    return (
-      role === Role.MODERATOR ||
-      role === Role.SUPERADMIN ||
-      role === Role.APPROVER
-    );
+    return isProtectedRole(role);
   }
 
   private resolveSyncRole(existing: User | null, incomingRole: string): Role {
@@ -953,6 +997,23 @@ export class UsersService {
       message.includes('organizations_name_key') ||
       message.includes('duplicate key')
     );
+  }
+
+  private async restoreEmployeeHomeOrganization(userId: string): Promise<void> {
+    try {
+      const nesRows = await this.dataSource.query<
+        Array<{ organization_id: string }>
+      >(
+        `SELECT organization_id FROM nes_employees WHERE user_id = $1::uuid AND organization_id IS NOT NULL LIMIT 1`,
+        [userId],
+      );
+      const homeOrgId = nesRows[0]?.organization_id;
+      if (homeOrgId) {
+        await this.attachUserToOrganization(userId, homeOrgId);
+      }
+    } catch {
+      // nes_employees jadvali bo'lmasa yoki xato bo'lsa graceful o'tkazib yuboriladi
+    }
   }
 
   private async attachUserToOrganization(

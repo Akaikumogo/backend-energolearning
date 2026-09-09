@@ -7,7 +7,7 @@ import {
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { REPORTING_ROLES, Role } from '../common/enums/role.enum';
+import { isProtectedRole, REPORTING_ROLES, Role } from '../common/enums/role.enum';
 import {
   EnergoIdAuthClient,
   EnergoIdUser,
@@ -987,7 +987,9 @@ export class NesEmployeesService {
 
   private async upsertEnergoEmployeeMirror(user: User, employee: EnergoIdUser) {
     const organization = await this.resolveEmployeeOrganization(employee);
-    await this.attachUserToOrganization(user.id, organization.id);
+    if (!isProtectedRole(user.role)) {
+      await this.attachUserToOrganization(user.id, organization.id);
+    }
 
     const organizationName = organization.name.trim();
     const organizationId = organization.id;
@@ -1402,10 +1404,10 @@ export class NesEmployeesService {
       [loser.id, keeper.id],
     );
 
-    // Moderator roli / ism yangilanishi
+    // Moderator / ma'muriy rol / ism yangilanishi
     const patch: Partial<User> = {};
-    if (loser.role === Role.MODERATOR && keeper.role === Role.USER) {
-      patch.role = Role.MODERATOR;
+    if (isProtectedRole(loser.role) && !isProtectedRole(keeper.role)) {
+      patch.role = loser.role;
     }
     if (!keeper.mustChangePassword && loser.mustChangePassword) {
       // keeper da allaqachon o‘zgartirilgan parol — saqlanadi
@@ -1439,10 +1441,10 @@ export class NesEmployeesService {
 
   private pickElDuplicateKeeper(baseUser: User, suffixUser: User): User {
     // Default: asosiy tabel = eski akkaunt (XP).
-    // Faqat suffix moderator bo‘lsa va base emas — suffix saqlanadi.
+    // Faqat suffix ma'muriy rol bo‘lsa va base emas — suffix saqlanadi.
     if (
-      suffixUser.role === Role.MODERATOR &&
-      baseUser.role !== Role.MODERATOR
+      isProtectedRole(suffixUser.role) &&
+      !isProtectedRole(baseUser.role)
     ) {
       return suffixUser;
     }
