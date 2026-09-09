@@ -282,7 +282,8 @@ export class UsersService {
         mustChangePassword: data.mustChangePassword,
       };
       // Bo‘sh sync ism/familiya mavjud qiymatni o‘chirmasin (field override)
-      if ((data.firstName ?? '').trim()) patch.firstName = data.firstName.trim();
+      if ((data.firstName ?? '').trim())
+        patch.firstName = data.firstName.trim();
       if ((data.lastName ?? '').trim()) patch.lastName = data.lastName.trim();
       if (!this.isProtectedRole(user.role)) {
         patch.role = role;
@@ -341,7 +342,9 @@ export class UsersService {
     energoUserId: string,
     keepUserId: string | null,
   ) {
-    const holder = await this.usersRepo.findOne({ where: { energoId: energoUserId } });
+    const holder = await this.usersRepo.findOne({
+      where: { energoId: energoUserId },
+    });
     if (!holder || (keepUserId && holder.id === keepUserId)) return;
     await this.usersRepo.update(holder.id, { energoId: null });
   }
@@ -390,7 +393,8 @@ export class UsersService {
         );
       }
 
-      const rows: Array<{ cnt: string }> = await manager.query(`
+      const rows: Array<{ cnt: string }> = await manager.query(
+        `
         WITH updated AS (
           UPDATE users u
           SET energo_id = NULL, updated_at = NOW()
@@ -402,7 +406,9 @@ export class UsersService {
           RETURNING u.id
         )
         SELECT COUNT(*)::int AS cnt FROM updated
-      `, [Role.USER]);
+      `,
+        [Role.USER],
+      );
 
       return Number(rows[0]?.cnt ?? 0);
     });
@@ -506,7 +512,9 @@ export class UsersService {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('Moderator topilmadi');
     if (user.role !== Role.MODERATOR) {
-      throw new BadRequestException('Faqat moderator rolini olib tashlash mumkin');
+      throw new BadRequestException(
+        'Faqat moderator rolini olib tashlash mumkin',
+      );
     }
 
     await this.usersRepo.update(user.id, {
@@ -672,7 +680,9 @@ export class UsersService {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('Foydalanuvchi topilmadi');
     if (user.role !== Role.SUPERADMIN) {
-      throw new BadRequestException('Faqat SuperAdmin rolini olib tashlash mumkin');
+      throw new BadRequestException(
+        'Faqat SuperAdmin rolini olib tashlash mumkin',
+      );
     }
     if (!user.energoId) {
       throw new BadRequestException(
@@ -684,9 +694,7 @@ export class UsersService {
       where: { role: Role.SUPERADMIN },
     });
     if (superAdminCount <= 1) {
-      throw new BadRequestException(
-        'Oxirgi SuperAdmin demote qilinmaydi',
-      );
+      throw new BadRequestException('Oxirgi SuperAdmin demote qilinmaydi');
     }
 
     await this.usersRepo.update(user.id, {
@@ -747,7 +755,10 @@ export class UsersService {
       );
     }
 
-    if (dto.email && dto.email.trim().toLowerCase() !== user.email.toLowerCase()) {
+    if (
+      dto.email &&
+      dto.email.trim().toLowerCase() !== user.email.toLowerCase()
+    ) {
       const taken = await this.usersRepo.findOne({
         where: { email: dto.email.trim().toLowerCase() },
       });
@@ -974,10 +985,8 @@ export class UsersService {
       [keepOrgId, conflict.id],
     );
 
-    const legacyName = `legacy-${conflict.id.slice(0, 8)}-${conflict.name}`.slice(
-      0,
-      180,
-    );
+    const legacyName =
+      `legacy-${conflict.id.slice(0, 8)}-${conflict.name}`.slice(0, 180);
     await this.orgRepo.update(conflict.id, {
       name: legacyName,
       archivedAt: new Date(),

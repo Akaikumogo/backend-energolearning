@@ -7,7 +7,11 @@ import {
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { isProtectedRole, REPORTING_ROLES, Role } from '../common/enums/role.enum';
+import {
+  isProtectedRole,
+  REPORTING_ROLES,
+  Role,
+} from '../common/enums/role.enum';
 import {
   EnergoIdAuthClient,
   EnergoIdUser,
@@ -1442,10 +1446,7 @@ export class NesEmployeesService {
   private pickElDuplicateKeeper(baseUser: User, suffixUser: User): User {
     // Default: asosiy tabel = eski akkaunt (XP).
     // Faqat suffix ma'muriy rol bo‘lsa va base emas — suffix saqlanadi.
-    if (
-      isProtectedRole(suffixUser.role) &&
-      !isProtectedRole(baseUser.role)
-    ) {
+    if (isProtectedRole(suffixUser.role) && !isProtectedRole(baseUser.role)) {
       return suffixUser;
     }
     return baseUser;

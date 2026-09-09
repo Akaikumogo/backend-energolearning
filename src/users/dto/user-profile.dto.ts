@@ -30,9 +30,10 @@ export class UserProfileDto {
   organizationIds: string[];
 
   @ApiProperty({
-    description:
-      'Foydalanuvchi tashkilotlari (id + nom + bosh filial belgisi)',
-    example: [{ id: 'org-uuid', name: 'Default Organization', isDefault: true }],
+    description: 'Foydalanuvchi tashkilotlari (id + nom + bosh filial belgisi)',
+    example: [
+      { id: 'org-uuid', name: 'Default Organization', isDefault: true },
+    ],
   })
   organizations: { id: string; name: string; isDefault?: boolean }[];
 
@@ -44,8 +45,7 @@ export class UserProfileDto {
   mustChangePassword: boolean;
 
   @ApiProperty({
-    description:
-      'Xodimning Energo ID / 1C dagi asosiy ish joyi (filiali)',
+    description: 'Xodimning Energo ID / 1C dagi asosiy ish joyi (filiali)',
     required: false,
     nullable: true,
   })
