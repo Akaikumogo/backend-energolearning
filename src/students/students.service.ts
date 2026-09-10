@@ -84,7 +84,7 @@ export class StudentsService {
     },
   ) {
     const page = filters.page ?? 1;
-    const limit = filters.limit ?? 20;
+    const limit = filters.limit ?? 10;
 
     const qb = this.userRepo
       .createQueryBuilder('u')
