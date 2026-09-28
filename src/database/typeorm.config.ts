@@ -89,9 +89,11 @@ import { PlanChangeLogs1759100000000 } from './migrations/0049-plan-change-logs'
 import { PlanChangeLog } from './entities/plan-change-log.entity';
 import { TelegramNews1759200000000 } from './migrations/0050-telegram-news';
 import { PlanCalendarFromDbStart1759300000000 } from './migrations/0051-plan-calendar-from-db-start';
+import { TelegramNewsPosts1759400000000 } from './migrations/0052-telegram-news-posts';
 import {
   TelegramNewsBroadcast,
   TelegramNewsDelivery,
+  TelegramNewsPost,
 } from './entities/telegram-news.entity';
 import { PlanCalendarDay } from './entities/plan-calendar-day.entity';
 import { UserPlanDayOverride } from './entities/user-plan-day-override.entity';
@@ -163,6 +165,7 @@ export const AppDataSource = new DataSource({
     PlanChangeLog,
     TelegramNewsBroadcast,
     TelegramNewsDelivery,
+    TelegramNewsPost,
     SafetyRecordType,
     EmployeeSafetyRecord,
     EmployeeSafetyRecordChange,
@@ -225,6 +228,7 @@ export const AppDataSource = new DataSource({
     PlanChangeLogs1759100000000,
     TelegramNews1759200000000,
     PlanCalendarFromDbStart1759300000000,
+    TelegramNewsPosts1759400000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

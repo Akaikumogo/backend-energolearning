@@ -6,16 +6,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import sharp from 'sharp';
 import { Repository } from 'typeorm';
 import { TelegramBotSetting } from '../database/entities/telegram-bot-setting.entity';
-import { TelegramChatMessage } from '../database/entities/telegram-chat-message.entity';
+import {
+  TelegramChatMessage,
+  TelegramMessageKind,
+} from '../database/entities/telegram-chat-message.entity';
 import {
   TelegramNewsBroadcast,
   TelegramNewsDelivery,
   TelegramNewsDeliveryStatus,
+  TelegramNewsImage,
+  TelegramNewsPost,
 } from '../database/entities/telegram-news.entity';
 import { TelegramReportChat } from '../database/entities/telegram-report-chat.entity';
 import {
@@ -29,9 +35,16 @@ const ENV_WEB_APP =
   process.env.TELEGRAM_WEB_APP_URL ??
   'https://t.me/elektrolearnbot/Elektro_learn';
 
-/** Telegram umumiy limiti ~30 xabar/sek — chatlar orasida kichik pauza. */
+/** Telegram umumiy limiti ~30 xabar/sek — xabarlar orasida kichik pauza. */
 const PAUSE_BETWEEN_MESSAGES_MS = 60;
 const MAX_RETRIES_ON_429 = 3;
+const CAPTION_LIMIT = 1024;
+const MESSAGE_LIMIT = 4096;
+export const MAX_NEWS_IMAGES = 10;
+const MAX_BODY_LENGTH = 4000;
+const POST_KEY_PREFIX = 'post-';
+const NEWS_UPLOAD_DIR = 'telegram-news';
+const APP_BUTTON_TEXT = '🚀 Elektro Learn ilovasini ochish';
 
 class TelegramApiError extends Error {
   constructor(
@@ -42,6 +55,29 @@ class TelegramApiError extends Error {
     super(message);
   }
 }
+
+type NewsRef =
+  | { kind: 'builtin'; key: string; title: string; item: TelegramNewsItem }
+  | { kind: 'post'; key: string; title: string; post: TelegramNewsPost };
+
+type PhotoSource = {
+  cacheKey: string;
+  fileName: string;
+  mime: string;
+  load: () => Promise<Buffer>;
+  /** Chat tarixida ko'rsatish uchun `/uploads/...` */
+  storedUrl: () => Promise<string | null>;
+};
+
+type SentMessage = { message_id?: number; photo?: Array<{ file_id?: string }> };
+
+export type TelegramNewsPostInput = {
+  title?: string;
+  body?: string;
+  withAppButton?: string | boolean;
+  /** Tahrirlashda saqlab qolinadigan rasmlar (JSON massiv: url lar). */
+  keepImages?: string;
+};
 
 @Injectable()
 export class TelegramNewsService {
@@ -62,29 +98,152 @@ export class TelegramNewsService {
     private readonly broadcastRepo: Repository<TelegramNewsBroadcast>,
     @InjectRepository(TelegramNewsDelivery)
     private readonly deliveryRepo: Repository<TelegramNewsDelivery>,
+    @InjectRepository(TelegramNewsPost)
+    private readonly postRepo: Repository<TelegramNewsPost>,
   ) {}
 
-  // ─── public API ──────────────────────────────────────────
+  // ─── ro'yxat / preview ───────────────────────────────────
 
   async list() {
     const recipients = await this.recipientsQuery().getCount();
+    const posts = await this.postRepo.query(
+      `SELECT p.id, NULLIF(CONCAT_WS(' ', u.last_name, u.first_name), '') AS "createdBy"
+         FROM telegram_news_posts p
+         LEFT JOIN users u ON u.id = p.created_by_id`,
+    );
+    const creators = new Map<string, string | null>(
+      posts.map((p: { id: string; createdBy: string | null }) => [p.id, p.createdBy]),
+    );
+    const rows = await this.postRepo.find({ order: { createdAt: 'DESC' } });
+
     const items: unknown[] = [];
-    for (const news of TELEGRAM_NEWS) {
-      items.push(await this.describe(news, recipients));
+    for (const post of rows) {
+      items.push({
+        ...(await this.describe(this.postRef(post), recipients)),
+        builtin: false,
+        postId: post.id,
+        body: post.body,
+        images: post.images,
+        withAppButton: post.withAppButton,
+        createdAt: post.createdAt,
+        updatedAt: post.updatedAt,
+        createdBy: creators.get(post.id) ?? null,
+      });
+    }
+    for (const item of TELEGRAM_NEWS) {
+      items.push({
+        ...(await this.describe(this.builtinRef(item), recipients)),
+        builtin: true,
+        postId: null,
+        body: null,
+        images: [],
+        withAppButton: true,
+        description: item.description,
+        createdAt: null,
+        updatedAt: null,
+        createdBy: null,
+      });
     }
     return { recipients, items };
   }
 
   async previewPng(key: string, index: number): Promise<Buffer> {
-    const news = this.requireNews(key);
+    const news = findTelegramNews(key);
+    if (!news) throw new NotFoundException('Yangilik topilmadi');
     if (!Number.isInteger(index) || index < 0 || index >= news.slides.length) {
       throw new NotFoundException('Slayd topilmadi');
     }
     return this.slidePng(news, index);
   }
 
-  async sendTest(key: string, chatRowId: string, actorId: string) {
-    const news = this.requireNews(key);
+  // ─── custom news CRUD ────────────────────────────────────
+
+  async createPost(
+    input: TelegramNewsPostInput,
+    files: Express.Multer.File[],
+    actorId: string,
+  ) {
+    const { title, body, withAppButton } = this.validateInput(input);
+    this.assertImageCount(files.length);
+    if (!body && !files.length) {
+      throw new BadRequestException('Matn yoki kamida bitta rasm kerak');
+    }
+    const images = await this.storeImages(files);
+    const post = await this.postRepo.save(
+      this.postRepo.create({
+        title,
+        body,
+        images,
+        withAppButton,
+        createdById: actorId,
+        updatedById: actorId,
+      }),
+    );
+    return { ok: true, id: post.id, key: this.postKey(post.id) };
+  }
+
+  async updatePost(
+    id: string,
+    input: TelegramNewsPostInput,
+    files: Express.Multer.File[],
+    actorId: string,
+  ) {
+    const post = await this.postRepo.findOne({ where: { id } });
+    if (!post) throw new NotFoundException('News topilmadi');
+    if (this.running.has(this.postKey(id))) {
+      throw new ConflictException('News hozir yuborilmoqda — keyinroq tahrirlang');
+    }
+    const { title, body, withAppButton } = this.validateInput(input);
+
+    let keep = post.images;
+    if (input.keepImages != null) {
+      let urls: unknown;
+      try {
+        urls = JSON.parse(input.keepImages);
+      } catch {
+        throw new BadRequestException('keepImages JSON massiv bo‘lishi kerak');
+      }
+      const wanted = Array.isArray(urls) ? urls.map(String) : [];
+      keep = wanted
+        .map((u) => post.images.find((img) => img.url === u))
+        .filter((img): img is TelegramNewsImage => !!img);
+    }
+    this.assertImageCount(keep.length + files.length);
+    if (!body && !keep.length && !files.length) {
+      throw new BadRequestException('Matn yoki kamida bitta rasm kerak');
+    }
+
+    const removed = post.images.filter((img) => !keep.some((k) => k.url === img.url));
+    const added = await this.storeImages(files);
+    post.title = title;
+    post.body = body;
+    post.withAppButton = withAppButton;
+    post.images = [...keep, ...added];
+    post.updatedById = actorId;
+    await this.postRepo.save(post);
+    await this.removeImageFiles(removed);
+    return { ok: true };
+  }
+
+  async deletePost(id: string) {
+    const post = await this.postRepo.findOne({ where: { id } });
+    if (!post) throw new NotFoundException('News topilmadi');
+    const key = this.postKey(id);
+    if (this.running.has(key)) {
+      throw new ConflictException('News hozir yuborilmoqda');
+    }
+    await this.deliveryRepo.delete({ newsKey: key });
+    await this.broadcastRepo.delete({ newsKey: key });
+    await this.postRepo.delete({ id });
+    await this.removeImageFiles(post.images);
+    return { ok: true };
+  }
+
+  // ─── yuborish ────────────────────────────────────────────
+
+  /** Bitta chatga (o'ziga test yoki biror odamga) yuborish. */
+  async sendToChat(key: string, chatRowId: string, actorId: string) {
+    const news = await this.requireNews(key);
     const chat = await this.chatRepo.findOne({ where: { id: chatRowId } });
     if (!chat) throw new NotFoundException('Chat topilmadi');
 
@@ -117,16 +276,16 @@ export class TelegramNewsService {
   }
 
   async startBroadcast(key: string, actorId: string) {
-    const news = this.requireNews(key);
+    const news = await this.requireNews(key);
     if (this.running.has(news.key)) {
-      throw new ConflictException('Bu yangilik hozir yuborilmoqda');
+      throw new ConflictException('Bu news hozir yuborilmoqda');
     }
     const tested = await this.broadcastRepo.count({
       where: { newsKey: news.key, mode: 'TEST', status: 'DONE' },
     });
     if (!tested) {
       throw new BadRequestException(
-        'Avval oʻzingizga test yuboring, keyin hammaga yuborish mumkin',
+        'Avval oʻzingizga yuborib koʻring, keyin hammaga yuborish mumkin',
       );
     }
     const pending = await this.pendingChats(news.key);
@@ -152,10 +311,8 @@ export class TelegramNewsService {
     return { ok: true, broadcastId: row.id, total: pending.length };
   }
 
-  // ─── broadcast ───────────────────────────────────────────
-
   private async runBroadcast(
-    news: TelegramNewsItem,
+    news: NewsRef,
     row: TelegramNewsBroadcast,
     chats: TelegramReportChat[],
   ) {
@@ -197,41 +354,87 @@ export class TelegramNewsService {
     }
   }
 
-  private async deliver(news: TelegramNewsItem, chat: TelegramReportChat) {
-    const webApp = await this.resolveWebAppUrl();
-    const last = news.slides.length - 1;
+  private async deliver(news: NewsRef, chat: TelegramReportChat) {
+    if (news.kind === 'builtin') return this.deliverBuiltin(news, chat);
+    return this.deliverPost(news, chat);
+  }
+
+  private async deliverBuiltin(
+    news: Extract<NewsRef, { kind: 'builtin' }>,
+    chat: TelegramReportChat,
+  ) {
+    const markup = await this.appButtonMarkup();
+    const last = news.item.slides.length - 1;
     for (let i = 0; i <= last; i++) {
-      const slide = news.slides[i];
-      const replyMarkup =
-        i === last
-          ? {
-              inline_keyboard: [
-                [{ text: '🚀 Elektro Learn ilovasini ochish', url: webApp }],
-              ],
-            }
-          : undefined;
-      const sent = await this.sendPhotoWithRetry(
-        news,
-        i,
-        Number(chat.chatId),
-        slide.caption,
-        replyMarkup,
+      const slide = news.item.slides[i];
+      const photo = this.builtinPhoto(news.item, i);
+      const sent = await this.withRetry(() =>
+        this.apiSendPhoto(Number(chat.chatId), photo, slide.caption, i === last ? markup : undefined),
       );
-      await this.persistOutbound(news, i, chat, slide.caption, sent);
+      await this.persistOutbound(chat, 'photo', slide.caption, sent, photo);
       await this.sleep(PAUSE_BETWEEN_MESSAGES_MS);
     }
   }
 
-  private async sendPhotoWithRetry(
-    news: TelegramNewsItem,
-    index: number,
-    chatId: number,
-    caption: string,
-    replyMarkup?: unknown,
+  private async deliverPost(
+    news: Extract<NewsRef, { kind: 'post' }>,
+    chat: TelegramReportChat,
   ) {
+    const { post } = news;
+    const chatId = Number(chat.chatId);
+    const text = this.escapeHtml(post.body.trim());
+    const markup = post.withAppButton ? await this.appButtonMarkup() : undefined;
+    const photos = post.images.map((img) => this.postPhoto(news.key, img));
+
+    if (!photos.length) {
+      const sent = await this.withRetry(() => this.apiSendMessage(chatId, text, markup));
+      await this.persistOutbound(chat, 'text', text, sent, null);
+      return;
+    }
+
+    if (photos.length === 1) {
+      const fits = text.length <= CAPTION_LIMIT;
+      const sent = await this.withRetry(() =>
+        this.apiSendPhoto(chatId, photos[0], fits ? text : null, fits ? markup : undefined),
+      );
+      await this.persistOutbound(chat, 'photo', fits ? text : '', sent, photos[0]);
+      if (!fits) {
+        await this.sleep(PAUSE_BETWEEN_MESSAGES_MS);
+        const msg = await this.withRetry(() => this.apiSendMessage(chatId, text, markup));
+        await this.persistOutbound(chat, 'text', text, msg, null);
+      }
+      return;
+    }
+
+    // Albom: matn sig'sa va tugma kerak bo'lmasa — birinchi rasm captioni,
+    // aks holda albomdan keyin alohida xabar (tugma faqat xabarga qo'yiladi).
+    const captionInAlbum = !!text && text.length <= CAPTION_LIMIT && !markup;
+    const sentList = await this.withRetry(() =>
+      this.apiSendMediaGroup(chatId, photos, captionInAlbum ? text : null),
+    );
+    for (let i = 0; i < photos.length; i++) {
+      await this.persistOutbound(
+        chat,
+        'photo',
+        i === 0 && captionInAlbum ? text : '',
+        sentList[i] ?? null,
+        photos[i],
+      );
+    }
+    if (!captionInAlbum && (text || markup)) {
+      await this.sleep(PAUSE_BETWEEN_MESSAGES_MS);
+      const body = text || '👆 Elektro Learn yangiliklari';
+      const msg = await this.withRetry(() => this.apiSendMessage(chatId, body, markup));
+      await this.persistOutbound(chat, 'text', body, msg, null);
+    }
+  }
+
+  // ─── Telegram API ────────────────────────────────────────
+
+  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
-        return await this.apiSendPhoto(news, index, chatId, caption, replyMarkup);
+        return await fn();
       } catch (err) {
         if (
           err instanceof TelegramApiError &&
@@ -246,37 +449,14 @@ export class TelegramNewsService {
     }
   }
 
-  private async apiSendPhoto(
-    news: TelegramNewsItem,
-    index: number,
-    chatId: number,
-    caption: string,
-    replyMarkup?: unknown,
-  ): Promise<{ message_id?: number } | null> {
+  private async callApi(method: string, body: FormData | Record<string, unknown>) {
     const token = await this.resolveToken();
     if (!token) throw new BadRequestException('Bot token oʻrnatilmagan');
-
-    const cacheKey = `${news.key}:${index}`;
-    const form = new FormData();
-    form.append('chat_id', String(chatId));
-    form.append('caption', caption.slice(0, 1024));
-    form.append('parse_mode', 'HTML');
-    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
-    const fileId = this.fileIdCache.get(cacheKey);
-    if (fileId) {
-      form.append('photo', fileId);
-    } else {
-      const png = await this.slidePng(news, index);
-      form.append(
-        'photo',
-        new Blob([new Uint8Array(png)], { type: 'image/png' }),
-        `${news.key}-${index + 1}.png`,
-      );
-    }
-
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+    const isForm = body instanceof FormData;
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST',
-      body: form,
+      headers: isForm ? undefined : { 'Content-Type': 'application/json' },
+      body: isForm ? body : JSON.stringify(body),
     });
     const data: any = await res.json().catch(() => ({}));
     if (!data?.ok) {
@@ -286,35 +466,110 @@ export class TelegramNewsService {
         data?.parameters?.retry_after ?? null,
       );
     }
-    const photos: Array<{ file_id?: string }> = data.result?.photo ?? [];
-    const biggest = photos[photos.length - 1]?.file_id;
-    if (biggest && !fileId) this.fileIdCache.set(cacheKey, biggest);
-    return data.result ?? null;
+    return data.result;
+  }
+
+  private async apiSendMessage(chatId: number, text: string, replyMarkup?: unknown) {
+    const body: Record<string, unknown> = {
+      chat_id: chatId,
+      text: text.slice(0, MESSAGE_LIMIT),
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+    };
+    if (replyMarkup) body.reply_markup = replyMarkup;
+    return (await this.callApi('sendMessage', body)) as SentMessage;
+  }
+
+  private async apiSendPhoto(
+    chatId: number,
+    photo: PhotoSource,
+    caption: string | null,
+    replyMarkup?: unknown,
+  ) {
+    const form = new FormData();
+    form.append('chat_id', String(chatId));
+    if (caption) {
+      form.append('caption', caption.slice(0, CAPTION_LIMIT));
+      form.append('parse_mode', 'HTML');
+    }
+    if (replyMarkup) form.append('reply_markup', JSON.stringify(replyMarkup));
+    const cached = this.fileIdCache.get(photo.cacheKey);
+    if (cached) {
+      form.append('photo', cached);
+    } else {
+      form.append('photo', await this.photoBlob(photo), photo.fileName);
+    }
+    const sent = (await this.callApi('sendPhoto', form)) as SentMessage;
+    this.rememberFileId(photo, sent);
+    return sent;
+  }
+
+  private async apiSendMediaGroup(
+    chatId: number,
+    photos: PhotoSource[],
+    caption: string | null,
+  ) {
+    const form = new FormData();
+    form.append('chat_id', String(chatId));
+    const media: Record<string, unknown>[] = [];
+    for (let i = 0; i < photos.length; i++) {
+      const photo = photos[i];
+      const cached = this.fileIdCache.get(photo.cacheKey);
+      const item: Record<string, unknown> = { type: 'photo' };
+      if (cached) {
+        item.media = cached;
+      } else {
+        const field = `file${i}`;
+        form.append(field, await this.photoBlob(photo), photo.fileName);
+        item.media = `attach://${field}`;
+      }
+      if (i === 0 && caption) {
+        item.caption = caption.slice(0, CAPTION_LIMIT);
+        item.parse_mode = 'HTML';
+      }
+      media.push(item);
+    }
+    form.append('media', JSON.stringify(media));
+    const sent = (await this.callApi('sendMediaGroup', form)) as SentMessage[];
+    sent.forEach((msg, i) => photos[i] && this.rememberFileId(photos[i], msg));
+    return sent;
+  }
+
+  private async photoBlob(photo: PhotoSource) {
+    const buf = await photo.load();
+    return new Blob([new Uint8Array(buf)], { type: photo.mime });
+  }
+
+  private rememberFileId(photo: PhotoSource, sent: SentMessage | null) {
+    const sizes = sent?.photo ?? [];
+    const fileId = sizes[sizes.length - 1]?.file_id;
+    if (fileId && !this.fileIdCache.has(photo.cacheKey)) {
+      this.fileIdCache.set(photo.cacheKey, fileId);
+    }
   }
 
   private async persistOutbound(
-    news: TelegramNewsItem,
-    index: number,
     chat: TelegramReportChat,
-    caption: string,
-    sent: { message_id?: number } | null,
+    kind: TelegramMessageKind,
+    htmlText: string,
+    sent: SentMessage | null,
+    photo: PhotoSource | null,
   ) {
-    const mediaUrl = await this.ensureStoredSlide(news, index).catch(
-      () => null,
-    );
+    const mediaUrl = photo ? await photo.storedUrl().catch(() => null) : null;
+    const plain = this.stripHtml(htmlText);
     await this.msgRepo
       .save(
         this.msgRepo.create({
           chatRowId: chat.id,
           direction: 'out',
-          kind: 'photo',
+          kind,
           telegramMessageId:
             sent?.message_id != null ? String(sent.message_id) : null,
-          text: '📰 Yangilik',
-          caption: this.stripHtml(caption),
+          text: photo ? '📰 News' : plain,
+          caption: photo ? plain || null : null,
           mediaUrl,
-          mediaFileName: `${news.key}-${index + 1}.png`,
-          mediaMime: 'image/png',
+          mediaFileName: photo?.fileName ?? null,
+          mediaMime: photo?.mime ?? null,
           isCommand: false,
           sentByAdminId: null,
           fromName: 'Bot',
@@ -325,9 +580,143 @@ export class TelegramNewsService {
       );
   }
 
-  // ─── helpers ─────────────────────────────────────────────
+  // ─── news manbalari ──────────────────────────────────────
 
-  private async describe(news: TelegramNewsItem, recipients: number) {
+  private builtinRef(item: TelegramNewsItem): NewsRef {
+    return { kind: 'builtin', key: item.key, title: item.title, item };
+  }
+
+  private postRef(post: TelegramNewsPost): NewsRef {
+    return { kind: 'post', key: this.postKey(post.id), title: post.title, post };
+  }
+
+  private postKey(id: string) {
+    return `${POST_KEY_PREFIX}${id}`;
+  }
+
+  private async requireNews(key: string): Promise<NewsRef> {
+    const builtin = findTelegramNews(key);
+    if (builtin) return this.builtinRef(builtin);
+    if (key.startsWith(POST_KEY_PREFIX)) {
+      const id = key.slice(POST_KEY_PREFIX.length);
+      if (/^[0-9a-f-]{36}$/i.test(id)) {
+        const post = await this.postRepo.findOne({ where: { id } });
+        if (post) return this.postRef(post);
+      }
+    }
+    throw new NotFoundException('News topilmadi');
+  }
+
+  private builtinPhoto(item: TelegramNewsItem, index: number): PhotoSource {
+    return {
+      cacheKey: `${item.key}:${index}`,
+      fileName: `${item.key}-${index + 1}.png`,
+      mime: 'image/png',
+      load: () => this.slidePng(item, index),
+      storedUrl: () => this.ensureStoredSlide(item, index),
+    };
+  }
+
+  private postPhoto(key: string, img: TelegramNewsImage): PhotoSource {
+    return {
+      cacheKey: `${key}:${img.url}`,
+      fileName: img.fileName || 'news.jpg',
+      mime: 'image/jpeg',
+      load: () => fs.readFile(this.absUploadPath(img.url)),
+      storedUrl: async () => img.url,
+    };
+  }
+
+  private async slidePng(news: TelegramNewsItem, index: number) {
+    const cacheKey = `${news.key}:${index}`;
+    const cached = this.pngCache.get(cacheKey);
+    if (cached) return cached;
+    const png = await sharp(Buffer.from(news.slides[index].svg()))
+      .png()
+      .toBuffer();
+    this.pngCache.set(cacheKey, png);
+    return png;
+  }
+
+  private async ensureStoredSlide(news: TelegramNewsItem, index: number) {
+    const filename = `news-${news.key}-${index + 1}.png`;
+    const absDir = join(process.cwd(), 'uploads', 'telegram');
+    const absPath = join(absDir, filename);
+    try {
+      await fs.access(absPath);
+    } catch {
+      await fs.mkdir(absDir, { recursive: true });
+      await fs.writeFile(absPath, await this.slidePng(news, index));
+    }
+    return `/uploads/telegram/${filename}`;
+  }
+
+  // ─── rasm fayllari ───────────────────────────────────────
+
+  private async storeImages(files: Express.Multer.File[]): Promise<TelegramNewsImage[]> {
+    if (!files.length) return [];
+    const absDir = join(process.cwd(), 'uploads', NEWS_UPLOAD_DIR);
+    await fs.mkdir(absDir, { recursive: true });
+    const out: TelegramNewsImage[] = [];
+    for (const file of files) {
+      let jpeg: Buffer;
+      try {
+        jpeg = await sharp(file.buffer)
+          .rotate()
+          .resize({ width: 2560, height: 2560, fit: 'inside', withoutEnlargement: true })
+          .flatten({ background: '#ffffff' })
+          .jpeg({ quality: 88 })
+          .toBuffer();
+      } catch {
+        throw new BadRequestException(`Rasmni o‘qib bo‘lmadi: ${file.originalname}`);
+      }
+      const filename = `${Date.now()}-${randomUUID().slice(0, 8)}.jpg`;
+      await fs.writeFile(join(absDir, filename), jpeg);
+      const base = (file.originalname || 'news').replace(/\.[^.]+$/, '');
+      out.push({
+        url: `/uploads/${NEWS_UPLOAD_DIR}/${filename}`,
+        fileName: `${base.replace(/[^\w.\-()+ ]+/g, '_').slice(0, 80) || 'news'}.jpg`,
+      });
+    }
+    return out;
+  }
+
+  private async removeImageFiles(images: TelegramNewsImage[]) {
+    for (const img of images) {
+      await fs.unlink(this.absUploadPath(img.url)).catch(() => undefined);
+    }
+  }
+
+  private absUploadPath(url: string) {
+    const rel = url.replace(/^\/+/, '');
+    if (!rel.startsWith(`uploads/${NEWS_UPLOAD_DIR}/`) || rel.includes('..')) {
+      throw new BadRequestException('Noto‘g‘ri rasm manzili');
+    }
+    return join(process.cwd(), rel);
+  }
+
+  private validateInput(input: TelegramNewsPostInput) {
+    const title = String(input.title ?? '').trim();
+    const body = String(input.body ?? '').replace(/\r\n/g, '\n').trim();
+    if (!title) throw new BadRequestException('Sarlavha kiritilmagan');
+    if (title.length > 200) throw new BadRequestException('Sarlavha 200 belgidan oshmasin');
+    if (body.length > MAX_BODY_LENGTH) {
+      throw new BadRequestException(`Matn ${MAX_BODY_LENGTH} belgidan oshmasin`);
+    }
+    const flag = input.withAppButton;
+    const withAppButton = flag == null ? true : flag === true || flag === 'true';
+    return { title, body, withAppButton };
+  }
+
+  private assertImageCount(n: number) {
+    if (n > MAX_NEWS_IMAGES) {
+      throw new BadRequestException(`Ko‘pi bilan ${MAX_NEWS_IMAGES} ta rasm`);
+    }
+  }
+
+  // ─── statistika ──────────────────────────────────────────
+
+  private async describe(news: NewsRef, recipients: number) {
     const counts = await this.deliveryRepo
       .createQueryBuilder('d')
       .innerJoin(TelegramReportChat, 'c', 'c.id = d.chat_row_id')
@@ -365,8 +754,8 @@ export class TelegramNewsService {
     return {
       key: news.key,
       title: news.title,
-      description: news.description,
-      slides: news.slides.length,
+      description: '',
+      slides: news.kind === 'builtin' ? news.item.slides.length : news.post.images.length,
       recipients,
       sent: byStatus('SENT'),
       blocked: byStatus('BLOCKED'),
@@ -420,34 +809,11 @@ export class TelegramNewsService {
     );
   }
 
-  private requireNews(key: string): TelegramNewsItem {
-    const news = findTelegramNews(key);
-    if (!news) throw new NotFoundException('Yangilik topilmadi');
-    return news;
-  }
+  // ─── helpers ─────────────────────────────────────────────
 
-  private async slidePng(news: TelegramNewsItem, index: number) {
-    const cacheKey = `${news.key}:${index}`;
-    const cached = this.pngCache.get(cacheKey);
-    if (cached) return cached;
-    const png = await sharp(Buffer.from(news.slides[index].svg()))
-      .png()
-      .toBuffer();
-    this.pngCache.set(cacheKey, png);
-    return png;
-  }
-
-  private async ensureStoredSlide(news: TelegramNewsItem, index: number) {
-    const filename = `news-${news.key}-${index + 1}.png`;
-    const absDir = join(process.cwd(), 'uploads', 'telegram');
-    const absPath = join(absDir, filename);
-    try {
-      await fs.access(absPath);
-    } catch {
-      await fs.mkdir(absDir, { recursive: true });
-      await fs.writeFile(absPath, await this.slidePng(news, index));
-    }
-    return `/uploads/telegram/${filename}`;
+  private async appButtonMarkup() {
+    const url = await this.resolveWebAppUrl();
+    return { inline_keyboard: [[{ text: APP_BUTTON_TEXT, url }]] };
   }
 
   private isBlockedError(err: unknown): boolean {
@@ -468,8 +834,16 @@ export class TelegramNewsService {
     );
   }
 
+  private escapeHtml(s: string) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
   private stripHtml(s: string) {
-    return s.replace(/<[^>]+>/g, '');
+    return s
+      .replace(/<[^>]+>/g, '')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
   }
 
   private async resolveToken(): Promise<string | null> {

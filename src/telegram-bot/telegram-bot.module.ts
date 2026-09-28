@@ -7,6 +7,7 @@ import { TelegramChatMessage } from '../database/entities/telegram-chat-message.
 import {
   TelegramNewsBroadcast,
   TelegramNewsDelivery,
+  TelegramNewsPost,
 } from '../database/entities/telegram-news.entity';
 import { TelegramReportChat } from '../database/entities/telegram-report-chat.entity';
 import { User } from '../database/entities/user.entity';
@@ -25,6 +26,7 @@ import { TelegramReportImageService } from './telegram-report-image.service';
       TelegramBotSetting,
       TelegramNewsBroadcast,
       TelegramNewsDelivery,
+      TelegramNewsPost,
       User,
       ModeratorPermission,
     ]),

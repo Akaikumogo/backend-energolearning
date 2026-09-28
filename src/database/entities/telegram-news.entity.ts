@@ -1,4 +1,43 @@
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
+
+export type TelegramNewsImage = { url: string; fileName: string };
+
+/** Superadmin yaratgan news: rasmlar (≤ 10) + matn. */
+@Entity({ name: 'telegram_news_posts' })
+export class TelegramNewsPost {
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
+
+  @Column({ type: 'varchar', length: 200 })
+  title: string;
+
+  @Column({ type: 'text', default: '' })
+  body: string;
+
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  images: TelegramNewsImage[];
+
+  @Column({ type: 'boolean', name: 'with_app_button', default: true })
+  withAppButton: boolean;
+
+  @Column({ type: 'uuid', name: 'created_by_id', nullable: true })
+  createdById: string | null;
+
+  @Column({ type: 'uuid', name: 'updated_by_id', nullable: true })
+  updatedById: string | null;
+
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
+  updatedAt: Date;
+}
 
 export type TelegramNewsMode = 'TEST' | 'ALL';
 export type TelegramNewsStatus = 'RUNNING' | 'DONE' | 'FAILED';

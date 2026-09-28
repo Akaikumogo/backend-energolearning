@@ -96,6 +96,7 @@ import { PlanChangeLog } from './database/entities/plan-change-log.entity';
 import {
   TelegramNewsBroadcast,
   TelegramNewsDelivery,
+  TelegramNewsPost,
 } from './database/entities/telegram-news.entity';
 import { PlanCalendarModule } from './plan-calendar/plan-calendar.module';
 import { SafetyRecordsModule } from './safety-records/safety-records.module';
@@ -167,6 +168,7 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
         PlanChangeLog,
         TelegramNewsBroadcast,
         TelegramNewsDelivery,
+        TelegramNewsPost,
         SafetyRecordType,
         EmployeeSafetyRecord,
         EmployeeSafetyRecordChange,
