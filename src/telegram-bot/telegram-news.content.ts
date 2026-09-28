@@ -207,7 +207,7 @@ function pointsSvg(): string {
   ${text(104, 252, '(masalan 10 ta = 100 XP)', { size: 24, fill: MUTED })}
   ${card(rx, 0, cw, 290, '#f0fdf4')}
   ${text(rx + 32, 54, 'PLAN YOʻQ KUN', { size: 22, fill: GREEN, weight: 700 })}
-  ${text(rx + 32, 122, '100 XP gacha', { size: 56, fill: GREEN, weight: 800 })}
+  ${text(rx + 32, 118, '100 XP gacha', { size: 46, fill: GREEN, weight: 800 })}
   ${text(rx + 32, 176, 'ketma-ket toʻgʻri javob', { size: 26, weight: 600 })}
   ${text(rx + 32, 216, 'har biri +10 XP, 10 tagacha', { size: 24, fill: MUTED })}
   ${text(rx + 32, 252, 'birinchi xato — bonus tugaydi', { size: 24, fill: MUTED })}
