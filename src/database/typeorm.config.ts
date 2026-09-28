@@ -87,6 +87,11 @@ import { SafetyBadgePdfFields1749600000000 } from './migrations/0047-safety-badg
 import { PlanCalendar1759000000000 } from './migrations/0048-plan-calendar';
 import { PlanChangeLogs1759100000000 } from './migrations/0049-plan-change-logs';
 import { PlanChangeLog } from './entities/plan-change-log.entity';
+import { TelegramNews1759200000000 } from './migrations/0050-telegram-news';
+import {
+  TelegramNewsBroadcast,
+  TelegramNewsDelivery,
+} from './entities/telegram-news.entity';
 import { PlanCalendarDay } from './entities/plan-calendar-day.entity';
 import { UserPlanDayOverride } from './entities/user-plan-day-override.entity';
 import { TelegramReportChat } from './entities/telegram-report-chat.entity';
@@ -155,6 +160,8 @@ export const AppDataSource = new DataSource({
     PlanCalendarDay,
     UserPlanDayOverride,
     PlanChangeLog,
+    TelegramNewsBroadcast,
+    TelegramNewsDelivery,
     SafetyRecordType,
     EmployeeSafetyRecord,
     EmployeeSafetyRecordChange,
@@ -215,6 +222,7 @@ export const AppDataSource = new DataSource({
     SafetyBadgePdfFields1749600000000,
     PlanCalendar1759000000000,
     PlanChangeLogs1759100000000,
+    TelegramNews1759200000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
