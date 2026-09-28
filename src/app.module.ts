@@ -90,6 +90,9 @@ import { ReportSubmission } from './database/entities/report-submission.entity';
 import { OrganizationDivisionSetting } from './database/entities/organization-division-setting.entity';
 import { ReportingActivationHistory } from './database/entities/reporting-activation-history.entity';
 import { ReportingActivationModule } from './reporting-activation/reporting-activation.module';
+import { PlanCalendarDay } from './database/entities/plan-calendar-day.entity';
+import { UserPlanDayOverride } from './database/entities/user-plan-day-override.entity';
+import { PlanCalendarModule } from './plan-calendar/plan-calendar.module';
 import { SafetyRecordsModule } from './safety-records/safety-records.module';
 import { SafetyRecordType } from './database/entities/safety-record-type.entity';
 import { EmployeeSafetyRecord } from './database/entities/employee-safety-record.entity';
@@ -154,6 +157,8 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
         ReportSubmission,
         OrganizationDivisionSetting,
         ReportingActivationHistory,
+        PlanCalendarDay,
+        UserPlanDayOverride,
         SafetyRecordType,
         EmployeeSafetyRecord,
         EmployeeSafetyRecordChange,
@@ -176,6 +181,7 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
     CertificatesModule,
     SafetyRecordsModule,
     ReportingActivationModule,
+    PlanCalendarModule,
     SeedModule,
     HeartsModule,
     ModeratorPermissionsModule,

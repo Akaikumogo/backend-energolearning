@@ -11,6 +11,7 @@ import { UserProgress } from '../database/entities/user-progress.entity';
 import { ProgressController } from './progress.controller';
 import { ProgressService } from './progress.service';
 import { HeartsModule } from '../hearts/hearts.module';
+import { PlanCalendarModule } from '../plan-calendar/plan-calendar.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { HeartsModule } from '../hearts/hearts.module';
       UserProgress,
     ]),
     HeartsModule,
+    PlanCalendarModule,
   ],
   controllers: [ProgressController],
   providers: [ProgressService],

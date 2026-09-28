@@ -17,7 +17,8 @@ import { SubmitMatchingDto } from './dto/submit-matching.dto';
 import { HeartsService } from '../hearts/hearts.service';
 import { TheoryRole } from '../common/enums/theory-role.enum';
 import { QuestionType } from '../common/enums/question-type.enum';
-import { DAILY_GOAL_CORRECT } from '../branch-analytics/daily-plan.service';
+import { PlanCalendarService } from '../plan-calendar/plan-calendar.service';
+import { BONUS_STREAK_MAX } from '../plan-calendar/plan-goal.rules';
 import {
   tashkentDayBounds,
   tashkentToday,
@@ -46,6 +47,7 @@ export class ProgressService {
     private readonly attemptRepo: Repository<UserQuestionAttempt>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly heartsService: HeartsService,
+    private readonly planCalendar: PlanCalendarService,
   ) {}
 
   private async getPositionAvailableLevels(userId: string): Promise<Level[]> {
@@ -617,9 +619,23 @@ export class ProgressService {
     };
   }
 
+  /** Bugun kunlik reja sifatida xato javob berilganmi (bonus kuni: birinchi xato bonusni tugatadi). */
+  private async hasWrongDailyPlanAttemptToday(userId: string): Promise<boolean> {
+    const { from, to } = tashkentDayBounds(tashkentToday());
+    const count = await this.attemptRepo
+      .createQueryBuilder('a')
+      .where('a.user_id = :userId', { userId })
+      .andWhere('a.is_correct = false')
+      .andWhere("a.attempt_source = 'DAILY_PLAN'")
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
+      .getCount();
+    return count > 0;
+  }
+
   /**
    * XP faqat kunlik majburiyatdan: DAILY_PLAN + yangi noyob to‘g‘ri + kunlik limit ichida.
-   * LESSON / plandan tashqari → 0 XP.
+   * Plan 0 bo‘lgan kun (dam olish) — bonus: ketma-ket to‘g‘ri javoblar, birinchi xatogacha,
+   * ko‘pi bilan BONUS_STREAK_MAX ta. LESSON / plandan tashqari → 0 XP.
    */
   private async resolveXpEligibility(
     userId: string,
@@ -630,30 +646,54 @@ export class ProgressService {
     countsForXp: boolean;
     xpEarned: number;
     attemptSource: AttemptSource;
-    xpDeniedReason: 'WRONG' | 'OFF_PLAN' | 'PLAN_COMPLETE' | 'ALREADY_COUNTED' | null;
+    xpDeniedReason:
+      | 'WRONG'
+      | 'OFF_PLAN'
+      | 'PLAN_COMPLETE'
+      | 'ALREADY_COUNTED'
+      | 'BONUS_ENDED'
+      | null;
     xpMessage: string | null;
   }> {
     const attemptSource = source ?? AttemptSource.LESSON;
     const offPlanMessage =
       'Ushbu javob uchun ball berilmaydi. Ball faqat kunlik majburiyat uchun beriladi.';
+    const bonusEndedMessage =
+      'Bugungi bonus tugadi: xato javobdan keyin qo‘shimcha XP berilmaydi.';
+
+    const isDailyPlan = attemptSource === AttemptSource.DAILY_PLAN;
+    const goal = isDailyPlan ? await this.planCalendar.goalFor(userId) : 0;
+    const isBonusDay = isDailyPlan && goal === 0;
 
     if (!isCorrect) {
+      const bonusWasActive =
+        isBonusDay && !(await this.hasWrongDailyPlanAttemptToday(userId));
       return {
         countsForXp: false,
         xpEarned: 0,
         attemptSource,
         xpDeniedReason: 'WRONG',
-        xpMessage: null,
+        xpMessage: bonusWasActive ? bonusEndedMessage : null,
       };
     }
 
-    if (attemptSource !== AttemptSource.DAILY_PLAN) {
+    if (!isDailyPlan) {
       return {
         countsForXp: false,
         xpEarned: 0,
         attemptSource,
         xpDeniedReason: 'OFF_PLAN',
         xpMessage: offPlanMessage,
+      };
+    }
+
+    if (isBonusDay && (await this.hasWrongDailyPlanAttemptToday(userId))) {
+      return {
+        countsForXp: false,
+        xpEarned: 0,
+        attemptSource,
+        xpDeniedReason: 'BONUS_ENDED',
+        xpMessage: bonusEndedMessage,
       };
     }
 
@@ -689,13 +729,16 @@ export class ProgressService {
       };
     }
 
-    if (planCorrectToday >= DAILY_GOAL_CORRECT) {
+    const xpLimit = isBonusDay ? BONUS_STREAK_MAX : goal;
+    if (planCorrectToday >= xpLimit) {
       return {
         countsForXp: false,
         xpEarned: 0,
         attemptSource,
         xpDeniedReason: 'PLAN_COMPLETE',
-        xpMessage: offPlanMessage,
+        xpMessage: isBonusDay
+          ? `Bugungi bonus to‘liq olindi (${BONUS_STREAK_MAX * 10} XP).`
+          : offPlanMessage,
       };
     }
 

@@ -68,6 +68,10 @@ export class User {
   })
   reportActive: boolean = true;
 
+  /** Doimiy shaxsiy kunlik plan normasi. null = standart (10). Dam olish kunlari baribir 0. */
+  @Column({ type: 'int', name: 'daily_plan_goal', nullable: true })
+  dailyPlanGoal: number | null;
+
   /** Avatar yuklash payti yuz aniqlangan-aniqlanmaganligi (mobilning client-side
    *  face-detection natijasi). Kelajakda yuzni qayta tanish uchun yoki audit
    *  uchun ishlatiladi. */

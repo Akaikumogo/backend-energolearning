@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { QuestionType } from '../common/enums/question-type.enum';
 import { DAILY_GOAL_CORRECT } from '../branch-analytics/daily-plan.service';
+import { BONUS_STREAK_MAX } from '../plan-calendar/plan-goal.rules';
 
 export type XpAnomalyUserRow = {
   userId: string;
@@ -85,8 +86,11 @@ export class XpAnomaliesService {
     private readonly attemptRepo: Repository<UserQuestionAttempt>,
   ) {}
 
-  /** Har user/kun: birinchi 10 ta noyob to‘g‘ri (LESSON emas) → plan XP. */
-  private expectedPlanCte(goal = DAILY_GOAL_CORRECT) {
+  /**
+   * Har user/kun: birinchi `goal` ta noyob to‘g‘ri (LESSON emas) → plan XP.
+   * Plan 0 (dam olish) kunlari: birinchi xatogacha bo‘lgan max 10 ta to‘g‘ri (bonus).
+   */
+  private expectedPlanCte() {
     return `
       first_correct AS (
         SELECT DISTINCT ON (
@@ -108,18 +112,40 @@ export class XpAnomaliesService {
           a.answered_at ASC,
           a.id ASC
       ),
+      first_wrong AS (
+        SELECT
+          a.user_id,
+          ((a.answered_at AT TIME ZONE 'Asia/Tashkent')::date) AS day,
+          MIN(a.answered_at) AS answered_at
+        FROM user_question_attempts a
+        WHERE a.is_correct = false
+          AND a.attempt_source = 'DAILY_PLAN'
+        GROUP BY 1, 2
+      ),
       expected_xp_ids AS (
-        SELECT id
+        SELECT x.id
         FROM (
           SELECT
-            id,
+            fc.id,
+            fc.user_id,
+            fc.day,
+            fc.answered_at,
             ROW_NUMBER() OVER (
-              PARTITION BY user_id, day
-              ORDER BY answered_at ASC, id ASC
+              PARTITION BY fc.user_id, fc.day
+              ORDER BY fc.answered_at ASC, fc.id ASC
             ) AS rn
-          FROM first_correct
+          FROM first_correct fc
         ) x
-        WHERE rn <= ${goal}
+        CROSS JOIN LATERAL (
+          SELECT effective_daily_goal(x.user_id, x.day) AS goal
+        ) g
+        LEFT JOIN first_wrong fw ON fw.user_id = x.user_id AND fw.day = x.day
+        WHERE (g.goal > 0 AND x.rn <= g.goal)
+           OR (
+             g.goal = 0
+             AND x.rn <= ${BONUS_STREAK_MAX}
+             AND (fw.answered_at IS NULL OR x.answered_at < fw.answered_at)
+           )
       )
     `;
   }

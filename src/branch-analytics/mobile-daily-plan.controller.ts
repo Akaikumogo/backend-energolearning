@@ -36,6 +36,8 @@ export class MobileDailyPlanController {
         wrongCount: 0,
         completionPercent: 0,
         completed: false,
+        isPlanDay: true,
+        bonus: null,
         questions: [],
       };
     }

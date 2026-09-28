@@ -20,6 +20,13 @@ import {
   DAILY_GOAL_CORRECT,
   MIN_DAILY_PLAN_QUESTIONS,
 } from './daily-plan.service';
+import { PlanCalendarService } from '../plan-calendar/plan-calendar.service';
+import {
+  BONUS_STREAK_MAX,
+  PlanGoalResolver,
+  dayPlanResult,
+  percentOf,
+} from '../plan-calendar/plan-goal.rules';
 import {
   addTashkentDays,
   listTashkentDays,
@@ -69,7 +76,13 @@ export class BranchAnalyticsService {
     private readonly orgRepo: Repository<Organization>,
     @InjectRepository(NesEmployee)
     private readonly nesEmployeeRepo: Repository<NesEmployee>,
+    private readonly planCalendar: PlanCalendarService,
   ) {}
+
+  /** Plan 0 (dam olish) bo'lsa hech narsa talab qilinmaydi — foiz 100, "qizil" bo'lib chiqmasin. */
+  private planPercent(completed: number, plan: number): number {
+    return plan > 0 ? percentOf(completed, plan) : 100;
+  }
 
   async resolveOrgScope(
     orgId: string,
@@ -359,11 +372,13 @@ export class BranchAnalyticsService {
     ).length;
 
     // Bugun kunlik planni bajarganlar: Toshkent kuni ichida kamida
-    // DAILY_GOAL_CORRECT ta har xil savolga to'g'ri javob berganlar.
-    const { from: tFrom, to: tTo } = tashkentDayBounds(tashkentToday());
-    const completedTodayRows = await this.attemptRepo
+    // o'z normasicha har xil savolga to'g'ri javob berganlar (plan 0 — hisoblanmaydi).
+    const today = tashkentToday();
+    const { from: tFrom, to: tTo } = tashkentDayBounds(today);
+    const todayCorrectRows = await this.attemptRepo
       .createQueryBuilder('a')
       .select('a.user_id', 'userId')
+      .addSelect('COUNT(DISTINCT a.question_id)::int', 'correct')
       .where('a.user_id IN (:...userIds)', { userIds })
       .andWhere('a.organization_id = :orgId', { orgId })
       .andWhere('a.is_correct = true')
@@ -372,10 +387,13 @@ export class BranchAnalyticsService {
         tTo,
       })
       .groupBy('a.user_id')
-      .having('COUNT(DISTINCT a.question_id) >= :goal', {
-        goal: DAILY_GOAL_CORRECT,
-      })
-      .getRawMany();
+      .getRawMany<{ userId: string; correct: number }>();
+    const todayResolver = await this.planCalendar.loadResolver(today, today);
+    const completedTodayRows = todayCorrectRows.filter(
+      (r) =>
+        dayPlanResult(Number(r.correct) || 0, todayResolver.goal(r.userId, today))
+          .completed,
+    );
 
     return {
       orgId,
@@ -516,6 +534,7 @@ export class BranchAnalyticsService {
       userId: string;
       fullName: string;
       answeredCount: number;
+      goal: number;
       correctCount: number;
       planCorrectCount: number;
       extraCorrectCount: number;
@@ -547,26 +566,23 @@ export class BranchAnalyticsService {
         }>();
 
       const byUser = new Map(attemptRows.map((r) => [r.userId, r]));
+      const resolver = await this.planCalendar.loadResolver(planDate, planDate);
 
       userResults = employees.map((emp) => {
         const stats = byUser.get(emp.userId);
         const answeredCount = Number(stats?.answeredCount) || 0;
         const rawCorrect = Number(stats?.correctCount) || 0;
-        const planCorrectCount = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
-        const extraCorrectCount = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
-        const completionPercent = Math.min(
-          100,
-          Math.round((planCorrectCount / DAILY_GOAL_CORRECT) * 100),
-        );
+        const r = dayPlanResult(rawCorrect, resolver.goal(emp.userId, planDate));
         return {
           userId: emp.userId,
           fullName: `${emp.lastName} ${emp.firstName}`.trim(),
           answeredCount,
-          correctCount: planCorrectCount,
-          planCorrectCount,
-          extraCorrectCount,
-          completed: rawCorrect >= DAILY_GOAL_CORRECT,
-          completionPercent,
+          goal: r.goal,
+          correctCount: r.planCorrect,
+          planCorrectCount: r.planCorrect,
+          extraCorrectCount: r.extraCorrect,
+          completed: r.completed,
+          completionPercent: Math.min(100, Math.round(this.planPercent(r.planCorrect, r.goal))),
         };
       });
     }
@@ -617,24 +633,50 @@ export class BranchAnalyticsService {
 
     const answeredCount = Number(row?.answered) || 0;
     const rawCorrectCount = Number(row?.correct) || 0;
-    const correctCount = Math.min(rawCorrectCount, DAILY_GOAL_CORRECT);
-    const extraCorrectCount = Math.max(0, rawCorrectCount - DAILY_GOAL_CORRECT);
+    const goal = await this.planCalendar.goalFor(userId, planDate);
+    const r = dayPlanResult(rawCorrectCount, goal);
     // Qizil chip: urinilgan, lekin (hali) to'g'ri topilmagan savollar.
     const wrongCount = Math.max(0, answeredCount - rawCorrectCount);
 
     return {
       planDate,
       answeredCount,
-      correctCount,
+      correctCount: r.planCorrect,
       rawCorrectCount,
-      extraCorrectCount,
+      extraCorrectCount: r.extraCorrect,
       wrongCount,
-      dailyGoalCorrect: DAILY_GOAL_CORRECT,
-      completionPercent: Math.min(
-        100,
-        Math.round((correctCount / DAILY_GOAL_CORRECT) * 100),
-      ),
-      completed: rawCorrectCount >= DAILY_GOAL_CORRECT,
+      dailyGoalCorrect: goal,
+      isPlanDay: goal > 0,
+      completionPercent:
+        goal > 0 ? Math.min(100, Math.round((r.planCorrect / goal) * 100)) : 0,
+      completed: r.completed,
+      bonus: goal > 0 ? null : await this.getBonusState(userId, planDate),
+    };
+  }
+
+  /** Plan 0 kuni: ketma-ket to'g'ri javoblar bonusi (birinchi xatogacha, max BONUS_STREAK_MAX). */
+  private async getBonusState(userId: string, planDate: string) {
+    const { from, to } = tashkentDayBounds(planDate);
+    const row = await this.attemptRepo
+      .createQueryBuilder('a')
+      .select(
+        'COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp)::int',
+        'streak',
+      )
+      .addSelect('COUNT(*) FILTER (WHERE NOT a.is_correct)::int', 'wrong')
+      .where('a.user_id = :userId', { userId })
+      .andWhere("a.attempt_source = 'DAILY_PLAN'")
+      .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
+      .getRawOne<{ streak: number; wrong: number }>();
+    const streak = Math.min(Number(row?.streak) || 0, BONUS_STREAK_MAX);
+    const brokenByWrong = (Number(row?.wrong) || 0) > 0;
+    return {
+      streak,
+      max: BONUS_STREAK_MAX,
+      xpPerAnswer: 10,
+      xpEarned: streak * 10,
+      ended: brokenByWrong || streak >= BONUS_STREAK_MAX,
+      brokenByWrong,
     };
   }
 
@@ -649,8 +691,10 @@ export class BranchAnalyticsService {
     return {
       planDate: stats.planDate,
       organizationId,
-      targetQuestions: DAILY_GOAL_CORRECT,
-      dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      targetQuestions: stats.dailyGoalCorrect,
+      dailyGoalCorrect: stats.dailyGoalCorrect,
+      isPlanDay: stats.isPlanDay,
+      bonus: stats.bonus,
       questionCount: 0,
       answeredCount: stats.answeredCount,
       correctCount: stats.correctCount,
@@ -913,17 +957,22 @@ export class BranchAnalyticsService {
       )
       .getRawMany<{ userId: string; day: string; correct: number }>();
 
+    const monthDays = listTashkentDays(`${m}-01`, asOfDate);
+    const resolver = await this.planCalendar.loadResolver(`${m}-01`, asOfDate);
     const daysCompletedMap = new Map<string, number>();
     const extraTotalMap = new Map<string, number>();
     for (const row of dayRows) {
-      const rawCorrect = Number(row.correct) || 0;
-      if (rawCorrect >= DAILY_GOAL_CORRECT) {
+      const r = dayPlanResult(
+        Number(row.correct) || 0,
+        resolver.goal(row.userId, row.day),
+      );
+      if (r.completed) {
         daysCompletedMap.set(
           row.userId,
           (daysCompletedMap.get(row.userId) ?? 0) + 1,
         );
       }
-      const extra = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
+      const extra = r.extraCorrect;
       if (extra > 0) {
         extraTotalMap.set(
           row.userId,
@@ -953,6 +1002,7 @@ export class BranchAnalyticsService {
 
     const employeeResults = employees.map((emp) => {
       const daysCompleted = daysCompletedMap.get(emp.userId) ?? 0;
+      const plannedDays = resolver.plannedDays(emp.userId, monthDays);
       const totals = totalsMap.get(emp.userId);
       const lastActive = totals?.lastActiveAt ?? null;
       return {
@@ -960,7 +1010,8 @@ export class BranchAnalyticsService {
         fullName: `${emp.lastName} ${emp.firstName}`.trim(),
         email: emp.email,
         daysCompleted,
-        monthlyPercent: Math.round((daysCompleted / daysInMonth) * 1000) / 10,
+        plannedDays,
+        monthlyPercent: percentOf(daysCompleted, plannedDays),
         correctTotal: Number(totals?.correctTotal) || 0,
         wrongTotal: Number(totals?.wrongTotal) || 0,
         extraCorrectTotal: extraTotalMap.get(emp.userId) ?? 0,
@@ -988,7 +1039,7 @@ export class BranchAnalyticsService {
       totalEmployees: employeeResults.length,
       averageMonthlyPercent,
       fullCompletedEmployees: employeeResults.filter(
-        (e) => e.daysCompleted >= daysInMonth,
+        (e) => e.plannedDays > 0 && e.daysCompleted >= e.plannedDays,
       ).length,
       employees: employeeResults,
     };
@@ -1062,6 +1113,7 @@ export class BranchAnalyticsService {
     type DayCell = {
       date: string;
       day: number;
+      goal: number;
       rawCorrect: number;
       planCorrect: number;
       extraCorrect: number;
@@ -1077,6 +1129,7 @@ export class BranchAnalyticsService {
       fullName: string;
       email: string;
       daysCompleted: number;
+      plannedDays: number;
       monthlyPercent: number;
       extraCorrectTotal: number;
       attemptsTotal: number;
@@ -1178,6 +1231,8 @@ export class BranchAnalyticsService {
       });
     }
 
+    const resolver = await this.planCalendar.loadResolver(monthStart, monthEnd);
+
     let employeeResults: EmpRow[] = employees.map((emp) => {
       const dayMap =
         byUserOrgDay.get(`${emp.orgId}:${emp.userId}`) ??
@@ -1187,6 +1242,7 @@ export class BranchAnalyticsService {
       let attemptsTotal = 0;
       let wrongTotal = 0;
       const dayCells: DayCell[] = [];
+      const plannedDays = resolver.plannedDays(emp.userId, days);
 
       for (const date of days) {
         const stat = dayMap.get(date);
@@ -1194,9 +1250,10 @@ export class BranchAnalyticsService {
         const rawCorrect = stat.correct;
         const attempts = stat.attempts;
         const wrong = stat.wrong;
-        const planCorrect = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
-        const extraCorrect = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
-        const completed = rawCorrect >= DAILY_GOAL_CORRECT;
+        const { goal, planCorrect, extraCorrect, completed } = dayPlanResult(
+          rawCorrect,
+          resolver.goal(emp.userId, date),
+        );
         if (completed) daysCompleted += 1;
         extraCorrectTotal += extraCorrect;
         attemptsTotal += attempts;
@@ -1205,18 +1262,18 @@ export class BranchAnalyticsService {
         dayCells.push({
           date,
           day: Number(date.slice(8, 10)),
+          goal,
           rawCorrect,
           planCorrect,
           extraCorrect,
           attempts,
           wrong,
           completed,
-          label: `${planCorrect}/${DAILY_GOAL_CORRECT}`,
+          label: goal > 0 ? `${planCorrect}/${goal}` : `+${extraCorrect}`,
         });
       }
 
-      const monthlyPercent =
-        Math.round((daysCompleted / daysInMonth) * 1000) / 10;
+      const monthlyPercent = percentOf(daysCompleted, plannedDays);
 
       return {
         userId: emp.userId,
@@ -1225,6 +1282,7 @@ export class BranchAnalyticsService {
         fullName: `${emp.lastName} ${emp.firstName}`.trim(),
         email: emp.email ?? '',
         daysCompleted,
+        plannedDays,
         monthlyPercent,
         extraCorrectTotal,
         attemptsTotal,
@@ -1260,7 +1318,7 @@ export class BranchAnalyticsService {
           ) / 10
         : 0;
     const fullCompletedEmployees = employeeResults.filter(
-      (e) => e.daysCompleted >= daysInMonth,
+      (e) => e.plannedDays > 0 && e.daysCompleted >= e.plannedDays,
     ).length;
 
     const pageRows = unlimited
@@ -1269,6 +1327,8 @@ export class BranchAnalyticsService {
 
     return {
       ...base,
+      /** Shaxsiy normasi yo'q xodim uchun kunlik plan (0 = dam olish). */
+      dayGoals: days.map((date) => ({ date, goal: resolver.goal('', date) })),
       totalEmployees: total,
       total,
       averageMonthlyPercent,
@@ -1426,6 +1486,8 @@ export class BranchAnalyticsService {
       });
     }
 
+    const resolver = await this.planCalendar.loadResolver(`${y}-01-01`, asOfDate);
+
     const employeeResults = employees.map((emp) => {
       const dayMap =
         byUserOrgDay.get(`${emp.orgId}:${emp.userId}`) ??
@@ -1434,14 +1496,15 @@ export class BranchAnalyticsService {
       let wrongTotal = 0;
       let extraCorrectTotal = 0;
       let daysCompletedYear = 0;
-      let daysInYear = 0;
+      let plannedDaysYear = 0;
 
       const monthResults = months.map((monthKey) => {
         const daysInMonth = daysInMonthByKey.get(monthKey) ?? 30;
-        daysInYear += daysInMonth;
         const monthStart = `${monthKey}-01`;
         const monthEnd = addTashkentDays(monthStart, daysInMonth - 1);
         const days = listTashkentDays(monthStart, monthEnd);
+        const plannedDays = resolver.plannedDays(emp.userId, days);
+        plannedDaysYear += plannedDays;
         let daysCompleted = 0;
         let monthAttempts = 0;
         let monthWrong = 0;
@@ -1449,34 +1512,33 @@ export class BranchAnalyticsService {
         for (const date of days) {
           const stat = dayMap.get(date);
           if (!stat) continue;
-          const rawCorrect = stat.correct;
+          const r = dayPlanResult(stat.correct, resolver.goal(emp.userId, date));
           monthAttempts += stat.attempts;
           monthWrong += stat.wrong;
-          monthExtra += Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
-          if (rawCorrect >= DAILY_GOAL_CORRECT) daysCompleted += 1;
+          monthExtra += r.extraCorrect;
+          if (r.completed) daysCompleted += 1;
         }
         attemptsTotal += monthAttempts;
         wrongTotal += monthWrong;
         extraCorrectTotal += monthExtra;
         daysCompletedYear += daysCompleted;
-        const percent = Math.round((daysCompleted / daysInMonth) * 1000) / 10;
+        const percent = percentOf(daysCompleted, plannedDays);
         return {
           month: monthKey,
           daysInMonth,
+          plannedDays,
           daysCompleted,
           percent,
           attempts: monthAttempts,
           wrong: monthWrong,
           extraCorrect: monthExtra,
-          label: `${daysCompleted}/${daysInMonth}`,
+          label: `${daysCompleted}/${plannedDays}`,
           percentLabel: `${percent}%`,
         };
       });
 
-      const yearlyPercent =
-        daysInYear > 0
-          ? Math.round((daysCompletedYear / daysInYear) * 1000) / 10
-          : 0;
+      const daysInYear = plannedDaysYear;
+      const yearlyPercent = percentOf(daysCompletedYear, plannedDaysYear);
 
       return {
         userId: emp.userId,
@@ -1565,18 +1627,29 @@ export class BranchAnalyticsService {
         reportingRoles: [...REPORTING_ROLES],
       })
       .select('org.id', 'orgId')
-      .addSelect('COUNT(DISTINCT u.id)::int', 'employees')
-      .groupBy('org.id');
+      .addSelect('u.id', 'userId')
+      .distinct(true);
     this.reportingActivation.applyEmployeeReportActiveFilter(empQb, {
       asOfDate: `${m}-${String(daysInMonth).padStart(2, '0')}`,
     });
     const empRows = await empQb.getRawMany<{
       orgId: string;
-      employees: number;
+      userId: string;
     }>();
-    const empMap = new Map(
-      empRows.map((r) => [r.orgId, Number(r.employees) || 0]),
-    );
+    const monthStart = `${m}-01`;
+    const monthEnd = `${m}-${String(daysInMonth).padStart(2, '0')}`;
+    const monthDays = listTashkentDays(monthStart, monthEnd);
+    const resolver = await this.planCalendar.loadResolver(monthStart, monthEnd);
+    const empMap = new Map<string, number>();
+    const possibleDaysMap = new Map<string, number>();
+    for (const r of empRows) {
+      empMap.set(r.orgId, (empMap.get(r.orgId) ?? 0) + 1);
+      possibleDaysMap.set(
+        r.orgId,
+        (possibleDaysMap.get(r.orgId) ?? 0) +
+          resolver.plannedDays(r.userId, monthDays),
+      );
+    }
 
     // Har filial bo'yicha jami bajarilgan kunlar (user+kun juftliklari,
     // correct >= goal bo'lganlari). Faqat report-active xodimlar.
@@ -1596,17 +1669,17 @@ export class BranchAnalyticsService {
         WHERE a.organization_id = ANY($1::uuid[])
           AND a.answered_at >= $2
           AND a.answered_at < $3
-          AND ${planAttemptSqlParam(5)}
+          AND ${planAttemptSqlParam(4)}
           AND COALESCE((
             SELECT h.is_active FROM reporting_activation_history h
             WHERE h.scope_type = 'organization' AND h.organization_id = org.id
-              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $6::date
+              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $5::date
             ORDER BY h.changed_at DESC LIMIT 1
           ), true) = true
           AND COALESCE((
             SELECT h.is_active FROM reporting_activation_history h
             WHERE h.scope_type = 'employee' AND h.user_id = u.id
-              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $6::date
+              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $5::date
             ORDER BY h.changed_at DESC LIMIT 1
           ), true) = true
           AND COALESCE((
@@ -1616,16 +1689,17 @@ export class BranchAnalyticsService {
                 SELECT TRIM(ne.division) FROM nes_employees ne
                 WHERE ne.user_id = u.id AND ne.organization_id = org.id LIMIT 1
               ), '')
-              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $6::date
+              AND (h.changed_at AT TIME ZONE 'Asia/Tashkent')::date <= $5::date
             ORDER BY h.changed_at DESC LIMIT 1
           ), true) = true
         GROUP BY a.organization_id, a.user_id,
                  (a.answered_at AT TIME ZONE 'Asia/Tashkent')::date
       ) t
-      WHERE t.correct >= $4
+      CROSS JOIN LATERAL (SELECT effective_daily_goal(t.user_id, t.day) AS goal) g
+      WHERE g.goal > 0 AND t.correct >= g.goal
       GROUP BY org_id
       `,
-      [orgIds, from, to, DAILY_GOAL_CORRECT, planCutoff, asOf],
+      [orgIds, from, to, planCutoff, asOf],
     )) as Array<{ orgId: string; completedDays: number }>;
     const completedMap = new Map(
       completedRows.map((r) => [r.orgId, Number(r.completedDays) || 0]),
@@ -1635,7 +1709,7 @@ export class BranchAnalyticsService {
       .map((o) => {
         const employees = empMap.get(o.id) ?? 0;
         const completedDays = completedMap.get(o.id) ?? 0;
-        const possibleDays = employees * daysInMonth;
+        const possibleDays = possibleDaysMap.get(o.id) ?? 0;
         return {
           orgId: o.id,
           orgName: o.name,
@@ -1679,6 +1753,7 @@ export class BranchAnalyticsService {
     orgIds: string[],
     planDate: string,
     userIds?: string[],
+    resolver?: PlanGoalResolver,
   ): Promise<
     Map<
       string,
@@ -1717,26 +1792,73 @@ export class BranchAnalyticsService {
     }
 
     const rows = await qb.getRawMany<{ userId: string; rawCorrect: number }>();
+    const goals =
+      resolver ?? (await this.planCalendar.loadResolver(planDate, planDate));
     return new Map(
       rows.map((r) => {
         const rawCorrect = Number(r.rawCorrect) || 0;
-        const planCorrect = Math.min(rawCorrect, DAILY_GOAL_CORRECT);
-        const extraCorrect = Math.max(0, rawCorrect - DAILY_GOAL_CORRECT);
+        const { planCorrect, extraCorrect } = dayPlanResult(
+          rawCorrect,
+          goals.goal(r.userId, planDate),
+        );
         return [r.userId, { planCorrect, extraCorrect, rawCorrect }];
       }),
     );
   }
 
-  /** Kunlik reja statistikasi: userId -> to'g'ri javoblar (max DAILY_GOAL_CORRECT). */
+  /** Kunlik reja statistikasi: userId -> to'g'ri javoblar (max o'z normasi). */
   private async getUserCorrectMap(
     orgIds: string[],
     planDate: string,
     userIds?: string[],
+    resolver?: PlanGoalResolver,
   ): Promise<Map<string, number>> {
-    const statsMap = await this.getUserDayStatsMap(orgIds, planDate, userIds);
+    const statsMap = await this.getUserDayStatsMap(
+      orgIds,
+      planDate,
+      userIds,
+      resolver,
+    );
     return new Map(
       [...statsMap.entries()].map(([uid, s]) => [uid, s.planCorrect]),
     );
+  }
+
+  /** orgId -> report-active xodimlar ro'yxati (sanaga ko'ra). */
+  private async listEmployeesByOrg(
+    orgIds: string[],
+    asOfDate?: string,
+  ): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (!orgIds.length) return out;
+    const qb = this.userRepo
+      .createQueryBuilder('u')
+      .innerJoin('u.organizations', 'uo')
+      .innerJoin('uo.organization', 'org')
+      .where('org.id IN (:...orgIds)', { orgIds })
+      .andWhere('u.role IN (:...reportingRoles)', {
+        reportingRoles: [...REPORTING_ROLES],
+      })
+      .select('org.id', 'orgId')
+      .addSelect('u.id', 'userId')
+      .distinct(true);
+    this.reportingActivation.applyEmployeeReportActiveFilter(qb, { asOfDate });
+    const rows = await qb.getRawMany<{ orgId: string; userId: string }>();
+    for (const r of rows) {
+      if (!out.has(r.orgId)) out.set(r.orgId, []);
+      out.get(r.orgId)!.push(r.userId);
+    }
+    return out;
+  }
+
+  private sumGoals(
+    resolver: PlanGoalResolver,
+    userIds: string[],
+    day: string,
+  ): number {
+    let s = 0;
+    for (const uid of userIds) s += resolver.goal(uid, day);
+    return s;
   }
 
   private async countEmployeesByOrg(
@@ -1791,31 +1913,37 @@ export class BranchAnalyticsService {
     const orgs = await orgQb.getMany();
     const orgIds = orgs.map((o) => o.id);
 
-    const empMap = await this.countEmployeesByOrg(orgIds, planDate);
-    const totalEmployees = [...empMap.values()].reduce((s, n) => s + n, 0);
-    const totalPlan = totalEmployees * DAILY_GOAL_CORRECT;
+    const resolver = await this.planCalendar.loadResolver(planDate, planDate);
+    const usersByOrg = await this.listEmployeesByOrg(orgIds, planDate);
+    const allUserIds = [...usersByOrg.values()].flat();
+    const totalEmployees = allUserIds.length;
+    const totalPlan = this.sumGoals(resolver, allUserIds, planDate);
 
-    const correctMap = await this.getUserCorrectMap(orgIds, planDate);
-    const dayStatsMap = await this.getUserDayStatsMap(orgIds, planDate);
+    const dayStatsMap = await this.getUserDayStatsMap(
+      orgIds,
+      planDate,
+      undefined,
+      resolver,
+    );
     let completedTotal = 0;
     let extraCorrectTotal = 0;
     let activeEmployees = 0;
     let completedEmployees = 0;
-    for (const [, correct] of correctMap) {
-      if (correct > 0) activeEmployees++;
-      completedTotal += correct;
-      if (correct >= DAILY_GOAL_CORRECT) completedEmployees++;
-    }
-    for (const [, stats] of dayStatsMap) {
+    for (const [uid, stats] of dayStatsMap) {
+      if (stats.rawCorrect > 0) activeEmployees++;
+      completedTotal += stats.planCorrect;
       extraCorrectTotal += stats.extraCorrect;
+      if (dayPlanResult(stats.rawCorrect, resolver.goal(uid, planDate)).completed) {
+        completedEmployees++;
+      }
     }
 
-    const completionPercent =
-      totalPlan > 0 ? Math.round((completedTotal / totalPlan) * 1000) / 10 : 0;
+    const completionPercent = this.planPercent(completedTotal, totalPlan);
 
     return {
       planDate,
       dailyGoalCorrect: DAILY_GOAL_CORRECT,
+      isPlanDay: totalPlan > 0,
       totalPlan,
       completedTotal,
       extraCorrectTotal,
@@ -1844,50 +1972,35 @@ export class BranchAnalyticsService {
     const orgs = await orgQb.orderBy('o.name', 'ASC').getMany();
     const orgIds = orgs.map((o) => o.id);
 
-    const empMap = await this.countEmployeesByOrg(orgIds, planDate);
-    const correctMap = await this.getUserCorrectMap(orgIds, planDate);
-    const dayStatsMap = await this.getUserDayStatsMap(orgIds, planDate);
-
-    const employeesByOrgQb = this.userRepo
-      .createQueryBuilder('u')
-      .innerJoin('u.organizations', 'uo')
-      .innerJoin('uo.organization', 'org')
-      .where('org.id IN (:...orgIds)', { orgIds })
-      .andWhere('u.role IN (:...reportingRoles)', {
-        reportingRoles: [...REPORTING_ROLES],
-      })
-      .select('org.id', 'orgId')
-      .addSelect('u.id', 'userId');
-    this.reportingActivation.applyEmployeeReportActiveFilter(employeesByOrgQb, {
-      asOfDate: planDate,
-    });
-    const employeesByOrg = await employeesByOrgQb.getRawMany<{
-      orgId: string;
-      userId: string;
-    }>();
-
-    const orgUserMap = new Map<string, string[]>();
-    for (const row of employeesByOrg) {
-      if (!orgUserMap.has(row.orgId)) orgUserMap.set(row.orgId, []);
-      orgUserMap.get(row.orgId)!.push(row.userId);
-    }
+    const resolver = await this.planCalendar.loadResolver(planDate, planDate);
+    const dayStatsMap = await this.getUserDayStatsMap(
+      orgIds,
+      planDate,
+      undefined,
+      resolver,
+    );
+    const orgUserMap = await this.listEmployeesByOrg(orgIds, planDate);
 
     const branches = orgs
       .map((o) => {
-        const employees = empMap.get(o.id) ?? 0;
-        const plan = employees * DAILY_GOAL_CORRECT;
         const userIds = orgUserMap.get(o.id) ?? [];
+        const employees = userIds.length;
+        const plan = this.sumGoals(resolver, userIds, planDate);
         let completed = 0;
         let extraCorrect = 0;
         let completedEmployees = 0;
         for (const uid of userIds) {
-          const c = correctMap.get(uid) ?? 0;
-          completed += c;
-          extraCorrect += dayStatsMap.get(uid)?.extraCorrect ?? 0;
-          if (c >= DAILY_GOAL_CORRECT) completedEmployees++;
+          const st = dayStatsMap.get(uid);
+          completed += st?.planCorrect ?? 0;
+          extraCorrect += st?.extraCorrect ?? 0;
+          if (
+            dayPlanResult(st?.rawCorrect ?? 0, resolver.goal(uid, planDate))
+              .completed
+          ) {
+            completedEmployees++;
+          }
         }
-        const percent =
-          plan > 0 ? Math.round((completed / plan) * 1000) / 10 : 0;
+        const percent = this.planPercent(completed, plan);
         return {
           orgId: o.id,
           orgName: o.name,
@@ -1931,7 +2044,13 @@ export class BranchAnalyticsService {
       divisionByUser.set(r.userId, div);
     }
 
-    const correctMap = await this.getUserCorrectMap([orgId], planDate, userIds);
+    const resolver = await this.planCalendar.loadResolver(planDate, planDate);
+    const correctMap = await this.getUserCorrectMap(
+      [orgId],
+      planDate,
+      userIds,
+      resolver,
+    );
 
     const divStats = new Map<
       string,
@@ -1955,16 +2074,16 @@ export class BranchAnalyticsService {
       }
       const s = divStats.get(div)!;
       s.employees++;
-      s.plan += DAILY_GOAL_CORRECT;
+      const goal = resolver.goal(emp.userId, planDate);
+      s.plan += goal;
       const c = correctMap.get(emp.userId) ?? 0;
       s.completed += c;
-      if (c >= DAILY_GOAL_CORRECT) s.completedEmployees++;
+      if (goal > 0 && c >= goal) s.completedEmployees++;
     }
 
     const divisions = [...divStats.entries()]
       .map(([division, s]) => {
-        const percent =
-          s.plan > 0 ? Math.round((s.completed / s.plan) * 1000) / 10 : 0;
+        const percent = this.planPercent(s.completed, s.plan);
         return {
           division,
           totalEmployees: s.employees,
@@ -1985,10 +2104,10 @@ export class BranchAnalyticsService {
       branchTotal.plan += d.plan;
       branchTotal.completed += d.completed;
     }
-    const branchPercent =
-      branchTotal.plan > 0
-        ? Math.round((branchTotal.completed / branchTotal.plan) * 1000) / 10
-        : 0;
+    const branchPercent = this.planPercent(
+      branchTotal.completed,
+      branchTotal.plan,
+    );
 
     return {
       orgId,
@@ -2027,30 +2146,30 @@ export class BranchAnalyticsService {
     }
 
     const userIds = employees.map((e) => e.userId);
-    const correctMap = await this.getUserCorrectMap([orgId], planDate, userIds);
+    const resolver = await this.planCalendar.loadResolver(planDate, planDate);
     const dayStatsMap = await this.getUserDayStatsMap(
       [orgId],
       planDate,
       userIds,
+      resolver,
     );
 
     const employees_ranked = employees
       .map((emp) => {
-        const correct = correctMap.get(emp.userId) ?? 0;
-        const extraCorrect = dayStatsMap.get(emp.userId)?.extraCorrect ?? 0;
-        const percent = Math.min(
-          100,
-          Math.round((correct / DAILY_GOAL_CORRECT) * 1000) / 10,
-        );
+        const st = dayStatsMap.get(emp.userId);
+        const correct = st?.planCorrect ?? 0;
+        const extraCorrect = st?.extraCorrect ?? 0;
+        const goal = resolver.goal(emp.userId, planDate);
+        const percent = Math.min(100, this.planPercent(correct, goal));
         return {
           userId: emp.userId,
           fullName: `${emp.lastName} ${emp.firstName}`.trim(),
           correct,
           planCorrect: correct,
           extraCorrect,
-          goal: DAILY_GOAL_CORRECT,
+          goal,
           percent,
-          completed: correct >= DAILY_GOAL_CORRECT,
+          completed: goal > 0 && correct >= goal,
           status: this.statusFromPercent(percent),
         };
       })
@@ -2081,12 +2200,7 @@ export class BranchAnalyticsService {
       return { planDate, orgId: orgId ?? null, points: [], maxCompleted: 0 };
     }
 
-    const params: unknown[] = [
-      dayStart,
-      dayEnd,
-      DAILY_GOAL_CORRECT,
-      PLAN_RULE_CUTOFF,
-    ];
+    const params: unknown[] = [dayStart, dayEnd, planDate, PLAN_RULE_CUTOFF];
     let orgFilter = '';
     if (orgId) {
       if (allowedOrgIds && !allowedOrgIds.includes(orgId)) {
@@ -2127,8 +2241,13 @@ export class BranchAnalyticsService {
       )
       SELECT
         hour,
-        COUNT(*) FILTER (WHERE distinct_correct >= $3)::int AS completed_employees
-      FROM user_hour_cumulative
+        COUNT(*) FILTER (
+          WHERE g.goal > 0 AND distinct_correct >= g.goal
+        )::int AS completed_employees
+      FROM user_hour_cumulative c
+      CROSS JOIN LATERAL (
+        SELECT effective_daily_goal(c.user_id, $3::date) AS goal
+      ) g
       GROUP BY hour
       ORDER BY hour
       `,
@@ -2190,15 +2309,23 @@ export class BranchAnalyticsService {
       completed: number;
       plan: number;
     }> = [];
+    const resolver = days.length
+      ? await this.planCalendar.loadResolver(days[0], days[days.length - 1])
+      : PlanGoalResolver.constant();
     for (const day of days) {
-      const dayEmpMap = await this.countEmployeesByOrg(orgIds, day);
-      const dayEmployees = [...dayEmpMap.values()].reduce((s, n) => s + n, 0);
-      const dailyPlan = dayEmployees * DAILY_GOAL_CORRECT;
-      const correctMap = await this.getUserCorrectMap(orgIds, day);
+      const dayUsers = [...(await this.listEmployeesByOrg(orgIds, day)).values()]
+        .flat();
+      const dailyPlan = this.sumGoals(resolver, dayUsers, day);
+      if (dailyPlan <= 0) continue;
+      const correctMap = await this.getUserCorrectMap(
+        orgIds,
+        day,
+        undefined,
+        resolver,
+      );
       let completed = 0;
       for (const [, c] of correctMap) completed += c;
-      const percent =
-        dailyPlan > 0 ? Math.round((completed / dailyPlan) * 1000) / 10 : 0;
+      const percent = this.planPercent(completed, dailyPlan);
       points.push({ date: day, percent, completed, plan: dailyPlan });
     }
 
@@ -2219,25 +2346,31 @@ export class BranchAnalyticsService {
     if (!orgIds.length) return out;
 
     const days = this.listDays(fromStr, toStr);
+    if (!days.length) return out;
+    const resolver = await this.planCalendar.loadResolver(
+      days[0],
+      days[days.length - 1],
+    );
     for (const day of days) {
-      const empMap = await this.countEmployeesByOrg(orgIds, day);
-      const orgCorrect = await this.getOrgPlanCorrectMap(orgIds, day);
+      const usersByOrg = await this.listEmployeesByOrg(orgIds, day);
+      const orgCorrect = await this.getOrgPlanCorrectMap(orgIds, day, resolver);
       for (const orgId of orgIds) {
-        const emp = empMap.get(orgId) ?? 0;
+        const plan = this.sumGoals(resolver, usersByOrg.get(orgId) ?? [], day);
+        if (plan <= 0) continue;
         const completed = orgCorrect.get(orgId) ?? 0;
-        const plan = emp * DAILY_GOAL_CORRECT;
-        const percent =
-          plan > 0 ? Math.round((completed / plan) * 1000) / 10 : 0;
-        out.get(orgId)!.push({ date: day, percent });
+        out
+          .get(orgId)!
+          .push({ date: day, percent: this.planPercent(completed, plan) });
       }
     }
     return out;
   }
 
-  /** Kunlik: orgId -> jami planCorrect (har xodim max DAILY_GOAL_CORRECT). */
+  /** Kunlik: orgId -> jami planCorrect (har xodim max o'z normasi). */
   private async getOrgPlanCorrectMap(
     orgIds: string[],
     planDate: string,
+    resolver: PlanGoalResolver,
   ): Promise<Map<string, number>> {
     if (!orgIds.length) return new Map();
     const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
@@ -2276,9 +2409,9 @@ export class BranchAnalyticsService {
 
     const map = new Map<string, number>();
     for (const r of rows) {
-      const planCorrect = Math.min(
+      const { planCorrect } = dayPlanResult(
         Number(r.rawCorrect) || 0,
-        DAILY_GOAL_CORRECT,
+        resolver.goal(r.userId, planDate),
       );
       map.set(r.orgId, (map.get(r.orgId) ?? 0) + planCorrect);
     }
@@ -2361,15 +2494,15 @@ export class BranchAnalyticsService {
         a.organization_id AS "orgId",
         TO_CHAR(a.answered_at AT TIME ZONE 'Asia/Tashkent', 'YYYY-MM-DD') AS day,
         a.user_id AS "userId",
-        LEAST(COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct), $4)::int AS correct
+        (COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct))::int AS correct
       FROM user_question_attempts a
       INNER JOIN users u ON u.id = a.user_id AND u.role IN ('USER', 'MODERATOR')
       WHERE a.organization_id = ANY($1::uuid[])
         AND a.answered_at >= $2 AND a.answered_at < $3
-        AND ${planAttemptSqlParam(5)}
+        AND ${planAttemptSqlParam(4)}
       GROUP BY 1, 2, 3
       `,
-      [orgIds, rangeFrom, rangeEnd, DAILY_GOAL_CORRECT, PLAN_RULE_CUTOFF],
+      [orgIds, rangeFrom, rangeEnd, PLAN_RULE_CUTOFF],
     )) as Array<{
       orgId: string;
       day: string;
@@ -2394,10 +2527,13 @@ export class BranchAnalyticsService {
       return d.getUTCDay();
     };
 
+    const resolver = days.length
+      ? await this.planCalendar.loadResolver(days[0], days[days.length - 1])
+      : PlanGoalResolver.constant();
+
     const branches = orgs.map((o) => {
       const totalEmployees = empCountMap.get(o.id) ?? 0;
       const userIds = usersByOrg.get(o.id) ?? [];
-      const dailyPlan = totalEmployees * DAILY_GOAL_CORRECT;
 
       const dowBuckets = new Map<
         number,
@@ -2410,12 +2546,16 @@ export class BranchAnalyticsService {
       for (const day of days) {
         const dow = tashkentDow(day);
         if (!weekdayDows.includes(dow)) continue;
+        const dailyPlan = this.sumGoals(resolver, userIds, day);
         if (dailyPlan <= 0) continue;
 
         const dayCorrect = correctLookup.get(o.id)?.get(day);
         let completed = 0;
         for (const uid of userIds) {
-          completed += Math.min(dayCorrect?.get(uid) ?? 0, DAILY_GOAL_CORRECT);
+          completed += dayPlanResult(
+            dayCorrect?.get(uid) ?? 0,
+            resolver.goal(uid, day),
+          ).planCorrect;
         }
         const pct = Math.round((completed / dailyPlan) * 1000) / 10;
         const bucket = dowBuckets.get(dow)!;
