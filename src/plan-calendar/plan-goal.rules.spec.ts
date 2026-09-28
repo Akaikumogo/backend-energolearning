@@ -7,10 +7,19 @@ import {
 
 describe('plan goal rules', () => {
   it('keeps the old fixed goal before the calendar start', () => {
-    expect(resolveDailyGoal({ day: '2026-09-27' })).toBe(10);
+    expect(resolveDailyGoal({ day: '2026-06-20' })).toBe(10);
     expect(
-      resolveDailyGoal({ day: '2026-09-20', calendarDay: { goal: 0, isDayOff: true } }),
+      resolveDailyGoal({ day: '2026-06-14', calendarDay: { goal: 0, isDayOff: true } }),
     ).toBe(10);
+  });
+
+  it('applies the calendar from the database start date', () => {
+    expect(resolveDailyGoal({ day: '2026-06-21' })).toBe(0);
+    expect(resolveDailyGoal({ day: '2026-06-22' })).toBe(10);
+    expect(resolveDailyGoal({ day: '2026-09-27' })).toBe(0);
+    expect(
+      resolveDailyGoal({ day: '2026-09-01', calendarDay: { goal: null, isDayOff: true } }),
+    ).toBe(0);
   });
 
   it('treats Saturday and Sunday as days off', () => {

@@ -115,10 +115,43 @@ export class PlanCalendarService {
   }
 
   async getMonth(month?: string) {
-    const { month: m, start, end, days } = this.monthDays(month);
+    const { month: m, start, end } = this.monthDays(month);
     const rows = await this.dayRepo.find({ where: { day: Between(start, end) } });
-    const byDay = new Map(rows.map((r) => [r.day, r]));
+    return this.buildMonth(m, new Map(rows.map((r) => [r.day, r])));
+  }
 
+  /** Yillik plan: 12 oy, har birida kunlar va jami (doimiy normasi yo'q xodim uchun). */
+  async getYear(year?: string) {
+    const y = /^\d{4}$/.test(year ?? '') ? String(year) : tashkentToday().slice(0, 4);
+    const rows = await this.dayRepo.find({
+      where: { day: Between(`${y}-01-01`, `${y}-12-31`) },
+    });
+    const byDay = new Map(rows.map((r) => [r.day, r]));
+    const months = Array.from({ length: 12 }, (_, i) =>
+      this.buildMonth(`${y}-${String(i + 1).padStart(2, '0')}`, byDay),
+    );
+    const applied = months.flatMap((mo) => mo.days).filter((d) => d.calendarApplies);
+    return {
+      year: y,
+      defaultGoal: DEFAULT_DAILY_GOAL,
+      calendarStart: PLAN_CALENDAR_START,
+      workingDays: months.reduce((s, mo) => s + mo.workingDays, 0),
+      totalGoal: months.reduce((s, mo) => s + mo.totalGoal, 0),
+      daysOff: applied.filter((d) => d.goal === 0).length,
+      holidays: applied
+        .filter((d) => d.holidayName)
+        .map((d) => ({ date: d.date, name: d.holidayName, isDayOff: d.isDayOff })),
+      months: months.map((mo) => ({
+        month: mo.month,
+        workingDays: mo.workingDays,
+        totalGoal: mo.totalGoal,
+        days: mo.days,
+      })),
+    };
+  }
+
+  private buildMonth(month: string, byDay: Map<string, PlanCalendarDay>) {
+    const { month: m, days } = this.monthDays(month);
     const items = days.map((day) => {
       const row = byDay.get(day);
       const setting = row ? toSetting(row) : undefined;
@@ -138,7 +171,7 @@ export class PlanCalendarService {
       };
     });
 
-    const planDays = items.filter((d) => d.goal > 0);
+    const planDays = items.filter((d) => d.calendarApplies && d.goal > 0);
     return {
       month: m,
       defaultGoal: DEFAULT_DAILY_GOAL,

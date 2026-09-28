@@ -7,8 +7,14 @@
  */
 export const DEFAULT_DAILY_GOAL = 10;
 
-/** Shu sanadan oldingi kunlar uchun kalendar qo'llanmaydi (tarixiy hisobotlar o'zgarmasin). */
-export const PLAN_CALENDAR_START = '2026-09-28';
+/** Baza yaratilgan kun: shundan oldingi kunlar uchun kalendar qo'llanmaydi. */
+export const PLAN_CALENDAR_START = '2026-06-21';
+
+/**
+ * Plan 0 kunidagi "birinchi xatogacha" bonus qoidasi shu kundan kuchga kirgan.
+ * Undan oldin berilgan XP qayta hisoblanmaydi (kuniga 10 tagacha to'g'ri javob).
+ */
+export const XP_BONUS_RULE_START = '2026-09-28';
 
 /** Plan 0 bo'lgan kunda ketma-ket to'g'ri javoblar bonusi (har biri 10 XP). */
 export const BONUS_STREAK_MAX = 10;

@@ -43,6 +43,14 @@ export class PlanCalendarController {
     return this.service.getMonth(month);
   }
 
+  @Get('year')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
+  @ApiOperation({ summary: 'Yillik plan kalendari (hamma uchun)' })
+  @ApiQuery({ name: 'year', required: false, example: '2026' })
+  getYear(@Query('year') year?: string) {
+    return this.service.getYear(year);
+  }
+
   @Get('permissions')
   @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
   @ApiOperation({ summary: 'Joriy foydalanuvchi planni o‘zgartira oladimi (markaziy apparat)' })

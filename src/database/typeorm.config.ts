@@ -88,6 +88,7 @@ import { PlanCalendar1759000000000 } from './migrations/0048-plan-calendar';
 import { PlanChangeLogs1759100000000 } from './migrations/0049-plan-change-logs';
 import { PlanChangeLog } from './entities/plan-change-log.entity';
 import { TelegramNews1759200000000 } from './migrations/0050-telegram-news';
+import { PlanCalendarFromDbStart1759300000000 } from './migrations/0051-plan-calendar-from-db-start';
 import {
   TelegramNewsBroadcast,
   TelegramNewsDelivery,
@@ -223,6 +224,7 @@ export const AppDataSource = new DataSource({
     PlanCalendar1759000000000,
     PlanChangeLogs1759100000000,
     TelegramNews1759200000000,
+    PlanCalendarFromDbStart1759300000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

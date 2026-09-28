@@ -4,7 +4,11 @@ import { Repository } from 'typeorm';
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { QuestionType } from '../common/enums/question-type.enum';
 import { DAILY_GOAL_CORRECT } from '../branch-analytics/daily-plan.service';
-import { BONUS_STREAK_MAX } from '../plan-calendar/plan-goal.rules';
+import {
+  BONUS_STREAK_MAX,
+  DEFAULT_DAILY_GOAL,
+  XP_BONUS_RULE_START,
+} from '../plan-calendar/plan-goal.rules';
 
 export type XpAnomalyUserRow = {
   userId: string;
@@ -137,7 +141,10 @@ export class XpAnomaliesService {
           FROM first_correct fc
         ) x
         CROSS JOIN LATERAL (
-          SELECT effective_daily_goal(x.user_id, x.day) AS goal
+          SELECT CASE
+                   WHEN x.day < DATE '${XP_BONUS_RULE_START}' THEN ${DEFAULT_DAILY_GOAL}
+                   ELSE effective_daily_goal(x.user_id, x.day)
+                 END AS goal
         ) g
         LEFT JOIN first_wrong fw ON fw.user_id = x.user_id AND fw.day = x.day
         WHERE (g.goal > 0 AND x.rn <= g.goal)
