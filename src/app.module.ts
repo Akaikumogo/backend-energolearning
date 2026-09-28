@@ -92,6 +92,7 @@ import { ReportingActivationHistory } from './database/entities/reporting-activa
 import { ReportingActivationModule } from './reporting-activation/reporting-activation.module';
 import { PlanCalendarDay } from './database/entities/plan-calendar-day.entity';
 import { UserPlanDayOverride } from './database/entities/user-plan-day-override.entity';
+import { PlanChangeLog } from './database/entities/plan-change-log.entity';
 import { PlanCalendarModule } from './plan-calendar/plan-calendar.module';
 import { SafetyRecordsModule } from './safety-records/safety-records.module';
 import { SafetyRecordType } from './database/entities/safety-record-type.entity';
@@ -159,6 +160,7 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
         ReportingActivationHistory,
         PlanCalendarDay,
         UserPlanDayOverride,
+        PlanChangeLog,
         SafetyRecordType,
         EmployeeSafetyRecord,
         EmployeeSafetyRecordChange,

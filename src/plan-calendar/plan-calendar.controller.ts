@@ -43,22 +43,55 @@ export class PlanCalendarController {
     return this.service.getMonth(month);
   }
 
-  @Put('days/:day')
+  @Get('permissions')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.ACCOUNTING, Role.APPROVER)
+  @ApiOperation({ summary: 'Joriy foydalanuvchi planni o‘zgartira oladimi (markaziy apparat)' })
+  async permissions(@Req() req: AuthedRequest) {
+    return { canEdit: await this.service.canEditPlans(req.user) };
+  }
+
+  @Get('changes')
   @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'Kun sozlamasi: norma / dam olish / bayram nomi' })
+  @ApiOperation({ summary: 'Plan o‘zgarishlari tarixi (faqat superadmin)' })
+  getChanges(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('kind') kind?: string,
+    @Query('actorId') actorId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.service.getChanges({
+      page: Number(page) || 1,
+      limit: Number(limit) || 20,
+      kind,
+      actorId,
+      search,
+    });
+  }
+
+  @Get('custom-plans')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({ summary: 'Shaxsiy plani bor xodimlar (faqat superadmin)' })
+  getCustomPlans() {
+    return this.service.getCustomPlans();
+  }
+
+  @Put('days/:day')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Kun sozlamasi: norma / dam olish / bayram nomi (markaziy apparat)' })
   setDay(
     @Req() req: AuthedRequest,
     @Param('day') day: string,
     @Body() body: SetPlanCalendarDayDto,
   ) {
-    return this.service.setDay(day, body, req.user.id);
+    return this.service.setDay(day, body, req.user);
   }
 
   @Delete('days/:day')
-  @Roles(Role.SUPERADMIN)
-  @ApiOperation({ summary: 'Kunni avtomatik holatga qaytarish' })
-  resetDay(@Param('day') day: string) {
-    return this.service.resetDay(day);
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
+  @ApiOperation({ summary: 'Kunni avtomatik holatga qaytarish (markaziy apparat)' })
+  resetDay(@Req() req: AuthedRequest, @Param('day') day: string) {
+    return this.service.resetDay(day, req.user);
   }
 
   @Get('users/:userId')
@@ -107,5 +140,21 @@ export class PlanCalendarController {
     @Param('day') day: string,
   ) {
     return this.service.resetUserDay(userId, day, req.user);
+  }
+}
+
+/** Mobil: xodim o'z plan kalendarini ko'radi (o'zgartira olmaydi). */
+@ApiTags('Mobile Daily Plan')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard)
+@Controller('mobile/daily-plan')
+export class MobilePlanCalendarController {
+  constructor(private readonly service: PlanCalendarService) {}
+
+  @Get('calendar')
+  @ApiOperation({ summary: 'Mening oylik plan kalendarim (faqat ko‘rish)' })
+  @ApiQuery({ name: 'month', required: false, example: '2026-10' })
+  getMine(@Req() req: AuthedRequest, @Query('month') month?: string) {
+    return this.service.getOwnPlan(req.user.id, month);
   }
 }
