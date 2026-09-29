@@ -30,3 +30,9 @@ lerna-debug.log*
 .cache
 .project
 .classpath
+# Secrets / local credentials (never commit)
+*.secret
+*.pem
+*.key
+tmp-ssh-*.py
+*PASSWORD*.txt
