@@ -1,3 +1,5 @@
+// Must stay first: modules read process.env at import time (e.g. JwtModule.register).
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ValidationPipe } from '@nestjs/common';
@@ -13,7 +15,6 @@ import { resolveEnergoIdBaseUrl, warnIfLegacyEnergoIdEnv } from './auth/energo-i
 import { ensureCriticalSchema } from './database/ensure-critical-schema';
 import { SWAGGER_RELATIVE_PATH } from './swagger.constants';
 import { ONE_TIME_CUTOVER_FLAG_PATH } from './one-time-cutover/one-time-cutover.constants';
-import 'dotenv/config';
 
 // Workaround for environments where globalThis.crypto is missing.
 // Required by @nestjs/schedule on some Node versions.
