@@ -533,6 +533,8 @@ export class SafetyRecordsService {
     }
     await this.notificationsService.resolveByChangeId(change.id);
 
+    void this.syncSafetyBadgeToEnergo(change.userId);
+
     return {
       record: this.mapRecord(record),
       change: this.mapChange(change),
@@ -636,6 +638,8 @@ export class SafetyRecordsService {
     // relations for map
     saved.deletedByUser =
       (await this.userRepo.findOne({ where: { id: actor.id } })) ?? null;
+
+    void this.syncSafetyBadgeToEnergo(record.userId);
 
     return {
       record: this.mapRecord(saved),
@@ -958,8 +962,12 @@ export class SafetyRecordsService {
       if (!energoId) return;
       const safetyBadge = await this.publicBadgeForUser(employeeUserId);
       await this.energoIdAuthClient.pushSafetyBadge(energoId, safetyBadge);
-    } catch {
+    } catch (error) {
       /* Energo ID sync ixtiyoriy — xatolik asosiy oqimni buzmasin */
+      console.warn(
+        `[safety-records] Energo ID safety-badge sync xatosi (user ${employeeUserId}):`,
+        error instanceof Error ? error.message : error,
+      );
     }
   }
 }
