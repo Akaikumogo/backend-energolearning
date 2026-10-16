@@ -216,9 +216,11 @@ export class AuthService {
     );
     const user = await this.usersService.syncFromEnergoIdentity(energoUser);
     if (!ADMIN_PANEL_ROLES.includes(user.role)) {
-      throw new ForbiddenException(
-        'Admin panelga faqat moderator, direktor yoki superadmin kira oladi',
-      );
+      // Admin panelga ruxsati yo'q: oddiy foydalanuvchi tokenlari beriladi
+      // (user.adminAccess=false) - frontend shu domendagi /mobile ga o'tkazadi.
+      const userAuthMethod: AuthMethod =
+        energoUser.authMethod === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
+      return this.issueLoginResponse(user, clientMeta, userAuthMethod);
     }
     const authMethod: AuthMethod =
       energoUser.authMethod === 'EID_AGENT' ? 'EID_AGENT' : 'PASSWORD';
@@ -395,6 +397,7 @@ export class AuthService {
       createdAt: user.createdAt
         ? new Date(user.createdAt).toISOString()
         : null,
+      adminAccess: ADMIN_PANEL_ROLES.includes(user.role),
     };
   }
 

@@ -64,13 +64,17 @@ export class TelegramReportImageService {
   }
 
   async buildDailyReportPng(daily: DailyReportImageInput): Promise<Buffer> {
-    return sharp(Buffer.from(this.buildDailySvg(daily))).png().toBuffer();
+    return sharp(Buffer.from(this.buildDailySvg(daily)))
+      .png()
+      .toBuffer();
   }
 
   async buildMonthlyReportPng(
     monthly: MonthlyReportImageInput,
   ): Promise<Buffer> {
-    return sharp(Buffer.from(this.buildMonthlySvg(monthly))).png().toBuffer();
+    return sharp(Buffer.from(this.buildMonthlySvg(monthly)))
+      .png()
+      .toBuffer();
   }
 
   // ─── Daily: faqat cardlar ────────────────────────────────
@@ -119,10 +123,46 @@ export class TelegramReportImageService {
 
     const sw = (contentW - 36) / 4;
     const stats = [
-      this.statPill(pad, y, sw, statsH, 'Filiallar', String(daily.branchCount), INK, '#eff6ff'),
-      this.statPill(pad + sw + 12, y, sw, statsH, 'Topshirgan', String(submitted), GREEN, '#ecfdf5'),
-      this.statPill(pad + 2 * (sw + 12), y, sw, statsH, 'Topshirmagan', String(missing), missing ? RED : GREEN, missing ? '#fef2f2' : '#ecfdf5'),
-      this.statPill(pad + 3 * (sw + 12), y, sw, statsH, 'Xodimlar', `${daily.completedEmployees}/${daily.totalEmployees}`, INK, '#f8fafc'),
+      this.statPill(
+        pad,
+        y,
+        sw,
+        statsH,
+        'Filiallar',
+        String(daily.branchCount),
+        INK,
+        '#eff6ff',
+      ),
+      this.statPill(
+        pad + sw + 12,
+        y,
+        sw,
+        statsH,
+        'Topshirgan',
+        String(submitted),
+        GREEN,
+        '#ecfdf5',
+      ),
+      this.statPill(
+        pad + 2 * (sw + 12),
+        y,
+        sw,
+        statsH,
+        'Topshirmagan',
+        String(missing),
+        missing ? RED : GREEN,
+        missing ? '#fef2f2' : '#ecfdf5',
+      ),
+      this.statPill(
+        pad + 3 * (sw + 12),
+        y,
+        sw,
+        statsH,
+        'Xodimlar',
+        `${daily.completedEmployees}/${daily.totalEmployees}`,
+        INK,
+        '#f8fafc',
+      ),
     ].join('');
     y += statsH + 16;
 
@@ -169,10 +209,10 @@ export class TelegramReportImageService {
         (b) => !this.isHeadOfficeOrg(b.orgName) && b.reportActive !== false,
       )
       .sort(
-      (a, b) =>
-        (b.averageMonthlyPercent ?? b.percent) -
-        (a.averageMonthlyPercent ?? a.percent),
-    );
+        (a, b) =>
+          (b.averageMonthlyPercent ?? b.percent) -
+          (a.averageMonthlyPercent ?? a.percent),
+      );
     const names = ranked.map((b) => this.displayOrgName(b.orgName));
 
     const heroH = 150;
@@ -205,10 +245,7 @@ export class TelegramReportImageService {
         const cx = pad + col * (cardW + gap);
         const cy = y + row * (cardH + gap);
         const pct = b.averageMonthlyPercent ?? b.percent;
-        const series = this.padDailySeries(
-          b.dailyPercents ?? [],
-          daysInMonth,
-        );
+        const series = this.padDailySeries(b.dailyPercents ?? [], daysInMonth);
         return this.branchCardWithSpark(
           cx,
           cy,
@@ -282,7 +319,11 @@ export class TelegramReportImageService {
   ): string {
     const accent = this.statusColor(status);
     const tint =
-      status === 'green' ? '#ecfdf5' : status === 'yellow' ? '#fffbeb' : '#fef2f2';
+      status === 'green'
+        ? '#ecfdf5'
+        : status === 'yellow'
+          ? '#fffbeb'
+          : '#fef2f2';
     return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${tint}" filter="url(#softd)"/>
     <circle cx="${x + 26}" cy="${y + 28}" r="9" fill="${accent}"/>
@@ -303,7 +344,11 @@ export class TelegramReportImageService {
   ): string {
     const accent = this.statusColor(status);
     const tint =
-      status === 'green' ? '#ecfdf5' : status === 'yellow' ? '#fffbeb' : '#fef2f2';
+      status === 'green'
+        ? '#ecfdf5'
+        : status === 'yellow'
+          ? '#fffbeb'
+          : '#fef2f2';
     const sparkX = x + 18;
     const sparkY = y + 92;
     const sparkW = w - 36;
@@ -396,7 +441,10 @@ export class TelegramReportImageService {
   }
 
   /** Bosh tashkilot / markaziy apparat — hisobot cardlariga kirmaydi */
-  isHeadOfficeOrg(raw: string | null | undefined, isDefault?: boolean): boolean {
+  isHeadOfficeOrg(
+    raw: string | null | undefined,
+    isDefault?: boolean,
+  ): boolean {
     if (isDefault) return true;
     const rawName = String(raw || '').trim();
     if (!rawName) return true;
@@ -425,16 +473,7 @@ export class TelegramReportImageService {
    */
   private stripLeadingOrgForm(raw: string): string {
     let s = raw.trim();
-    const junk = new Set([
-      'aj',
-      'ao',
-      'аж',
-      'ао',
-      'mchj',
-      'xk',
-      'чп',
-      'ооо',
-    ]);
+    const junk = new Set(['aj', 'ao', 'аж', 'ао', 'mchj', 'xk', 'чп', 'ооо']);
 
     const isJunkWord = (token: string): boolean => {
       const folded = this.foldOrgToken(token);

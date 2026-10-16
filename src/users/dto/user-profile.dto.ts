@@ -65,4 +65,10 @@ export class UserProfileDto {
 
   @ApiProperty({ required: false, nullable: true })
   createdAt?: string | null;
+
+  @ApiProperty({
+    required: false,
+    description: 'Admin panelga kirish huquqi (moderator/direktor/buxgalter/superadmin)',
+  })
+  adminAccess?: boolean;
 }

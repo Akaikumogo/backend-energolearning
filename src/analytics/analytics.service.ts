@@ -116,21 +116,15 @@ export class AnalyticsService {
       active7dQb.andWhere('s.organizationId = :orgId', { orgId });
     }
 
-    const [
-      usersRow,
-      orgRow,
-      modRow,
-      levelRow,
-      questionRow,
-      activeRow,
-    ] = await Promise.all([
-      usersCountQb.getRawOne<{ c: string | number }>(),
-      orgCountQb.getRawOne<{ c: string | number }>(),
-      modCountQb.getRawOne<{ c: string | number }>(),
-      levelCountQb.getRawOne<{ c: string | number }>(),
-      questionCountQb.getRawOne<{ c: string | number }>(),
-      active7dQb.getRawOne<{ c: string | number }>(),
-    ]);
+    const [usersRow, orgRow, modRow, levelRow, questionRow, activeRow] =
+      await Promise.all([
+        usersCountQb.getRawOne<{ c: string | number }>(),
+        orgCountQb.getRawOne<{ c: string | number }>(),
+        modCountQb.getRawOne<{ c: string | number }>(),
+        levelCountQb.getRawOne<{ c: string | number }>(),
+        questionCountQb.getRawOne<{ c: string | number }>(),
+        active7dQb.getRawOne<{ c: string | number }>(),
+      ]);
 
     return {
       totalUsers: Number(usersRow?.c) || 0,
@@ -251,7 +245,9 @@ export class AnalyticsService {
       wrongAttempts: Number(r.wrongAttempts) || 0,
       errorRate:
         r.totalAttempts > 0
-          ? Math.round((Number(r.wrongAttempts) / Number(r.totalAttempts)) * 100)
+          ? Math.round(
+              (Number(r.wrongAttempts) / Number(r.totalAttempts)) * 100,
+            )
           : 0,
     }));
   }
@@ -376,7 +372,9 @@ export class AnalyticsService {
   }
 
   /** Bosh sahifa: filial bo'yicha GitHub-uslubidagi activity + reytinglar. */
-  async getHomeOverview(allowedOrgIds: string[] | null): Promise<HomeOverviewDto> {
+  async getHomeOverview(
+    allowedOrgIds: string[] | null,
+  ): Promise<HomeOverviewDto> {
     if (allowedOrgIds !== null && allowedOrgIds.length === 0) {
       return {
         scopeLabel: '',
@@ -471,7 +469,8 @@ export class AnalyticsService {
     });
 
     branchHeatmap.sort(
-      (a, b) => b.totalLogins - a.totalLogins || a.orgName.localeCompare(b.orgName),
+      (a, b) =>
+        b.totalLogins - a.totalLogins || a.orgName.localeCompare(b.orgName),
     );
 
     const activeQb = this.sessionRepo
@@ -484,9 +483,14 @@ export class AnalyticsService {
       .orderBy('COUNT(*)', 'DESC')
       .limit(1);
     if (allowedOrgIds?.length) {
-      activeQb.andWhere('s.organizationId IN (:...ids)', { ids: allowedOrgIds });
+      activeQb.andWhere('s.organizationId IN (:...ids)', {
+        ids: allowedOrgIds,
+      });
     }
-    const topActive = await activeQb.getRawOne<{ orgId: string; value: number }>();
+    const topActive = await activeQb.getRawOne<{
+      orgId: string;
+      value: number;
+    }>();
 
     const errorQb = this.uqaRepo
       .createQueryBuilder('uqa')
@@ -499,9 +503,14 @@ export class AnalyticsService {
       .orderBy('COUNT(*)', 'DESC')
       .limit(5);
     if (allowedOrgIds?.length) {
-      errorQb.andWhere('uqa.organizationId IN (:...ids)', { ids: allowedOrgIds });
+      errorQb.andWhere('uqa.organizationId IN (:...ids)', {
+        ids: allowedOrgIds,
+      });
     }
-    const errorRows = await errorQb.getRawMany<{ orgId: string; value: number }>();
+    const errorRows = await errorQb.getRawMany<{
+      orgId: string;
+      value: number;
+    }>();
 
     // Oldingi 30 kun xatolari (trend uchun)
     const prevErrorSince = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);

@@ -28,7 +28,8 @@ import { TelegramReportImageService } from './telegram-report-image.service';
 
 const ENV_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? '';
 const ENV_WEB_APP =
-  process.env.TELEGRAM_WEB_APP_URL ?? 'https://t.me/elektrolearnbot/Elektro_learn';
+  process.env.TELEGRAM_WEB_APP_URL ??
+  'https://t.me/elektrolearnbot/Elektro_learn';
 
 interface TgUser {
   id: number;
@@ -64,9 +65,19 @@ interface TgMessage {
   video?: { file_id: string; file_name?: string; mime_type?: string };
   animation?: { file_id: string; file_name?: string; mime_type?: string };
   voice?: { file_id: string; mime_type?: string };
-  audio?: { file_id: string; file_name?: string; mime_type?: string; title?: string };
+  audio?: {
+    file_id: string;
+    file_name?: string;
+    mime_type?: string;
+    title?: string;
+  };
   video_note?: { file_id: string };
-  sticker?: { file_id: string; emoji?: string; is_animated?: boolean; is_video?: boolean };
+  sticker?: {
+    file_id: string;
+    emoji?: string;
+    is_animated?: boolean;
+    is_video?: boolean;
+  };
 }
 
 interface TgUpdate {
@@ -245,7 +256,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     await this.persistOutbound(chat, {
       kind: 'text',
       text: body,
-      telegramMessageId: sent?.message_id != null ? String(sent.message_id) : null,
+      telegramMessageId:
+        sent?.message_id != null ? String(sent.message_id) : null,
       sentByAdminId: adminId,
     });
     return { ok: true };
@@ -477,19 +489,24 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         chatId: String(chat.id),
         chatType: chat.type,
         chatTitle: isPrivate
-          ? [chat.first_name || from?.first_name, chat.last_name || from?.last_name]
+          ? [
+              chat.first_name || from?.first_name,
+              chat.last_name || from?.last_name,
+            ]
               .filter(Boolean)
-              .join(' ') || from?.username || `User ${chat.id}`
-          : chat.title ?? null,
+              .join(' ') ||
+            from?.username ||
+            `User ${chat.id}`
+          : (chat.title ?? null),
         peerUserId: isPrivate ? String(from?.id ?? chat.id) : null,
         peerUsername: isPrivate
-          ? from?.username ?? chat.username ?? null
+          ? (from?.username ?? chat.username ?? null)
           : null,
         peerFirstName: isPrivate
-          ? from?.first_name ?? chat.first_name ?? null
+          ? (from?.first_name ?? chat.first_name ?? null)
           : null,
         peerLastName: isPrivate
-          ? from?.last_name ?? chat.last_name ?? null
+          ? (from?.last_name ?? chat.last_name ?? null)
           : null,
         reportEnabled: false,
         isActive: true,
@@ -557,9 +574,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         `Ҳозир олиш: /hisobot\n` +
         `Архив: /history dd.mm.yyyy`,
       {
-        inline_keyboard: [
-          [{ text: '🚀 Elektro Learn Web App', url: webApp }],
-        ],
+        inline_keyboard: [[{ text: '🚀 Elektro Learn Web App', url: webApp }]],
       },
     );
   }
@@ -619,17 +634,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     } else if (msg.sticker) {
       kind = 'photo';
       mediaFileId = msg.sticker.file_id;
-      text = msg.sticker.emoji
-        ? `Sticker ${msg.sticker.emoji}`
-        : 'Sticker';
+      text = msg.sticker.emoji ? `Sticker ${msg.sticker.emoji}` : 'Sticker';
       preferredName = msg.sticker.is_video
         ? 'sticker.webm'
         : msg.sticker.is_animated
           ? 'sticker.tgs'
           : 'sticker.webp';
-      preferredMime = msg.sticker.is_video
-        ? 'video/webm'
-        : 'image/webp';
+      preferredMime = msg.sticker.is_video ? 'video/webm' : 'image/webp';
     } else if (msg.document) {
       kind = 'document';
       mediaFileId = msg.document.file_id;
@@ -840,7 +851,8 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     await this.persistOutbound(chat, {
       kind: 'text',
       text,
-      telegramMessageId: sent?.message_id != null ? String(sent.message_id) : null,
+      telegramMessageId:
+        sent?.message_id != null ? String(sent.message_id) : null,
     });
   }
 
@@ -941,9 +953,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       0,
     );
     const completionPercent =
-      totalPlan > 0
-        ? Math.round((completedTotal / totalPlan) * 1000) / 10
-        : 0;
+      totalPlan > 0 ? Math.round((completedTotal / totalPlan) * 1000) / 10 : 0;
 
     const dailyPng = await this.imageService.buildDailyReportPng({
       planDate: daily.planDate,
@@ -1024,9 +1034,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       0,
     );
     const completionPercent =
-      totalPlan > 0
-        ? Math.round((completedTotal / totalPlan) * 1000) / 10
-        : 0;
+      totalPlan > 0 ? Math.round((completedTotal / totalPlan) * 1000) / 10 : 0;
 
     // Bitta metrika: filiallar o'rtachasi (main branch siz)
     const monthlyAvg =
@@ -1189,10 +1197,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       filename,
     );
 
-    const res = await fetch(
-      `https://api.telegram.org/bot${token}/sendPhoto`,
-      { method: 'POST', body: form },
-    );
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+    });
     const data: any = await res.json();
     if (!data.ok) {
       throw new Error(`sendPhoto: ${JSON.stringify(data)}`);
