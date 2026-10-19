@@ -265,10 +265,9 @@ export class ProgressService {
       };
     }
 
-    // Faqat xato javob 1 energiya oladi. Energiya yetmasa consumeHeart
-    // attempt yozilmasdan 403 (NO_HEARTS_LEFT) qaytaradi.
+    // 0 energiyada yangi urinish yo‘q (to‘g‘ri ham). Xato 1 energiya oladi.
     const heartsAfter = isCorrect
-      ? await this.heartsService.getMyHearts(userId, orgId)
+      ? await this.heartsService.assertHasHearts(userId, orgId)
       : await this.heartsService.consumeHeart(userId, orgId, 1);
 
     const xpMeta = await this.resolveXpEligibility(
@@ -414,10 +413,9 @@ export class ProgressService {
       };
     }
 
-    // Faqat xato javob 1 energiya oladi. Energiya yetmasa consumeHeart
-    // attempt yozilmasdan 403 qaytaradi.
+    // 0 energiyada yangi urinish yo‘q (to‘g‘ri ham). Xato 1 energiya oladi.
     const heartsAfter = isCorrect
-      ? await this.heartsService.getMyHearts(userId, orgId)
+      ? await this.heartsService.assertHasHearts(userId, orgId)
       : await this.heartsService.consumeHeart(userId, orgId, 1);
 
     const xpMeta = await this.resolveXpEligibility(
@@ -588,7 +586,7 @@ export class ProgressService {
     } = opts;
 
     const heartsAfter = isCorrect
-      ? await this.heartsService.getMyHearts(userId, orgId)
+      ? await this.heartsService.assertHasHearts(userId, orgId)
       : await this.heartsService.consumeHeart(userId, orgId, 1);
 
     const xpMeta = await this.resolveXpEligibility(

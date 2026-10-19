@@ -23,6 +23,27 @@ export class HeartsService {
   }
 
   /**
+   * Yangi urinish uchun kamida 1 energiya bo‘lishi shart.
+   * 0 da to‘g‘ri javob ham qabul qilinmasin — aks holda variantlarni
+   * ketma-ket bosib to‘g‘risini topish mumkin bo‘ladi.
+   */
+  async assertHasHearts(
+    userId: string,
+    organizationId: string,
+  ): Promise<HeartsState> {
+    const state = await this.getMyHearts(userId, organizationId);
+    if (state.heartsCount <= 0) {
+      this.heartsEvents.emit(userId, state);
+      throw new ForbiddenException({
+        code: 'NO_HEARTS_LEFT',
+        message: 'Energiya tugadi. Har soatda 1 ta energiya tiklanadi.',
+        state,
+      });
+    }
+    return state;
+  }
+
+  /**
    * Energiya kamaytirish — faqat xato javobda chaqiriladi. Agar energiya
    * yetmasa ForbiddenException tashlanadi — chaqiruvchi shu xatoni 403 ga
    * aylantirib mobile/web tomonga "qulflangan" signalini beradi.
