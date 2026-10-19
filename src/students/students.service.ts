@@ -18,6 +18,7 @@ import { UserLevelCompletion } from '../database/entities/user-level-completion.
 import { UserQuestionAttempt } from '../database/entities/user-question-attempt.entity';
 import { Level } from '../database/entities/level.entity';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
+import { UserSession } from '../database/entities/user-session.entity';
 import {
   splitSearchTokens,
   variantsForSearchToken,
@@ -33,6 +34,9 @@ const BADGES = [
   { label: 'Magistral ekspert', bolts: 5 },
 ];
 
+/** Heartbeat idle — online hisoblanmaydi (user-activity bilan bir xil). */
+const ONLINE_THRESHOLD_MS = 2 * 60 * 1000;
+
 @Injectable()
 export class StudentsService {
   constructor(
@@ -46,6 +50,8 @@ export class StudentsService {
     @InjectRepository(Level) private readonly levelRepo: Repository<Level>,
     @InjectRepository(NesEmployee)
     private readonly nesEmployeeRepo: Repository<NesEmployee>,
+    @InjectRepository(UserSession)
+    private readonly sessionRepo: Repository<UserSession>,
   ) {}
 
   async createStudent(
@@ -369,6 +375,13 @@ export class StudentsService {
       badge: { ...BADGES[badgeIndex] },
       levelProgress,
       createdAt: user.createdAt,
+      ...(await this.loadOnlinePresence([id]).then((m) => {
+        const p = m.get(id);
+        return {
+          isOnline: p?.isOnline ?? false,
+          lastSeenAt: p?.lastSeenAt ?? null,
+        };
+      })),
     };
   }
 
@@ -637,6 +650,39 @@ export class StudentsService {
     }));
   }
 
+  private async loadOnlinePresence(
+    userIds: string[],
+  ): Promise<Map<string, { isOnline: boolean; lastSeenAt: Date | null }>> {
+    const map = new Map<string, { isOnline: boolean; lastSeenAt: Date | null }>();
+    if (userIds.length === 0) return map;
+
+    const onlineThreshold = new Date(Date.now() - ONLINE_THRESHOLD_MS);
+    const rows = await this.sessionRepo
+      .createQueryBuilder('s')
+      .select('s.user_id', 'userId')
+      .addSelect(
+        'BOOL_OR(s.is_online AND s.last_seen_at >= :onlineThreshold)',
+        'isOnline',
+      )
+      .addSelect('MAX(s.last_seen_at)', 'lastSeenAt')
+      .where('s.user_id IN (:...userIds)', { userIds })
+      .groupBy('s.user_id')
+      .setParameters({ onlineThreshold })
+      .getRawMany<{
+        userId: string;
+        isOnline: boolean | string;
+        lastSeenAt: Date | null;
+      }>();
+
+    for (const r of rows) {
+      map.set(r.userId, {
+        isOnline: r.isOnline === true || r.isOnline === 'true',
+        lastSeenAt: r.lastSeenAt ?? null,
+      });
+    }
+    return map;
+  }
+
   /** Hierarchy / yirik ro‘yxat: batch NES + XP, daraja ixtiyoriy. */
   private async toStudentSummariesLight(
     users: User[],
@@ -667,10 +713,12 @@ export class StudentsService {
     const xpByUser = new Map(
       xpRows.map((r) => [r.userId, Number(r.cnt) || 0]),
     );
+    const presenceByUser = await this.loadOnlinePresence(userIds);
 
     return users.map((user) => {
       const nes = nesByUser.get(user.id);
       const correctCount = xpByUser.get(user.id) ?? 0;
+      const presence = presenceByUser.get(user.id);
       return {
         id: user.id,
         firstName: user.firstName,
@@ -692,6 +740,8 @@ export class StudentsService {
         currentLevelTitle: null as string | null,
         badge: { ...BADGES[0] },
         organizations: this.mapOrgs(user, orgIds),
+        isOnline: presence?.isOnline ?? false,
+        lastSeenAt: presence?.lastSeenAt ?? null,
       };
     });
   }
@@ -709,12 +759,22 @@ export class StudentsService {
       select: ['userId', 'personnelNumber', 'division', 'post', 'middleName'],
     });
     const nesByUser = new Map(nesRows.map((n) => [n.userId, n]));
+    const presenceByUser = await this.loadOnlinePresence(userIds);
 
-    return Promise.all(
+    const summaries = await Promise.all(
       users.map((user) =>
         this.toStudentSummary(user, requestingUser, nesByUser.get(user.id), orgIds),
       ),
     );
+
+    return summaries.map((s) => {
+      const presence = presenceByUser.get(s.id);
+      return {
+        ...s,
+        isOnline: presence?.isOnline ?? false,
+        lastSeenAt: presence?.lastSeenAt ?? null,
+      };
+    });
   }
 
   private async toStudentSummary(
@@ -810,6 +870,8 @@ export class StudentsService {
       currentLevelTitle,
       badge: { ...BADGES[badgeIndex] },
       organizations: this.mapOrgs(user, orgIds),
+      isOnline: false,
+      lastSeenAt: null as Date | null,
     };
   }
 }

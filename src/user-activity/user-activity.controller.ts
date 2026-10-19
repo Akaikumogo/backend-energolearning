@@ -125,7 +125,7 @@ export class UserActivityController {
 
   @Get('sessions/:userId')
   @UseGuards(RolesGuard)
-  @Roles(Role.MODERATOR, Role.SUPERADMIN)
+  @Roles(Role.MODERATOR, Role.SUPERADMIN, Role.APPROVER, Role.ACCOUNTING)
   @ApiOperation({ summary: 'User sessions (login/logout history)' })
   async sessions(
     @Param('userId', ParseUUIDPipe) userId: string,
@@ -138,6 +138,29 @@ export class UserActivityController {
       userId,
     );
     return this.service.getUserSessions(userId, range);
+  }
+
+  @Get('online-calendar/:userId')
+  @UseGuards(RolesGuard)
+  @Roles(Role.MODERATOR, Role.SUPERADMIN, Role.APPROVER, Role.ACCOUNTING)
+  @ApiOperation({
+    summary:
+      'Xodim online tarixi (kunlik soatlar + session vaqtlari, GitHub-style heatmap)',
+  })
+  async onlineCalendar(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Query('days') days: string | undefined,
+    @Req() req: AuthedRequest,
+  ) {
+    await this.organizationsService.assertUserInModeratorScope(
+      req.user.role,
+      req.user.organizationIds,
+      userId,
+    );
+    const span = days ? Math.min(Math.max(Number(days) || 28, 7), 400) : 28;
+    return this.service.getOnlineCalendar(userId, from, to, span);
   }
 
   @Get('question-stats')

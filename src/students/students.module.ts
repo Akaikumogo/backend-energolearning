@@ -9,6 +9,7 @@ import { UsersModule } from '../users/users.module';
 import { StudentsController } from './students.controller';
 import { StudentsService } from './students.service';
 import { NesEmployee } from '../database/entities/nes-employee.entity';
+import { UserSession } from '../database/entities/user-session.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { NesEmployee } from '../database/entities/nes-employee.entity';
       UserQuestionAttempt,
       Level,
       NesEmployee,
+      UserSession,
     ]),
     OrganizationsModule,
     UsersModule,

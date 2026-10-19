@@ -14,7 +14,13 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { Question } from '../database/entities/question.entity';
 import { Role } from '../common/enums/role.enum';
 import { ActivityRange, UserGroup } from './dto/activity-query.dto';
-import { tashkentDayBounds, tashkentToday } from '../common/utils/tashkent-time.util';
+import {
+  instantToTashkentDate,
+  listTashkentDays,
+  parseTashkentRange,
+  tashkentDayBounds,
+  tashkentToday,
+} from '../common/utils/tashkent-time.util';
 
 const OFFLINE_THRESHOLD_MS = 2 * 60 * 1000; // 2 daqiqa idle => offline
 
@@ -460,6 +466,122 @@ export class UserActivityService {
       where: { userId, loginAt: Between(from, to) },
       order: { loginAt: 'DESC' },
     });
+  }
+
+  /**
+   * GitHub-style online heatmap: har kun uchun online soatlar + session vaqtlari.
+   * Session duration kunlarga wall-clock overlap bo‘yicha taqsimlanadi.
+   */
+  async getOnlineCalendar(
+    userId: string,
+    fromDate?: string,
+    toDate?: string,
+    defaultSpanDays = 28,
+  ): Promise<{
+    from: string;
+    to: string;
+    days: Array<{
+      date: string;
+      seconds: number;
+      hours: number;
+      sessions: Array<{
+        loginAt: Date;
+        logoutAt: Date | null;
+        lastSeenAt: Date;
+        durationSeconds: number;
+        isOnline: boolean;
+      }>;
+    }>;
+  }> {
+    const { from, to, fromStr, toStr } = parseTashkentRange(
+      fromDate,
+      toDate,
+      defaultSpanDays,
+    );
+    const dayKeys = listTashkentDays(fromStr, toStr);
+
+    const sessions = await this.sessionRepo
+      .createQueryBuilder('s')
+      .where('s.user_id = :userId', { userId })
+      .andWhere('s.login_at < :to', { to })
+      .andWhere('COALESCE(s.logout_at, s.last_seen_at) >= :from', { from })
+      .orderBy('s.login_at', 'ASC')
+      .getMany();
+
+    type DayBucket = {
+      seconds: number;
+      sessions: Array<{
+        loginAt: Date;
+        logoutAt: Date | null;
+        lastSeenAt: Date;
+        durationSeconds: number;
+        isOnline: boolean;
+      }>;
+    };
+
+    const byDay = new Map<string, DayBucket>();
+    for (const key of dayKeys) {
+      byDay.set(key, { seconds: 0, sessions: [] });
+    }
+
+    for (const s of sessions) {
+      const startMs = s.loginAt.getTime();
+      const endMs = (s.logoutAt ?? s.lastSeenAt).getTime();
+      const wallMs = Math.max(0, endMs - startMs);
+      const sessionDto = {
+        loginAt: s.loginAt,
+        logoutAt: s.logoutAt,
+        lastSeenAt: s.lastSeenAt,
+        durationSeconds: s.durationSeconds,
+        isOnline: s.isOnline,
+      };
+
+      let attributed = false;
+      for (const date of dayKeys) {
+        const { from: dFrom, to: dTo } = tashkentDayBounds(date);
+        const overlapMs = Math.max(
+          0,
+          Math.min(endMs, dTo.getTime()) - Math.max(startMs, dFrom.getTime()),
+        );
+        if (overlapMs <= 0) continue;
+
+        const bucket = byDay.get(date)!;
+        const shareSec =
+          wallMs > 0
+            ? Math.round((s.durationSeconds * overlapMs) / wallMs)
+            : instantToTashkentDate(s.loginAt) === date
+              ? s.durationSeconds
+              : 0;
+        bucket.seconds += shareSec;
+        bucket.sessions.push(sessionDto);
+        attributed = true;
+      }
+
+      // Range tashqarisida overlap yo‘q, lekin login shu oralig‘da — login kuniga yozamiz
+      if (!attributed && s.durationSeconds > 0) {
+        const loginDay = instantToTashkentDate(s.loginAt);
+        const bucket = byDay.get(loginDay);
+        if (bucket) {
+          bucket.seconds += s.durationSeconds;
+          bucket.sessions.push(sessionDto);
+        }
+      }
+    }
+
+    return {
+      from: fromStr,
+      to: toStr,
+      days: dayKeys.map((date) => {
+        const bucket = byDay.get(date)!;
+        const hours = Math.round((bucket.seconds / 3600) * 10) / 10;
+        return {
+          date,
+          seconds: bucket.seconds,
+          hours,
+          sessions: bucket.sessions,
+        };
+      }),
+    };
   }
 
   async getActivityStats(filter: {
