@@ -191,7 +191,11 @@ export class ProgressService {
     };
   }
 
-  async submitAnswer(userId: string, dto: SubmitAnswerDto) {
+  async submitAnswer(
+    userId: string,
+    dto: SubmitAnswerDto,
+    preferredOrgId?: string,
+  ) {
     const question = await this.questionRepo.findOne({
       where: { id: dto.questionId },
       relations: ['level', 'theory'],
@@ -220,7 +224,7 @@ export class ProgressService {
       where: { id: userId },
       relations: ['organizations', 'organizations.organization'],
     });
-    const orgId = user?.organizations?.[0]?.organization?.id ?? null;
+    const orgId = this.pickOrgId(user?.organizations, preferredOrgId);
     if (!orgId) {
       throw new ForbiddenException(
         'Foydalanuvchi hech qanday tashkilotga biriktirilmagan',
@@ -230,11 +234,9 @@ export class ProgressService {
     const attemptSource = dto.source ?? AttemptSource.LESSON;
     const existing = await this.findSameDayAttempt(userId, dto.questionId);
     if (existing) {
-      // Darsdan keyin kunlik reja: unique qatorni DAILY_PLAN ga yangilab XP berish.
-      if (
-        attemptSource === AttemptSource.DAILY_PLAN &&
-        existing.attemptSource === AttemptSource.LESSON
-      ) {
+      // Dars (yoki eski null manba) dan keyin kunlik reja: qatorni DAILY_PLAN
+      // ga yangilab XP va plan hisobiga kiritish.
+      if (this.shouldUpgradeToDailyPlan(attemptSource, existing)) {
         return this.upgradeLessonAttemptToDailyPlan({
           existing,
           userId,
@@ -262,6 +264,7 @@ export class ProgressService {
             : null,
         hearts,
         duplicate: true,
+        planCorrectCount: await this.countTodayPlanCorrect(userId),
       };
     }
 
@@ -291,6 +294,19 @@ export class ProgressService {
       await this.attemptRepo.save(attempt);
     } catch (err) {
       if (this.isUniqueViolation(err)) {
+        const raced = await this.findSameDayAttempt(userId, dto.questionId);
+        if (raced && this.shouldUpgradeToDailyPlan(attemptSource, raced)) {
+          return this.upgradeLessonAttemptToDailyPlan({
+            existing: raced,
+            userId,
+            orgId,
+            questionId: dto.questionId,
+            levelId: question.levelId,
+            selectedOptionId: dto.selectedOptionId,
+            isCorrect,
+            correctOptionId,
+          });
+        }
         const hearts = await this.heartsService.getMyHearts(userId, orgId);
         return {
           isCorrect,
@@ -302,6 +318,7 @@ export class ProgressService {
             'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.',
           hearts,
           duplicate: true,
+          planCorrectCount: await this.countTodayPlanCorrect(userId),
         };
       }
       throw err;
@@ -318,10 +335,15 @@ export class ProgressService {
       xpMessage: xpMeta.xpMessage,
       hearts: heartsAfter,
       duplicate: false,
+      planCorrectCount: await this.countTodayPlanCorrect(userId),
     };
   }
 
-  async submitMatching(userId: string, dto: SubmitMatchingDto) {
+  async submitMatching(
+    userId: string,
+    dto: SubmitMatchingDto,
+    preferredOrgId?: string,
+  ) {
     const question = await this.questionRepo.findOne({
       where: { id: dto.questionId },
       relations: ['level', 'theory'],
@@ -363,7 +385,7 @@ export class ProgressService {
       where: { id: userId },
       relations: ['organizations', 'organizations.organization'],
     });
-    const orgId = user?.organizations?.[0]?.organization?.id ?? null;
+    const orgId = this.pickOrgId(user?.organizations, preferredOrgId);
     if (!orgId) {
       throw new ForbiddenException(
         'Foydalanuvchi hech qanday tashkilotga biriktirilmagan',
@@ -374,10 +396,7 @@ export class ProgressService {
     const selectedOptionId = dto.pairs[0]?.leftOptionId ?? options[0].id;
     const existing = await this.findSameDayAttempt(userId, dto.questionId);
     if (existing) {
-      if (
-        attemptSource === AttemptSource.DAILY_PLAN &&
-        existing.attemptSource === AttemptSource.LESSON
-      ) {
+      if (this.shouldUpgradeToDailyPlan(attemptSource, existing)) {
         const upgraded = await this.upgradeLessonAttemptToDailyPlan({
           existing,
           userId,
@@ -396,6 +415,7 @@ export class ProgressService {
           xpMessage: upgraded.xpMessage,
           hearts: upgraded.hearts,
           duplicate: upgraded.duplicate,
+          planCorrectCount: upgraded.planCorrectCount,
         };
       }
 
@@ -410,6 +430,7 @@ export class ProgressService {
           : null,
         hearts,
         duplicate: true,
+        planCorrectCount: await this.countTodayPlanCorrect(userId),
       };
     }
 
@@ -439,6 +460,29 @@ export class ProgressService {
       await this.attemptRepo.save(attempt);
     } catch (err) {
       if (this.isUniqueViolation(err)) {
+        const raced = await this.findSameDayAttempt(userId, dto.questionId);
+        if (raced && this.shouldUpgradeToDailyPlan(attemptSource, raced)) {
+          const upgraded = await this.upgradeLessonAttemptToDailyPlan({
+            existing: raced,
+            userId,
+            orgId,
+            questionId: dto.questionId,
+            levelId: question.levelId,
+            selectedOptionId,
+            isCorrect,
+            correctOptionId: null,
+          });
+          return {
+            isCorrect: upgraded.isCorrect,
+            xpEarned: upgraded.xpEarned,
+            countsForXp: upgraded.countsForXp,
+            xpDeniedReason: upgraded.xpDeniedReason,
+            xpMessage: upgraded.xpMessage,
+            hearts: upgraded.hearts,
+            duplicate: upgraded.duplicate,
+            planCorrectCount: upgraded.planCorrectCount,
+          };
+        }
         const hearts = await this.heartsService.getMyHearts(userId, orgId);
         return {
           isCorrect,
@@ -449,6 +493,7 @@ export class ProgressService {
             'Bu savol allaqachon javob berilgan. Takroriy ball berilmaydi.',
           hearts,
           duplicate: true,
+          planCorrectCount: await this.countTodayPlanCorrect(userId),
         };
       }
       throw err;
@@ -464,6 +509,7 @@ export class ProgressService {
       xpMessage: xpMeta.xpMessage,
       hearts: heartsAfter,
       duplicate: false,
+      planCorrectCount: await this.countTodayPlanCorrect(userId),
     };
   }
 
@@ -542,6 +588,47 @@ export class ProgressService {
     return code === '23505';
   }
 
+  /** JWT dagi filial saqlangan urinish bilan bir xil bo‘lsin. */
+  private pickOrgId(
+    links: Array<{ organization?: { id: string } }> | undefined,
+    preferredOrgId?: string,
+  ): string | null {
+    const ids = (links ?? [])
+      .map((link) => link.organization?.id)
+      .filter((id): id is string => !!id);
+    if (preferredOrgId && ids.includes(preferredOrgId)) return preferredOrgId;
+    return ids[0] ?? null;
+  }
+
+  /** Dars yoki eski (null) urinishni kunlik rejaga ko‘tarish mumkin. */
+  private shouldUpgradeToDailyPlan(
+    source: AttemptSource,
+    existing: UserQuestionAttempt,
+  ): boolean {
+    return (
+      source === AttemptSource.DAILY_PLAN &&
+      existing.attemptSource !== AttemptSource.DAILY_PLAN
+    );
+  }
+
+  /** Bugungi kunlik reja to‘g‘ri javoblari — filialdan qat’i nazar. */
+  private async countTodayPlanCorrect(userId: string): Promise<number> {
+    const { from, to } = tashkentDayBounds(tashkentToday());
+    const rows = (await this.attemptRepo.query(
+      `
+      SELECT COUNT(DISTINCT question_id)::int AS cnt
+      FROM "user_question_attempts"
+      WHERE user_id = $1
+        AND is_correct = true
+        AND answered_at >= $2
+        AND answered_at < $3
+        AND (attempt_source IS NULL OR attempt_source = 'DAILY_PLAN')
+      `,
+      [userId, from, to],
+    )) as Array<{ cnt: number | string }>;
+    return Number(rows?.[0]?.cnt ?? 0) || 0;
+  }
+
   /**
    * Shu Toshkent kunidagi birinchi urinish (DB unique: user+savol+kun).
    */
@@ -614,6 +701,7 @@ export class ProgressService {
       xpMessage: xpMeta.xpMessage,
       hearts: heartsAfter,
       duplicate: false,
+      planCorrectCount: await this.countTodayPlanCorrect(userId),
     };
   }
 
@@ -703,6 +791,7 @@ export class ProgressService {
       .where('a.user_id = :userId', { userId })
       .andWhere('a.is_correct = true')
       .andWhere('a.counts_for_xp = true')
+      .andWhere("(a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')")
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
       .getRawOne<{ cnt: string }>();
 
@@ -714,6 +803,7 @@ export class ProgressService {
       .andWhere('a.question_id = :questionId', { questionId })
       .andWhere('a.is_correct = true')
       .andWhere('a.counts_for_xp = true')
+      .andWhere("(a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')")
       .andWhere('a.answered_at >= :from AND a.answered_at < :to', { from, to })
       .getCount();
 

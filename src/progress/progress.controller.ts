@@ -32,10 +32,14 @@ export class ProgressController {
   @ApiBody({ type: SubmitAnswerDto })
   @ApiOkResponse({ description: 'Javob natijasi: isCorrect, correctOptionId, xpEarned' })
   submitAnswer(
-    @Req() req: Request & { user: { id: string } },
+    @Req() req: Request & { user: { id: string; organizationIds?: string[] } },
     @Body() dto: SubmitAnswerDto,
   ) {
-    return this.progressService.submitAnswer(req.user.id, dto);
+    return this.progressService.submitAnswer(
+      req.user.id,
+      dto,
+      req.user.organizationIds?.[0],
+    );
   }
 
   @Post('matching')
@@ -43,10 +47,14 @@ export class ProgressController {
   @ApiBody({ type: SubmitMatchingDto })
   @ApiOkResponse({ description: 'Natija: isCorrect, xpEarned' })
   submitMatching(
-    @Req() req: Request & { user: { id: string } },
+    @Req() req: Request & { user: { id: string; organizationIds?: string[] } },
     @Body() dto: SubmitMatchingDto,
   ) {
-    return this.progressService.submitMatching(req.user.id, dto);
+    return this.progressService.submitMatching(
+      req.user.id,
+      dto,
+      req.user.organizationIds?.[0],
+    );
   }
 
   @Get('level/:levelId')

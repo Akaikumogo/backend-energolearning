@@ -611,28 +611,32 @@ export class BranchAnalyticsService {
   }
 
   /** Bugungi (Toshkent) plan statistikasi: sariq/yashil/qizil chiplar uchun. */
-  private async getDayPlanStats(userId: string, organizationId: string) {
+  private async getDayPlanStats(userId: string, _organizationId: string) {
     const planDate = tashkentToday();
     const { from: dayStart, to: dayEnd } = tashkentDayBounds(planDate);
 
-    const row = await this.attemptRepo
-      .createQueryBuilder('a')
-      .select('COUNT(DISTINCT a.question_id)::int', 'answered')
-      .addSelect(
-        'COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int',
-        'correct',
-      )
-      .where('a.user_id = :userId', { userId })
-      .andWhere('a.organization_id = :organizationId', { organizationId })
-      .andWhere('a.answered_at >= :from AND a.answered_at < :to', {
-        from: dayStart,
-        to: dayEnd,
-      })
-      .andWhere(PLAN_ATTEMPT_SQL, { planCutoff: PLAN_RULE_CUTOFF })
-      .getRawOne<{ answered: number; correct: number }>();
+    // Filial filtri yo'q: javob boshqa organization_id bilan yozilgan bo'lsa
+    // ham shu xodimning kunlik rejasi ko'rinsin. Raw SQL — TypeORM alias
+    // ba'zan COUNT ni 0 qilib qaytarardi.
+    const rows = (await this.attemptRepo.query(
+      `
+      SELECT
+        COUNT(DISTINCT a.question_id)::int AS answered,
+        COUNT(DISTINCT a.question_id) FILTER (WHERE a.is_correct)::int AS correct
+      FROM "user_question_attempts" a
+      WHERE a.user_id = $1
+        AND a.answered_at >= $2
+        AND a.answered_at < $3
+        AND (
+          ((a.answered_at AT TIME ZONE 'Asia/Tashkent')::date < $4::date)
+          OR (a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')
+        )
+      `,
+      [userId, dayStart, dayEnd, PLAN_RULE_CUTOFF],
+    )) as Array<{ answered: number | string; correct: number | string }>;
 
-    const answeredCount = Number(row?.answered) || 0;
-    const rawCorrectCount = Number(row?.correct) || 0;
+    const answeredCount = Number(rows?.[0]?.answered) || 0;
+    const rawCorrectCount = Number(rows?.[0]?.correct) || 0;
     const goal = await this.planCalendar.goalFor(userId, planDate);
     const r = dayPlanResult(rawCorrectCount, goal);
     // Qizil chip: urinilgan, lekin (hali) to'g'ri topilmagan savollar.
