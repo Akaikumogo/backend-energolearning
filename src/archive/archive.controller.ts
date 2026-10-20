@@ -24,7 +24,7 @@ type AuthedReq = Request & { user: { email?: string; id?: string } };
 
 @Controller('admin/archive')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN)
+@Roles(Role.SUPERADMIN, Role.MODERATOR)
 export class ElektroArchiveController {
   constructor(private readonly archiveService: ElektroArchiveService) {}
 

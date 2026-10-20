@@ -42,6 +42,24 @@ export type ModeratorPermissions = {
   safetyRecords: CrudPermissions;
   /** Telegram bot: sozlamalar, chatlar, hisobot yuborish */
   telegramBot: CrudPermissions;
+  /** Bildirishnomalar */
+  notifications: CrudPermissions;
+  /** Tasdiqlovchi shaxslar */
+  approvers: CrudPermissions;
+  /** Tasdiq navbati */
+  approvals: CrudPermissions;
+  /** Arxiv */
+  archive: CrudPermissions;
+  /** Hisobotlar */
+  reports: CrudPermissions;
+  /** Plan kalendari */
+  planCalendar: CrudPermissions;
+  /** Custom plans */
+  customPlans: CrudPermissions;
+  /** Anomaloz / XP anomaliyalari */
+  anomaloz: CrudPermissions;
+  /** Import / export */
+  importExport: CrudPermissions;
 };
 
 const DEFAULT_CRUD: CrudPermissions = {
@@ -78,6 +96,15 @@ export const DEFAULT_MODERATOR_PERMISSIONS: ModeratorPermissions = {
   aiAssistant: DEFAULT_CRUD,
   safetyRecords: DEFAULT_SAFETY_RECORDS_CRUD,
   telegramBot: DEFAULT_CRUD,
+  notifications: DEFAULT_CRUD,
+  approvers: DEFAULT_CRUD,
+  approvals: DEFAULT_CRUD,
+  archive: DEFAULT_CRUD,
+  reports: DEFAULT_CRUD,
+  planCalendar: DEFAULT_CRUD,
+  customPlans: DEFAULT_CRUD,
+  anomaloz: DEFAULT_CRUD,
+  importExport: DEFAULT_CRUD,
 };
 
 export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
@@ -99,6 +126,15 @@ export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
   'aiAssistant',
   'safetyRecords',
   'telegramBot',
+  'notifications',
+  'approvers',
+  'approvals',
+  'archive',
+  'reports',
+  'planCalendar',
+  'customPlans',
+  'anomaloz',
+  'importExport',
 ];
 
 /** Eski jsonb qatorlarida yangi modullar bo‘lmasa, default bilan to‘ldiradi. */

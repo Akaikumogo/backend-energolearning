@@ -51,7 +51,7 @@ const imagesUpload = FilesInterceptor('images', MAX_NEWS_IMAGES, {
 @ApiTags('Admin Telegram News')
 @Controller('admin/telegram-news')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN)
+@Roles(Role.SUPERADMIN, Role.MODERATOR)
 @ApiBearerAuth('bearer')
 export class TelegramNewsController {
   constructor(private readonly news: TelegramNewsService) {}

@@ -71,7 +71,7 @@ export class OrganizationsController {
   }
 
   @Post()
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Yangi tashkilot yaratish' })
   @ApiBody({ type: CreateOrganizationDto })
   create(@Body() dto: CreateOrganizationDto) {
@@ -79,7 +79,7 @@ export class OrganizationsController {
   }
 
   @Put(':id')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Tashkilotni yangilash' })
   @ApiBody({ type: UpdateOrganizationDto })
   update(
@@ -90,14 +90,14 @@ export class OrganizationsController {
   }
 
   @Delete(':id')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Tashkilotni o`chirish' })
   remove(@Param('id', ParseUUIDPipe) id: string) {
     return this.orgService.remove(id);
   }
 
   @Post(':id/users')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Foydalanuvchini tashkilotga biriktirish' })
   @ApiBody({ type: AssignUserDto })
   assignUser(
@@ -108,7 +108,7 @@ export class OrganizationsController {
   }
 
   @Delete(':id/users/:userId')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Foydalanuvchini tashkilotdan chiqarish' })
   removeUser(
     @Param('id', ParseUUIDPipe) id: string,

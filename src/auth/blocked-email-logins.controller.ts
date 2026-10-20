@@ -29,7 +29,7 @@ import { UsersService } from '../users/users.service';
 @ApiTags('Blocked email logins (Admin)')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN)
+@Roles(Role.SUPERADMIN, Role.MODERATOR)
 @Controller('admin/blocked-email-logins')
 export class BlockedEmailLoginsController {
   constructor(

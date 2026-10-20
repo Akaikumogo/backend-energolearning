@@ -15,7 +15,7 @@ import { XpAnomaliesService } from './xp-anomalies.service';
 @ApiTags('XP Anomalies (Admin)')
 @ApiBearerAuth('bearer')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN)
+@Roles(Role.SUPERADMIN, Role.MODERATOR)
 @Controller('admin/xp-anomalies')
 export class XpAnomaliesController {
   constructor(private readonly xpAnomaliesService: XpAnomaliesService) {}

@@ -80,7 +80,7 @@ export class UsersController {
   }
 
   @Get('moderators')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Moderatorlar ro`yxati (search + pagination)' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'orgId', required: false })
@@ -115,7 +115,7 @@ export class UsersController {
   }
 
   @Get('approvers')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Tasdiqlovchilar ro`yxati (search + pagination)' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'orgId', required: false })
@@ -150,7 +150,7 @@ export class UsersController {
   }
 
   @Get('accounting')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Hisob bo`limi xodimlari (search + pagination)' })
   @ApiQuery({ name: 'search', required: false })
   @ApiQuery({ name: 'orgId', required: false })
@@ -229,7 +229,7 @@ export class UsersController {
   }
 
   @Post('moderators/promote')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary: 'Mavjud xodimga moderator statusi berish (yangi user yaratilmaydi)',
   })
@@ -241,7 +241,7 @@ export class UsersController {
   }
 
   @Post('moderators/:id/demote')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Moderatorlikdan olib tashlash (xodim USER bo`lib qoladi)' })
   demoteModerator(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService
@@ -250,7 +250,7 @@ export class UsersController {
   }
 
   @Post('approvers/promote')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary:
       'Filialga tasdiqlovchi shaxs tayinlash (moderator jadvallarini tasdiqlaydi)',
@@ -263,7 +263,7 @@ export class UsersController {
   }
 
   @Post('approvers/:id/demote')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary: 'Tasdiqlovchilikdan olib tashlash (xodim USER bo`lib qoladi)',
   })
@@ -274,7 +274,7 @@ export class UsersController {
   }
 
   @Post('accounting/promote')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary: 'Xodimga hisob bo`limi roli berish (analitika + hisobotlar)',
   })
@@ -286,7 +286,7 @@ export class UsersController {
   }
 
   @Post('accounting/:id/demote')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({
     summary: 'Hisob bo`limi rolini olib tashlash (xodim USER bo`lib qoladi)',
   })
@@ -310,7 +310,7 @@ export class UsersController {
   }
 
   @Put('moderators/:id')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Moderatorni tahrirlash (faqat SuperAdmin)' })
   @ApiBody({ type: UpdateModeratorDto })
   updateModerator(

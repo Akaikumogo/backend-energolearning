@@ -45,7 +45,7 @@ const jsonUpload = FileInterceptor('file', {
 @ApiTags('Import / Export (SuperAdmin)')
 @Controller('admin/import-export')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPERADMIN)
+@Roles(Role.SUPERADMIN, Role.MODERATOR)
 @ApiBearerAuth('bearer')
 export class AdminImportExportController {
   constructor(
@@ -55,12 +55,14 @@ export class AdminImportExportController {
   ) {}
 
   @Get('oauth/integration')
+  @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'Energo ID OAuth integratsiya sozlamalari va shablonlar' })
   async getOAuthIntegration() {
     return this.oauthIntegrationService.getAdminView();
   }
 
   @Patch('oauth/integration')
+  @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'OAuth redirect URI va scope tahrirlash' })
   async updateOAuthIntegration(
     @Body() dto: UpdateOAuthIntegrationDto,
@@ -70,6 +72,7 @@ export class AdminImportExportController {
   }
 
   @Get('oauth/integration/env-export')
+  @Roles(Role.SUPERADMIN)
   @ApiOperation({ summary: 'OAuth .env namunasi (secretsiz)' })
   async exportOAuthEnv(@Res() res: Response) {
     const content = await this.oauthIntegrationService.buildEnvExport();

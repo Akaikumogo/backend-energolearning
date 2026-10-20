@@ -21,7 +21,7 @@ export class AuditLogsController {
   constructor(private readonly auditLogsService: AuditLogsService) {}
 
   @Get('audit-logs')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Admin write audit logs (SuperAdmin)' })
   @ApiQuery({ name: 'range', required: true, enum: ['today', 'month', 'year'] })
   @ApiQuery({ name: 'actorId', required: false })

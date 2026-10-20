@@ -51,6 +51,32 @@ function resolveAction(
     }
   }
 
+  if (m === 'GET' || m === 'HEAD') {
+    if (path.startsWith('/admin/audit-logs')) return { module: 'logs', action: 'view' };
+    if (path.startsWith('/admin/moderator-violations')) return { module: 'violations', action: 'view' };
+    if (path.startsWith('/admin/moderator-permissions')) return { module: 'permissions', action: 'view' };
+    if (path.startsWith('/admin/xp-anomalies')) return { module: 'anomaloz', action: 'view' };
+    if (path.startsWith('/admin/import-export/moderators')) {
+      return { module: 'moderators', action: 'view' };
+    }
+    if (path.startsWith('/admin/import-export') && !path.includes('/oauth')) {
+      return { module: 'importExport', action: 'view' };
+    }
+    if (path.startsWith('/admin/telegram-news')) return { module: 'telegramBot', action: 'view' };
+    if (path.startsWith('/admin/archive')) return { module: 'archive', action: 'view' };
+    if (path.startsWith('/admin/blocked-email-logins')) return { module: 'anomaloz', action: 'view' };
+    if (path === '/admin/users/moderators' || path === '/admin/users/accounting') {
+      return { module: 'moderators', action: 'view' };
+    }
+    if (path === '/admin/users/approvers') return { module: 'approvers', action: 'view' };
+    if (
+      path === '/admin/plan-calendar/custom-plans' ||
+      path === '/admin/plan-calendar/changes'
+    ) {
+      return { module: 'customPlans', action: 'view' };
+    }
+  }
+
   if (m === 'GET' || m === 'HEAD' || m === 'OPTIONS') return null;
 
   // Content
@@ -212,6 +238,16 @@ function resolveAction(
   }
 
   // Users / Moderators management
+  if (path === '/admin/users/moderators/promote' && m === 'POST')
+    return { module: 'moderators', action: 'create' };
+  if (/^\/admin\/users\/moderators\/[^/]+\/demote$/.test(path) && m === 'POST')
+    return { module: 'moderators', action: 'delete' };
+  if (/^\/admin\/users\/moderators\/[^/]+$/.test(path) && (m === 'PUT' || m === 'PATCH'))
+    return { module: 'moderators', action: 'update' };
+  if (path === '/admin/users/accounting/promote' && m === 'POST')
+    return { module: 'moderators', action: 'create' };
+  if (/^\/admin\/users\/accounting\/[^/]+\/demote$/.test(path) && m === 'POST')
+    return { module: 'moderators', action: 'delete' };
   if (path === '/admin/users/moderators' && m === 'POST')
     return { module: 'moderators', action: 'create' };
   if (path === '/admin/users' && m === 'POST')
@@ -275,6 +311,79 @@ function resolveAction(
   }
   if (path === '/admin/nes-employees' && m === 'DELETE') {
     return { module: 'nesSync', action: 'delete' };
+  }
+
+  if (path.startsWith('/admin/users/approvers')) {
+    if (m === 'POST' && path.endsWith('/promote')) {
+      return { module: 'approvers', action: 'create' };
+    }
+    if (m === 'POST' && path.endsWith('/demote')) {
+      return { module: 'approvers', action: 'delete' };
+    }
+  }
+
+  if (
+    (path.includes('/safety-changes/') &&
+      (path.endsWith('/approve') || path.endsWith('/reject'))) ||
+    path.endsWith('/safety-changes/bulk-approve') ||
+    path.endsWith('/safety-changes/bulk-reject')
+  ) {
+    if (m === 'POST') return { module: 'approvals', action: 'update' };
+  }
+
+  if (path.startsWith('/admin/plan-calendar')) {
+    const moduleKey = path.includes('/users/') ? 'customPlans' : 'planCalendar';
+    if (m === 'POST') return { module: moduleKey, action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: moduleKey, action: 'update' };
+    if (m === 'DELETE') return { module: moduleKey, action: 'delete' };
+  }
+
+  if (/^\/admin\/moderator-permissions\/[^/]+$/.test(path) && m === 'PUT') {
+    return { module: 'permissions', action: 'update' };
+  }
+
+  if (path.startsWith('/admin/blocked-email-logins')) {
+    if (m === 'POST') return { module: 'anomaloz', action: 'update' };
+    if (m === 'DELETE') return { module: 'anomaloz', action: 'delete' };
+  }
+
+  if (path.startsWith('/admin/archive')) {
+    if (path.endsWith('/cutover') || path.endsWith('/abort-sync')) {
+      if (m === 'POST') return { module: 'archive', action: 'delete' };
+    }
+    if (m === 'POST') return { module: 'archive', action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: 'archive', action: 'update' };
+    if (m === 'DELETE') return { module: 'archive', action: 'delete' };
+  }
+
+  if (path.startsWith('/admin/import-export/moderators')) {
+    if (m === 'POST') return { module: 'moderators', action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: 'moderators', action: 'update' };
+    if (m === 'DELETE') return { module: 'moderators', action: 'delete' };
+  }
+
+  if (path.startsWith('/admin/import-export') && !path.includes('/oauth')) {
+    if (m === 'POST') return { module: 'importExport', action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: 'importExport', action: 'update' };
+    if (m === 'DELETE') return { module: 'importExport', action: 'delete' };
+  }
+
+  if (path.startsWith('/admin/telegram-news')) {
+    if (m === 'POST') return { module: 'telegramBot', action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: 'telegramBot', action: 'update' };
+    if (m === 'DELETE') return { module: 'telegramBot', action: 'delete' };
+  }
+
+  if (path.startsWith('/admin/xp-anomalies')) {
+    if (m === 'POST') return { module: 'anomaloz', action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: 'anomaloz', action: 'update' };
+    if (m === 'DELETE') return { module: 'anomaloz', action: 'delete' };
+  }
+
+  if (path.startsWith('/admin/report-submissions')) {
+    if (m === 'POST') return { module: 'reports', action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: 'reports', action: 'update' };
+    if (m === 'DELETE') return { module: 'reports', action: 'delete' };
   }
 
   return null;

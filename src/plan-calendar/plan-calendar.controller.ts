@@ -59,7 +59,7 @@ export class PlanCalendarController {
   }
 
   @Get('changes')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Plan o‘zgarishlari tarixi (faqat superadmin)' })
   getChanges(
     @Query('page') page?: string,
@@ -78,7 +78,7 @@ export class PlanCalendarController {
   }
 
   @Get('custom-plans')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Shaxsiy plani bor xodimlar (faqat superadmin)' })
   getCustomPlans() {
     return this.service.getCustomPlans();

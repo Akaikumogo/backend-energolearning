@@ -32,7 +32,7 @@ export class ModeratorPermissionsController {
   }
 
   @Get('moderator-permissions/:moderatorId')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Moderator permissions olish (SuperAdmin)' })
   @ApiParam({ name: 'moderatorId' })
   @ApiOkResponse({ description: 'Moderator permission record' })
@@ -41,7 +41,7 @@ export class ModeratorPermissionsController {
   }
 
   @Put('moderator-permissions/:moderatorId')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Moderator permissions yangilash (SuperAdmin)' })
   @ApiParam({ name: 'moderatorId' })
   @ApiOkResponse({ description: 'Yangilangan permission record' })
@@ -56,7 +56,7 @@ export class ModeratorPermissionsController {
   }
 
   @Get('moderator-violations')
-  @Roles(Role.SUPERADMIN)
+  @Roles(Role.SUPERADMIN, Role.MODERATOR)
   @ApiOperation({ summary: 'Moderator qoidabuzarliklari ro`yxati (SuperAdmin)' })
   @ApiQuery({ name: 'range', required: true, enum: ['today', 'month', 'year'] })
   @ApiQuery({ name: 'moderatorId', required: false })
