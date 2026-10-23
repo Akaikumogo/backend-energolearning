@@ -75,7 +75,12 @@ export class CertificatesService {
     return [await this.buildEnergoIdCard(user)];
   }
 
-  private async buildEnergoIdCard(user: User) {
+  private async buildEnergoIdCard(
+    user: User,
+    safetyBadge?: Awaited<
+      ReturnType<SafetyRecordsService['publicBadgeForUser']>
+    >,
+  ) {
     const nes = await this.nesEmployeeRepo.findOne({
       where: { userId: user.id },
     });
@@ -106,6 +111,14 @@ export class CertificatesService {
     );
     validUntil.setFullYear(validUntil.getFullYear() + 2);
 
+    const badge =
+      safetyBadge ??
+      (await this.safetyRecordsService.publicBadgeForUser(user.id));
+    const qualificationGroup =
+      badge.exams
+        .find((exam) => exam.code === 'OCCUPATIONAL_SAFETY')
+        ?.qualificationGroup?.trim() || null;
+
     return {
       id: `energo-card-${user.id}`,
       certificateNumber,
@@ -118,6 +131,7 @@ export class CertificatesService {
       firstName,
       middleName,
       positionTitle: nes?.post?.trim() || '',
+      qualificationGroup,
       personnelNumber,
       examAttemptId: null,
       issuedAt: (Number.isNaN(issuedAt.getTime()) ? new Date() : issuedAt).toISOString(),
@@ -219,10 +233,10 @@ export class CertificatesService {
     }
     if (!user) throw new NotFoundException('Xodim topilmadi');
 
-    const card = await this.buildEnergoIdCard(user);
     const safetyBadge = await this.safetyRecordsService.publicBadgeForUser(
       user.id,
     );
+    const card = await this.buildEnergoIdCard(user, safetyBadge);
     return {
       found: true as const,
       certificateNumber: card.certificateNumber,
@@ -231,6 +245,7 @@ export class CertificatesService {
       firstName: card.firstName,
       middleName: card.middleName,
       positionTitle: card.positionTitle,
+      qualificationGroup: card.qualificationGroup,
       branchName: card.branchName,
       organizationTitle: card.organizationTitle,
       issuedAt: card.issuedAt,

@@ -951,6 +951,40 @@ export class SafetyRecordsService {
     };
   }
 
+  /**
+   * Tasdiqlangan joriy yozuvlarni Energo ID public keshi ga bir marta yuboradi.
+   * Lavozim o‘zgarmaydi — faqat safetyBadge (jadval + malaka guruhi).
+   */
+  async syncAllApprovedBadgesToEnergo() {
+    const rows = await this.recordRepo
+      .createQueryBuilder('record')
+      .innerJoin('record.user', 'user')
+      .select('record.userId', 'userId')
+      .where('record.approvalStatus = :status', { status: 'APPROVED' })
+      .andWhere('record.isLatest = true')
+      .andWhere('record.archivedAt IS NULL')
+      .andWhere('user.energoId IS NOT NULL')
+      .distinct(true)
+      .getRawMany<Record<string, string | null>>();
+
+    let synced = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const row of rows) {
+      const userId = row.userId || row.userid || row.user_id || null;
+      if (!userId) {
+        skipped += 1;
+        continue;
+      }
+      const result = await this.syncSafetyBadgeToEnergo(userId);
+      if (result === 'ok') synced += 1;
+      else if (result === 'fail') failed += 1;
+      else skipped += 1;
+    }
+
+    return { total: rows.length, synced, skipped, failed };
+  }
+
   /** Tasdiqlangan bilim sinovi — Energo ID public sahifa uchun. */
   private async syncSafetyBadgeToEnergo(employeeUserId: string) {
     try {
@@ -959,15 +993,17 @@ export class SafetyRecordsService {
         select: ['id', 'energoId'],
       });
       const energoId = user?.energoId?.trim();
-      if (!energoId) return;
+      if (!energoId) return 'skip' as const;
       const safetyBadge = await this.publicBadgeForUser(employeeUserId);
       await this.energoIdAuthClient.pushSafetyBadge(energoId, safetyBadge);
+      return 'ok' as const;
     } catch (error) {
       /* Energo ID sync ixtiyoriy — xatolik asosiy oqimni buzmasin */
       console.warn(
         `[safety-records] Energo ID safety-badge sync xatosi (user ${employeeUserId}):`,
         error instanceof Error ? error.message : error,
       );
+      return 'fail' as const;
     }
   }
 }

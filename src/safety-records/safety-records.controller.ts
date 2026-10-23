@@ -154,6 +154,16 @@ export class SafetyRecordsController {
     return this.safetyRecordsService.approve(changeId, req.user);
   }
 
+  @Post('safety-badges/sync-energo')
+  @Roles(Role.SUPERADMIN)
+  @ApiOperation({
+    summary:
+      'Tasdiqlangan bilim sinovi jadvallarini Energo ID public sahifasiga bir marta yuborish',
+  })
+  syncBadgesToEnergo() {
+    return this.safetyRecordsService.syncAllApprovedBadgesToEnergo();
+  }
+
   @Post('safety-changes/:changeId/reject')
   @Roles(Role.SUPERADMIN, Role.APPROVER)
   @ApiOperation({ summary: 'Safety o‘zgarishini rad etish' })
