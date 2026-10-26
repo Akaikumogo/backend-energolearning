@@ -14,7 +14,11 @@ import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { BranchAnalyticsService } from '../branch-analytics/branch-analytics.service';
 import { Role } from '../common/enums/role.enum';
-import { tashkentClock, tashkentToday } from '../common/utils/tashkent-time.util';
+import {
+  addTashkentDays,
+  tashkentClock,
+  tashkentToday,
+} from '../common/utils/tashkent-time.util';
 import { ModeratorPermission } from '../database/entities/moderator-permission.entity';
 import { TelegramBotSetting } from '../database/entities/telegram-bot-setting.entity';
 import {
@@ -118,7 +122,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    this.logger.log('Telegram bot ishga tushmoqda (18:00 va 23:59 hisobot)...');
+    this.logger.log('Telegram bot ishga tushmoqda (06:00 hisobot)...');
     void this.startPolling();
   }
 
@@ -270,27 +274,23 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     return { ok: true };
   }
 
-  @Cron('0 18 * * *', { timeZone: 'Asia/Tashkent' })
-  async handleDailyReportCron() {
-    await this.runScheduledReport('18:00');
+  /** Ertalab 06:00: kecha 00:00:00–23:59:59 oralig‘idagi kunlik plan. */
+  @Cron('0 6 * * *', { timeZone: 'Asia/Tashkent' })
+  async handleMorningReportCron() {
+    const planDate = addTashkentDays(tashkentToday(), -1);
+    await this.runScheduledReport('06:00', planDate);
   }
 
-  /** Kun tugashi: 23:59 hali bugungi sana, 00:00 esa ertangi kunga o‘tadi. */
-  @Cron('59 23 * * *', { timeZone: 'Asia/Tashkent' })
-  async handleEndOfDayReportCron() {
-    await this.runScheduledReport('23:59');
-  }
-
-  private async runScheduledReport(clockLabel: string) {
+  private async runScheduledReport(clockLabel: string, planDate: string) {
     const token = await this.resolveToken();
     if (!token) return;
     const settings = await this.ensureSettings();
     if (!settings.isEnabled) return;
-    this.logger.log(`Kunlik hisobot cron (${clockLabel} Asia/Tashkent)`);
-    await this.broadcastDailyReport(clockLabel);
+    this.logger.log(`Kunlik hisobot cron (${clockLabel} Asia/Tashkent, ${planDate})`);
+    await this.broadcastDailyReport(clockLabel, planDate);
   }
 
-  async broadcastDailyReport(clockLabel?: string) {
+  async broadcastDailyReport(clockLabel?: string, planDate?: string) {
     if (this.sendingReport) {
       this.logger.warn('Hisobot yuborish allaqachon davom etmoqda');
       return;
@@ -304,7 +304,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn('Hisobot uchun /start yoki /hisobot bosgan chat yo‘q');
         return;
       }
-      const payload = await this.buildReportPayload(clockLabel);
+      const payload = await this.buildReportPayload(clockLabel, planDate);
       for (const chat of chats) {
         await this.deliverReportToChat(chat, undefined, payload).catch((err) =>
           this.handleChatDeliveryError(chat, err),
@@ -565,9 +565,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         chatRow,
         `✅ <b>Elektro Learn</b>\n\n` +
           `Men ishga tushdim.\n` +
-          `Endi sizlarga har kuni <b>18:00</b> va <b>23:59</b> da (Toshkent) hisobot topshiraman.\n\n` +
-          `📊 Kunlik + oylik jadval rasmlari\n` +
-          `⏱ Vaqt: har kuni 18:00 va kun oxiri 23:59\n\n` +
+          `Kunlik plan <b>00:00</b> dan <b>23:59:59</b> gacha qabul qilinadi.\n` +
+          `Hisobot har kuni soat <b>06:00</b> da bir marta topshiriladi.\n` +
+          `Keyingi hisobot: <b>24:00</b>\n\n` +
           `Hozirgi hisobot: /hisobot\n` +
           `Arxiv: /history dd.mm.yyyy\n` +
           `Oʻchirish: /stop_report`,
@@ -580,7 +580,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       chatRow,
       `👋 Ассалому алайкум${name}!\n\n` +
         `⚡ <b>Электро Learn</b> ботига хуш келибсиз!\n\n` +
-        `Ҳар куни <b>18:00</b> ва кун охири <b>23:59</b> да ҳисобот олиб турасиз.\n` +
+        `Кунлик план <b>00:00</b> дан <b>23:59:59</b> гача қабул қилинади.\n` +
+        `Ҳисобот ҳар куни соат <b>06:00</b> да бир марта.\n` +
+        `Кейинги ҳисобот: <b>24:00</b>\n` +
         `Ҳозир олиш: /hisobot\n` +
         `Архив: /history dd.mm.yyyy`,
       {
@@ -998,13 +1000,12 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     return { dailyPng, dailyCaption };
   }
 
-  private async buildReportPayload(clockLabel?: string): Promise<{
+  private async buildReportPayload(clockLabel?: string, planDate = tashkentToday()): Promise<{
     dailyPng: Buffer;
     monthlyPng: Buffer;
     dailyCaption: string;
     monthlyCaption: string;
   }> {
-    const planDate = tashkentToday();
     const month = planDate.slice(0, 7);
     const [daily, monthly] = await Promise.all([
       this.analytics.getDailyReport(planDate, null),
@@ -1145,7 +1146,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       `To‘g‘ri javob / reja: <b>${completedTotal}/${totalPlan}</b>` +
       (missingCount > 0
         ? `\nHisobot bermagan filial: <b>${missingCount}</b>`
-        : '');
+        : '') +
+      `\nKunlik plan: <b>00:00 — 23:59:59</b>\n` +
+      `Keyingi hisobot: <b>24:00</b>`;
 
     const [yy, mm] = monthly.month.split('-');
     const monthlyCaption =

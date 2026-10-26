@@ -3,7 +3,7 @@
  *
  * Eski model (org bo'yicha kuniga 10 ta belgilangan savol — daily_plans
  * jadvali + cron) olib tashlangan. Yangi model: savollar bittalab, xodim
- * lavozimiga mos pool'dan random beriladi (24 soat ichida takrorlanmaydi),
+ * lavozimiga mos pool'dan random beriladi (shu kun 00:00–23:59:59 ichida takrorlanmaydi),
  * plan DAILY_GOAL_CORRECT ta to'g'ri javob bilan bajariladi.
  * `daily_plans` jadvali DB da qoladi, lekin ishlatilmaydi.
  */

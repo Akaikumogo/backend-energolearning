@@ -715,8 +715,8 @@ export class BranchAnalyticsService {
    * Kunlik plan uchun keyingi savol:
    * - pool: userga ochiq modullar ichidagi faol savollar; modul lavozimga
    *   bog'lanmagan bo'lsa HAMMA xodimga, bog'langan bo'lsa shu lavozimlarga;
-   * - oxirgi 24 soat (rolling) ichida kunlik reja (DAILY_PLAN) sifatida
-   *   ishlangan savol takrorlanmaydi; dars (LESSON) urinishi to'smaydi —
+   * - shu Toshkent kuni (00:00:00 dan 23:59:59 gacha) kunlik reja (DAILY_PLAN)
+   *   sifatida ishlangan savol takrorlanmaydi; dars (LESSON) urinishi to'smaydi —
    *   shunda xodim kunlik rejadan XP olishi mumkin;
    * - random tanlanadi;
    * - maqsad (10 ta to'g'ri) bajarilgandan keyin ham qo'shimcha savollar
@@ -740,7 +740,8 @@ export class BranchAnalyticsService {
           SELECT 1 FROM "user_question_attempts" a
           WHERE a.user_id = $1
             AND a.question_id = q.id
-            AND a.answered_at > NOW() - INTERVAL '24 hours'
+            AND (a.answered_at AT TIME ZONE 'Asia/Tashkent')::date
+                = (NOW() AT TIME ZONE 'Asia/Tashkent')::date
             AND (a.attempt_source IS NULL OR a.attempt_source = 'DAILY_PLAN')
         )
       ORDER BY RANDOM()
@@ -2232,7 +2233,7 @@ export class BranchAnalyticsService {
         ${orgFilter}
       ),
       hours AS (
-        SELECT generate_series(6, 20) AS hour
+        SELECT generate_series(0, 23) AS hour
       ),
       user_hour_cumulative AS (
         SELECT
@@ -2258,7 +2259,7 @@ export class BranchAnalyticsService {
       params,
     )) as Array<{ hour: number; completed_employees: number }>;
 
-    const hours = Array.from({ length: 15 }, (_, i) => i + 6);
+    const hours = Array.from({ length: 24 }, (_, i) => i);
     const byHour = new Map(
       rows.map((r) => [Number(r.hour), Number(r.completed_employees) || 0]),
     );

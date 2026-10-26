@@ -32,7 +32,7 @@ export type DailyReportImageInput = {
   extraCorrectTotal: number;
   branchCount: number;
   branches: ReportBranchRow[];
-  /** Rasm sarlavhasidagi soat, masalan 18:00 yoki 23:59 */
+  /** Rasm sarlavhasidagi soat, masalan 06:00 */
   clockLabel?: string;
 };
 
@@ -135,7 +135,7 @@ export class TelegramReportImageService {
       contentW,
       heroH,
       'Elektro Learn · Kunlik hisobot',
-      `${this.dateLabel(daily.planDate)} · Asia/Tashkent ${daily.clockLabel || '18:00'}`,
+      `${this.dateLabel(daily.planDate)} · 00:00–23:59:59 · ${daily.clockLabel || '06:00'}`,
       `${this.fmt(daily.completionPercent)}%`,
       'To‘g‘ri javob / reja',
       `${daily.completedTotal}/${daily.totalPlan}`,
