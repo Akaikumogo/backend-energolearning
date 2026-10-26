@@ -9,6 +9,11 @@ export function tashkentToday(nowMs = Date.now()): string {
   return new Date(nowMs + TZ_OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/** Toshkent devor soati HH:mm (24 soat). */
+export function tashkentClock(nowMs = Date.now()): string {
+  return new Date(nowMs + TZ_OFFSET_MS).toISOString().slice(11, 16);
+}
+
 /** UTC instantni Toshkent sanasiga (YYYY-MM-DD). */
 export function instantToTashkentDate(instant: Date): string {
   return new Date(instant.getTime() + TZ_OFFSET_MS).toISOString().slice(0, 10);

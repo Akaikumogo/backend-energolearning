@@ -5,6 +5,7 @@ import {
   parseTashkentRange,
   tashkentDayBounds,
   tashkentMonthBounds,
+  tashkentClock,
   tashkentToday,
 } from './tashkent-time.util';
 
@@ -13,6 +14,7 @@ describe('tashkent-time.util', () => {
     // 2026-07-08 22:00 UTC = 2026-07-09 03:00 Tashkent
     const ms = Date.parse('2026-07-08T22:00:00.000Z');
     expect(tashkentToday(ms)).toBe('2026-07-09');
+    expect(tashkentClock(ms)).toBe('03:00');
   });
 
   it('tashkentDayBounds are +05:00 aligned', () => {

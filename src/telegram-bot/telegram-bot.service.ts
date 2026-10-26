@@ -14,7 +14,7 @@ import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { BranchAnalyticsService } from '../branch-analytics/branch-analytics.service';
 import { Role } from '../common/enums/role.enum';
-import { tashkentToday } from '../common/utils/tashkent-time.util';
+import { tashkentClock, tashkentToday } from '../common/utils/tashkent-time.util';
 import { ModeratorPermission } from '../database/entities/moderator-permission.entity';
 import { TelegramBotSetting } from '../database/entities/telegram-bot-setting.entity';
 import {
@@ -118,7 +118,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    this.logger.log('Telegram bot ishga tushmoqda (18:00 hisobot)...');
+    this.logger.log('Telegram bot ishga tushmoqda (18:00 va 23:59 hisobot)...');
     void this.startPolling();
   }
 
@@ -272,15 +272,25 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
   @Cron('0 18 * * *', { timeZone: 'Asia/Tashkent' })
   async handleDailyReportCron() {
+    await this.runScheduledReport('18:00');
+  }
+
+  /** Kun tugashi: 23:59 hali bugungi sana, 00:00 esa ertangi kunga o‘tadi. */
+  @Cron('59 23 * * *', { timeZone: 'Asia/Tashkent' })
+  async handleEndOfDayReportCron() {
+    await this.runScheduledReport('23:59');
+  }
+
+  private async runScheduledReport(clockLabel: string) {
     const token = await this.resolveToken();
     if (!token) return;
     const settings = await this.ensureSettings();
     if (!settings.isEnabled) return;
-    this.logger.log('Kunlik hisobot cron (18:00 Asia/Tashkent)');
-    await this.broadcastDailyReport();
+    this.logger.log(`Kunlik hisobot cron (${clockLabel} Asia/Tashkent)`);
+    await this.broadcastDailyReport(clockLabel);
   }
 
-  async broadcastDailyReport() {
+  async broadcastDailyReport(clockLabel?: string) {
     if (this.sendingReport) {
       this.logger.warn('Hisobot yuborish allaqachon davom etmoqda');
       return;
@@ -294,7 +304,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn('Hisobot uchun /start yoki /hisobot bosgan chat yo‘q');
         return;
       }
-      const payload = await this.buildReportPayload();
+      const payload = await this.buildReportPayload(clockLabel);
       for (const chat of chats) {
         await this.deliverReportToChat(chat, undefined, payload).catch((err) =>
           this.handleChatDeliveryError(chat, err),
@@ -555,9 +565,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         chatRow,
         `✅ <b>Elektro Learn</b>\n\n` +
           `Men ishga tushdim.\n` +
-          `Endi sizlarga har kuni <b>18:00</b> da (Toshkent) hisobot topshiraman.\n\n` +
+          `Endi sizlarga har kuni <b>18:00</b> va <b>23:59</b> da (Toshkent) hisobot topshiraman.\n\n` +
           `📊 Kunlik + oylik jadval rasmlari\n` +
-          `⏱ Vaqt: har kuni 18:00\n\n` +
+          `⏱ Vaqt: har kuni 18:00 va kun oxiri 23:59\n\n` +
           `Hozirgi hisobot: /hisobot\n` +
           `Arxiv: /history dd.mm.yyyy\n` +
           `Oʻchirish: /stop_report`,
@@ -570,7 +580,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       chatRow,
       `👋 Ассалому алайкум${name}!\n\n` +
         `⚡ <b>Электро Learn</b> ботига хуш келибсиз!\n\n` +
-        `Ҳар куни <b>18:00</b> да ҳисобот олиб турасиз.\n` +
+        `Ҳар куни <b>18:00</b> ва кун охири <b>23:59</b> да ҳисобот олиб турасиз.\n` +
         `Ҳозир олиш: /hisobot\n` +
         `Архив: /history dd.mm.yyyy`,
       {
@@ -988,7 +998,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     return { dailyPng, dailyCaption };
   }
 
-  private async buildReportPayload(): Promise<{
+  private async buildReportPayload(clockLabel?: string): Promise<{
     dailyPng: Buffer;
     monthlyPng: Buffer;
     dailyCaption: string;
@@ -1061,8 +1071,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       orgIds,
     );
 
+    const sentAt = clockLabel || tashkentClock();
     const dailyInput = {
       planDate: daily.planDate,
+      clockLabel: sentAt,
       completionPercent,
       completedTotal,
       totalPlan,
@@ -1128,7 +1140,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const [y, m, d] = daily.planDate.split('-');
     const dailyCaption =
       `⚡ <b>Elektro Learn</b> — kunlik hisobot\n` +
-      `${d}.${m}.${y} · 18:00\n` +
+      `${d}.${m}.${y} · ${sentAt}\n` +
       `Bugun: <b>${completionPercent.toFixed(1)}%</b>` +
       (missingCount > 0
         ? ` · <b>${missingCount}</b> filial hisobot bermadi`

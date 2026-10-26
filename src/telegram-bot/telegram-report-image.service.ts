@@ -31,6 +31,8 @@ export type DailyReportImageInput = {
   extraCorrectTotal: number;
   branchCount: number;
   branches: ReportBranchRow[];
+  /** Rasm sarlavhasidagi soat, masalan 18:00 yoki 23:59 */
+  clockLabel?: string;
 };
 
 export type MonthlyReportImageInput = {
@@ -114,7 +116,7 @@ export class TelegramReportImageService {
       contentW,
       heroH,
       'Elektro Learn · Kunlik hisobot',
-      `${this.dateLabel(daily.planDate)} · Asia/Tashkent 18:00`,
+      `${this.dateLabel(daily.planDate)} · Asia/Tashkent ${daily.clockLabel || '18:00'}`,
       `${this.fmt(daily.completionPercent)}%`,
       'Reja',
       `${daily.completedTotal}/${daily.totalPlan}`,
