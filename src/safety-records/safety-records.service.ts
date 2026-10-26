@@ -16,6 +16,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { OrganizationsService } from '../organizations/organizations.service';
 import { ModeratorPermissionsService } from '../moderator-permissions/moderator-permissions.service';
 import { EnergoIdAuthClient } from '../auth/energo-id-auth.client';
+import { ProctorGate } from '../proctor/proctor.gate';
 import {
   RejectSafetyChangeDto,
   UpsertSafetyProfileDto,
@@ -62,6 +63,7 @@ export class SafetyRecordsService {
     private readonly notificationsService: NotificationsService,
     private readonly moderatorPermissionsService: ModeratorPermissionsService,
     private readonly energoIdAuthClient: EnergoIdAuthClient,
+    private readonly proctorGate: ProctorGate,
   ) {}
 
   async listTypes() {
@@ -433,6 +435,14 @@ export class SafetyRecordsService {
       where: { id: change.recordId },
     });
     if (!record) throw new NotFoundException('Yozuv topilmadi');
+
+    const pendingExamDate =
+      typeof change.newData?.examDate === 'string' ? change.newData.examDate : record.examDate;
+    await this.proctorGate.assertApprovalAllowed({
+      recordTypeCode: change.recordTypeCode,
+      examDate: pendingExamDate,
+      safetyRecordId: record.id,
+    });
 
     record.approvalStatus = 'APPROVED';
     record.approvedBy = actor.id;

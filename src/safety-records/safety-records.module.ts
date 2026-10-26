@@ -10,6 +10,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { ModeratorPermissionsModule } from '../moderator-permissions/moderator-permissions.module';
 import { AuthModule } from '../auth/auth.module';
+import { ProctorModule } from '../proctor/proctor.module';
 import { SafetyRecordsController } from './safety-records.controller';
 import { SafetyRecordsService } from './safety-records.service';
 
@@ -27,6 +28,7 @@ import { SafetyRecordsService } from './safety-records.service';
     NotificationsModule,
     ModeratorPermissionsModule,
     AuthModule,
+    ProctorModule,
   ],
   controllers: [SafetyRecordsController],
   providers: [SafetyRecordsService],

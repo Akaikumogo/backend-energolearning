@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Role } from '../common/enums/role.enum';
+import { User } from '../database/entities/user.entity';
 import {
+  applyModeratorScopePreset,
   DEFAULT_MODERATOR_PERMISSIONS,
   mergeModeratorPermissions,
+  type ModeratorScope,
   type ModeratorPermissions,
   ModeratorPermission,
 } from '../database/entities/moderator-permission.entity';
@@ -16,7 +20,40 @@ export class ModeratorPermissionsService {
     private readonly permRepo: Repository<ModeratorPermission>,
     @InjectRepository(ModeratorViolation)
     private readonly violationRepo: Repository<ModeratorViolation>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
+
+  /** MODERATOR uchun: markaziy apparat (is_default tashkilot) yoki filial. Boshqa rollar - null. */
+  async resolveScope(userId: string): Promise<ModeratorScope | null> {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['organizations', 'organizations.organization'],
+    });
+    if (!user || user.role !== Role.MODERATOR) return null;
+    const central = (user.organizations ?? []).some(
+      (uo) => uo.organization?.isDefault === true,
+    );
+    return central ? 'central' : 'branch';
+  }
+
+  /** Guard va UI uchun amaldagi ruxsatlar: DB qatori + markaziy/filial preset. */
+  async getEffective(moderatorUserId: string): Promise<{
+    record: ModeratorPermission;
+    permissions: ModeratorPermissions;
+    scope: ModeratorScope | null;
+  }> {
+    const record = await this.getOrCreate(moderatorUserId);
+    const scope = await this.resolveScope(moderatorUserId);
+    return {
+      record,
+      scope,
+      permissions: applyModeratorScopePreset(
+        mergeModeratorPermissions(record.permissions),
+        scope,
+      ),
+    };
+  }
 
   async getOrCreate(moderatorUserId: string): Promise<ModeratorPermission> {
     const existing = await this.permRepo.findOne({ where: { moderatorUserId } });

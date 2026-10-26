@@ -138,6 +138,48 @@ export const MODERATOR_PERMISSION_KEYS: (keyof ModeratorPermissions)[] = [
 ];
 
 /** Eski jsonb qatorlarida yangi modullar bo‘lmasa, default bilan to‘ldiradi. */
+/**
+ * Moderator turi: markaziy apparat (is_default tashkilot) yoki filial.
+ * Quyidagi bo'limlar uchun ruxsat DB qatoridan emas, shu presetdan olinadi:
+ *  - markaziy apparat: o'quv kontenti, xodimlar, analitika - to'liq CRUD;
+ *  - filial: shu bo'limlar faqat ko'rish, xodimlarda qo'shimcha tahrirlash (update).
+ */
+export type ModeratorScope = 'central' | 'branch';
+
+export const SCOPE_PRESET_KEYS: (keyof ModeratorPermissions)[] = [
+  'contentLevels',
+  'contentTheories',
+  'contentQuestions',
+  'students',
+  'analytics',
+];
+
+export function scopePresetFor(
+  scope: ModeratorScope,
+  key: keyof ModeratorPermissions,
+): CrudPermissions {
+  if (scope === 'central') {
+    return { view: true, create: true, update: true, delete: true };
+  }
+  if (key === 'students') {
+    return { view: true, create: false, update: true, delete: false };
+  }
+  return { view: true, create: false, update: false, delete: false };
+}
+
+/** Preset bo'limlarni DB qiymatidan ustun qo'yadi (boshqa modullar o'zgarmaydi). */
+export function applyModeratorScopePreset(
+  permissions: ModeratorPermissions,
+  scope: ModeratorScope | null,
+): ModeratorPermissions {
+  if (!scope) return permissions;
+  const out = { ...permissions };
+  for (const key of SCOPE_PRESET_KEYS) {
+    out[key] = scopePresetFor(scope, key);
+  }
+  return out;
+}
+
 export function mergeModeratorPermissions(
   partial?: Partial<ModeratorPermissions> | null,
 ): ModeratorPermissions {

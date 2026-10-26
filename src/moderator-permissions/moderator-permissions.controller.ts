@@ -24,10 +24,11 @@ export class ModeratorPermissionsController {
     req: Request & { user: { id: string; role: Role } },
   ) {
     if (req.user.role !== Role.MODERATOR) {
-      return { permissions: null };
+      return { permissions: null, scope: null };
     }
-    return this.moderatorPermissionsService.getOrCreate(req.user.id).then((r) => ({
+    return this.moderatorPermissionsService.getEffective(req.user.id).then((r) => ({
       permissions: r.permissions,
+      scope: r.scope,
     }));
   }
 
@@ -36,8 +37,9 @@ export class ModeratorPermissionsController {
   @ApiOperation({ summary: 'Moderator permissions olish (SuperAdmin)' })
   @ApiParam({ name: 'moderatorId' })
   @ApiOkResponse({ description: 'Moderator permission record' })
-  getModeratorPermissions(@Param('moderatorId', ParseUUIDPipe) moderatorId: string) {
-    return this.moderatorPermissionsService.getOrCreate(moderatorId);
+  async getModeratorPermissions(@Param('moderatorId', ParseUUIDPipe) moderatorId: string) {
+    const r = await this.moderatorPermissionsService.getEffective(moderatorId);
+    return { ...r.record, permissions: r.permissions, scope: r.scope };
   }
 
   @Put('moderator-permissions/:moderatorId')

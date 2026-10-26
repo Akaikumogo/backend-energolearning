@@ -23,6 +23,13 @@ function resolveAction(
 ): { module: ModuleKey; action: CrudAction } | null {
   const m = method.toUpperCase();
 
+  if (path.startsWith('/admin/proctor')) {
+    if (m === 'GET' || m === 'HEAD') return { module: 'exams', action: 'view' };
+    if (m === 'POST') return { module: 'exams', action: 'create' };
+    if (m === 'PUT' || m === 'PATCH') return { module: 'exams', action: 'update' };
+    if (m === 'DELETE') return { module: 'exams', action: 'delete' };
+  }
+
   // Telegram bot — view + mutations
   if (
     path === '/admin/telegram-bot/settings' ||
@@ -440,8 +447,8 @@ export class ModeratorPermissionsGuard implements CanActivate {
     const resolved = resolveAction(request.method, path);
     if (!resolved) return true;
 
-    const permRow = await this.moderatorPermissionsService.getOrCreate(user.id);
-    const allowed = !!permRow.permissions?.[resolved.module]?.[resolved.action];
+    const { permissions } = await this.moderatorPermissionsService.getEffective(user.id);
+    const allowed = !!permissions?.[resolved.module]?.[resolved.action];
 
     if (allowed) return true;
 

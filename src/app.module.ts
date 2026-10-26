@@ -109,6 +109,24 @@ import { LibraryDocument } from './database/entities/library-document.entity';
 import { TelegramReportChat } from './database/entities/telegram-report-chat.entity';
 import { TelegramBotSetting } from './database/entities/telegram-bot-setting.entity';
 import { TelegramChatMessage } from './database/entities/telegram-chat-message.entity';
+import { ProctorModule } from './proctor/proctor.module';
+import {
+  ProctorAnswer,
+  ProctorAttempt,
+  ProctorAttemptQuestion,
+  ProctorEvent,
+  ProctorPolicy,
+  ProctorQuestion,
+  ProctorQuestionOption,
+  ProctorRecording,
+  ProctorResult,
+  ProctorRoom,
+  ProctorRoomModerator,
+  ProctorStandard,
+  ProctorStandardQuestion,
+  ProctorUploadJob,
+  ProctorViolation,
+} from './database/entities/proctor.entities';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -177,6 +195,21 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
         TelegramReportChat,
         TelegramBotSetting,
         TelegramChatMessage,
+        ProctorQuestion,
+        ProctorQuestionOption,
+        ProctorStandard,
+        ProctorStandardQuestion,
+        ProctorPolicy,
+        ProctorRoom,
+        ProctorRoomModerator,
+        ProctorAttempt,
+        ProctorAttemptQuestion,
+        ProctorAnswer,
+        ProctorEvent,
+        ProctorResult,
+        ProctorRecording,
+        ProctorUploadJob,
+        ProctorViolation,
       ],
       synchronize: process.env.DB_SYNCHRONIZE === 'true',
     }),
@@ -189,6 +222,7 @@ import { TelegramChatMessage } from './database/entities/telegram-chat-message.e
     ProgressModule,
     StudentsModule,
     CertificatesModule,
+    ProctorModule,
     SafetyRecordsModule,
     ReportingActivationModule,
     PlanCalendarModule,

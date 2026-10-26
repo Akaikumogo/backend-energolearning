@@ -90,6 +90,24 @@ import { PlanChangeLog } from './entities/plan-change-log.entity';
 import { TelegramNews1759200000000 } from './migrations/0050-telegram-news';
 import { PlanCalendarFromDbStart1759300000000 } from './migrations/0051-plan-calendar-from-db-start';
 import { TelegramNewsPosts1759400000000 } from './migrations/0052-telegram-news-posts';
+import { ProctorExam1759500000000 } from './migrations/0053-proctor-exam';
+import {
+  ProctorAnswer,
+  ProctorAttempt,
+  ProctorAttemptQuestion,
+  ProctorEvent,
+  ProctorPolicy,
+  ProctorQuestion,
+  ProctorQuestionOption,
+  ProctorRecording,
+  ProctorResult,
+  ProctorRoom,
+  ProctorRoomModerator,
+  ProctorStandard,
+  ProctorStandardQuestion,
+  ProctorUploadJob,
+  ProctorViolation,
+} from './entities/proctor.entities';
 import {
   TelegramNewsBroadcast,
   TelegramNewsDelivery,
@@ -173,6 +191,21 @@ export const AppDataSource = new DataSource({
     TelegramReportChat,
     TelegramBotSetting,
     TelegramChatMessage,
+    ProctorQuestion,
+    ProctorQuestionOption,
+    ProctorStandard,
+    ProctorStandardQuestion,
+    ProctorPolicy,
+    ProctorRoom,
+    ProctorRoomModerator,
+    ProctorAttempt,
+    ProctorAttemptQuestion,
+    ProctorAnswer,
+    ProctorEvent,
+    ProctorResult,
+    ProctorRecording,
+    ProctorUploadJob,
+    ProctorViolation,
   ],
   migrations: [
     Init1743074000000,
@@ -229,6 +262,7 @@ export const AppDataSource = new DataSource({
     TelegramNews1759200000000,
     PlanCalendarFromDbStart1759300000000,
     TelegramNewsPosts1759400000000,
+    ProctorExam1759500000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
