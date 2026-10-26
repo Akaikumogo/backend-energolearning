@@ -157,8 +157,17 @@ export class ProctorService {
     return {
       total,
       data: rows.map((row) => ({
-        ...row,
-        options: opts.filter((opt) => opt.questionId === row.id),
+        id: row.id,
+        prompt: row.prompt,
+        type: row.type,
+        subject: row.subject,
+        category: row.category,
+        difficulty: row.difficulty,
+        isActive: row.isActive,
+        explanation: row.explanation,
+        options: opts
+          .filter((opt) => opt.questionId === row.id)
+          .map((opt) => ({ id: opt.id, text: opt.text, isCorrect: opt.isCorrect })),
       })),
     };
   }
@@ -419,7 +428,11 @@ export class ProctorService {
     }
     if (status) qb.andWhere('r.status = :status', { status });
     const [data, total] = await qb.skip((Math.max(page, 1) - 1) * take).take(take).getManyAndCount();
-    return { total, data: data.map((room) => this.publicRoom(room)) };
+    const people = data.length
+      ? await this.users.find({ where: { id: In(data.map((room) => room.userId)) } })
+      : [];
+    const names = new Map(people.map((user) => [user.id, [user.lastName, user.firstName].filter(Boolean).join(' ')]));
+    return { total, data: data.map((room) => ({ ...this.publicRoom(room), employeeName: names.get(room.userId) ?? '' })) };
   }
 
   private publicRoom(room: ProctorRoom) {
