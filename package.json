@@ -35,6 +35,7 @@
     "@nestjs/swagger": "^11.2.6",
     "@nestjs/typeorm": "^11.0.0",
     "@nestjs/websockets": "^11.1.18",
+    "@resvg/resvg-js": "^2.6.2",
     "@types/sql.js": "^1.4.11",
     "bcrypt": "^6.0.0",
     "class-transformer": "^0.5.1",

@@ -1,5 +1,6 @@
+import { existsSync } from 'fs';
 import { Injectable } from '@nestjs/common';
-import sharp from 'sharp';
+import { Resvg } from '@resvg/resvg-js';
 
 export type ReportBranchRow = {
   orgName: string;
@@ -54,6 +55,17 @@ const YELLOW = '#ca8a04';
 const RED = '#dc2626';
 const TRACK = '#e2e8f0';
 const BG = '#eef2f7';
+const FONT = 'DejaVu Sans, Liberation Sans, Segoe UI, Arial, sans-serif';
+const REPORT_FONT_FILES = [
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+  '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+  '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+  'C:/Windows/Fonts/segoeui.ttf',
+  'C:/Windows/Fonts/segoeuib.ttf',
+  'C:/Windows/Fonts/arial.ttf',
+  'C:/Windows/Fonts/arialbd.ttf',
+].filter((file) => existsSync(file));
 
 @Injectable()
 export class TelegramReportImageService {
@@ -66,17 +78,24 @@ export class TelegramReportImageService {
   }
 
   async buildDailyReportPng(daily: DailyReportImageInput): Promise<Buffer> {
-    return sharp(Buffer.from(this.buildDailySvg(daily)))
-      .png()
-      .toBuffer();
+    return this.renderSvg(this.buildDailySvg(daily));
   }
 
   async buildMonthlyReportPng(
     monthly: MonthlyReportImageInput,
   ): Promise<Buffer> {
-    return sharp(Buffer.from(this.buildMonthlySvg(monthly)))
-      .png()
-      .toBuffer();
+    return this.renderSvg(this.buildMonthlySvg(monthly));
+  }
+
+  private renderSvg(svg: string): Buffer {
+    const resvg = new Resvg(svg, {
+      font: {
+        fontFiles: REPORT_FONT_FILES,
+        loadSystemFonts: true,
+        defaultFontFamily: 'DejaVu Sans',
+      },
+    });
+    return Buffer.from(resvg.render().asPng());
   }
 
   // ─── Daily: faqat cardlar ────────────────────────────────
@@ -302,13 +321,13 @@ export class TelegramReportImageService {
     const bigCaption = title.includes('Oylik') ? 'O‘rtacha bajarilish' : 'Reja bajarilishi';
     return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="28" fill="url(#hero${title.includes('Oylik') ? 'm' : 'd'})" filter="url(#soft${title.includes('Oylik') ? 'm' : 'd'})"/>
-    <text x="${x + 32}" y="${y + 36}" fill="#bfdbfe" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">${this.esc(title)}</text>
-    <text x="${x + 32}" y="${y + 58}" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(sub)}</text>
-    <text x="${x + 32}" y="${y + 86}" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(bigCaption)}</text>
-    <text x="${x + 32}" y="${y + 138}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="48" font-weight="800">${this.esc(big)}</text>
+    <text x="${x + 32}" y="${y + 36}" fill="#bfdbfe" font-family="${FONT}" font-size="15" font-weight="600">${this.esc(title)}</text>
+    <text x="${x + 32}" y="${y + 58}" fill="#dbeafe" font-family="${FONT}" font-size="13">${this.esc(sub)}</text>
+    <text x="${x + 32}" y="${y + 86}" fill="#dbeafe" font-family="${FONT}" font-size="13">${this.esc(bigCaption)}</text>
+    <text x="${x + 32}" y="${y + 138}" fill="${WHITE}" font-family="${FONT}" font-size="48" font-weight="800">${this.esc(big)}</text>
     <rect x="${x + w - 200}" y="${y + 36}" width="168" height="78" rx="18" fill="rgba(255,255,255,0.18)"/>
-    <text x="${x + w - 116}" y="${y + 66}" text-anchor="middle" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="12">${this.esc(sideLabel)}</text>
-    <text x="${x + w - 116}" y="${y + 96}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">${this.esc(sideValue)}</text>`;
+    <text x="${x + w - 116}" y="${y + 66}" text-anchor="middle" fill="#dbeafe" font-family="${FONT}" font-size="12">${this.esc(sideLabel)}</text>
+    <text x="${x + w - 116}" y="${y + 96}" text-anchor="middle" fill="${WHITE}" font-family="${FONT}" font-size="20" font-weight="700">${this.esc(sideValue)}</text>`;
   }
 
   private branchCard(
@@ -331,11 +350,11 @@ export class TelegramReportImageService {
     return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${tint}" filter="url(#softd)"/>
     <circle cx="${x + 26}" cy="${y + 28}" r="9" fill="${accent}"/>
-    <text x="${x + 44}" y="${y + 34}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="700">${this.esc(name)}</text>
-    <text x="${x + 22}" y="${y + 72}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">Bajarilish</text>
-    <text x="${x + 22}" y="${y + 100}" fill="${accent}" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">${this.fmt(percent)}%</text>
-    <text x="${x + w - 18}" y="${y + 72}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">To‘g‘ri javob / reja</text>
-    <text x="${x + w - 18}" y="${y + 100}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">${this.esc(planLabel)}</text>`;
+    <text x="${x + 44}" y="${y + 34}" fill="${INK}" font-family="${FONT}" font-size="15" font-weight="700">${this.esc(name)}</text>
+    <text x="${x + 22}" y="${y + 72}" fill="${MUTED}" font-family="${FONT}" font-size="12">Bajarilish</text>
+    <text x="${x + 22}" y="${y + 100}" fill="${accent}" font-family="${FONT}" font-size="28" font-weight="800">${this.fmt(percent)}%</text>
+    <text x="${x + w - 18}" y="${y + 72}" text-anchor="end" fill="${MUTED}" font-family="${FONT}" font-size="12">To‘g‘ri javob / reja</text>
+    <text x="${x + w - 18}" y="${y + 100}" text-anchor="end" fill="${INK}" font-family="${FONT}" font-size="16" font-weight="700">${this.esc(planLabel)}</text>`;
   }
 
   private branchCardWithSpark(
@@ -380,9 +399,9 @@ export class TelegramReportImageService {
     return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${tint}" filter="url(#softm)"/>
     <circle cx="${x + 26}" cy="${y + 26}" r="8" fill="${accent}"/>
-    <text x="${x + 42}" y="${y + 32}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">${this.esc(name)}</text>
-    <text x="${x + w - 18}" y="${y + 32}" text-anchor="end" fill="${accent}" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800">${this.fmt(percent)}%</text>
-    <text x="${x + 18}" y="${y + 52}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="11">O‘rtacha bajarilish · kunlar 1–${n}</text>
+    <text x="${x + 42}" y="${y + 32}" fill="${INK}" font-family="${FONT}" font-size="14" font-weight="700">${this.esc(name)}</text>
+    <text x="${x + w - 18}" y="${y + 32}" text-anchor="end" fill="${accent}" font-family="${FONT}" font-size="20" font-weight="800">${this.fmt(percent)}%</text>
+    <text x="${x + 18}" y="${y + 52}" fill="${MUTED}" font-family="${FONT}" font-size="11">O‘rtacha bajarilish · kunlar 1–${n}</text>
     ${bars}`;
   }
 
@@ -398,8 +417,8 @@ export class TelegramReportImageService {
   ): string {
     return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="20" fill="${bg}"/>
-    <text x="${x + 16}" y="${y + 30}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12" font-weight="600">${this.esc(label)}</text>
-    <text x="${x + 16}" y="${y + 58}" fill="${valueColor}" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800">${this.esc(value)}</text>`;
+    <text x="${x + 16}" y="${y + 30}" fill="${MUTED}" font-family="${FONT}" font-size="12" font-weight="600">${this.esc(label)}</text>
+    <text x="${x + 16}" y="${y + 58}" fill="${valueColor}" font-family="${FONT}" font-size="20" font-weight="800">${this.esc(value)}</text>`;
   }
 
   /**

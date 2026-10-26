@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { In, IsNull, QueryFailedError, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { EmployeeSafetyRecord } from '../database/entities/employee-safety-record.entity';
 import { EmployeeSafetyRecordChange } from '../database/entities/employee-safety-record-change.entity';
@@ -44,6 +44,13 @@ const FIELD_KEYS = [
   'medicalResponsibleName',
 ] as const;
 
+function isUniqueViolation(err: unknown) {
+  return (
+    err instanceof QueryFailedError &&
+    (err.driverError as { code?: string } | undefined)?.code === '23505'
+  );
+}
+
 @Injectable()
 export class SafetyRecordsService {
   constructor(
@@ -71,19 +78,27 @@ export class SafetyRecordsService {
   }
 
   async getOrCreateProfile(employeeUserId: string) {
-    let profile = await this.profileRepo.findOne({
+    const existing = await this.profileRepo.findOne({
       where: { userId: employeeUserId },
     });
-    if (!profile) {
-      profile = await this.profileRepo.save(
+    if (existing) return this.mapProfile(existing);
+    try {
+      const created = await this.profileRepo.save(
         this.profileRepo.create({
           userId: employeeUserId,
           specialWorks: 'Йўқ',
           specialWorkType: 'Йўқ',
         }),
       );
+      return this.mapProfile(created);
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      const raced = await this.profileRepo.findOne({
+        where: { userId: employeeUserId },
+      });
+      if (!raced) throw err;
+      return this.mapProfile(raced);
     }
-    return this.mapProfile(profile);
   }
 
   async upsertProfile(
