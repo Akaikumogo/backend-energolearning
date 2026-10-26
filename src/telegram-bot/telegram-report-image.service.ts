@@ -98,7 +98,7 @@ export class TelegramReportImageService {
     ).length;
     const missing = sorted.length - submitted;
 
-    const heroH = 160;
+    const heroH = 176;
     const statsH = 84;
     const cols = 2;
     const gap = 12;
@@ -118,7 +118,7 @@ export class TelegramReportImageService {
       'Elektro Learn · Kunlik hisobot',
       `${this.dateLabel(daily.planDate)} · Asia/Tashkent ${daily.clockLabel || '18:00'}`,
       `${this.fmt(daily.completionPercent)}%`,
-      'Reja',
+      'To‘g‘ri javob / reja',
       `${daily.completedTotal}/${daily.totalPlan}`,
     );
     y += heroH + 14;
@@ -130,7 +130,7 @@ export class TelegramReportImageService {
         y,
         sw,
         statsH,
-        'Filiallar',
+        'Filial soni',
         String(daily.branchCount),
         INK,
         '#eff6ff',
@@ -140,7 +140,7 @@ export class TelegramReportImageService {
         y,
         sw,
         statsH,
-        'Topshirgan',
+        'Hisobot bergan',
         String(submitted),
         GREEN,
         '#ecfdf5',
@@ -150,7 +150,7 @@ export class TelegramReportImageService {
         y,
         sw,
         statsH,
-        'Topshirmagan',
+        'Hisobot bermagan',
         String(missing),
         missing ? RED : GREEN,
         missing ? '#fef2f2' : '#ecfdf5',
@@ -160,7 +160,7 @@ export class TelegramReportImageService {
         y,
         sw,
         statsH,
-        'Xodimlar',
+        'Rejani yopgan xodim',
         `${daily.completedEmployees}/${daily.totalEmployees}`,
         INK,
         '#f8fafc',
@@ -217,7 +217,7 @@ export class TelegramReportImageService {
       );
     const names = ranked.map((b) => this.displayOrgName(b.orgName));
 
-    const heroH = 150;
+    const heroH = 168;
     const cols = 2;
     const gap = 12;
     const cardH = 148;
@@ -235,7 +235,7 @@ export class TelegramReportImageService {
       'Elektro Learn · Oylik hisobot',
       `${this.monthLabel(monthly.month)} · Asia/Tashkent`,
       `${this.fmt(monthly.averagePercent)}%`,
-      'Kunlar',
+      'Yopilgan kun',
       `${monthly.dailyPoints.length}/${daysInMonth}`,
     );
     y += heroH + 16;
@@ -299,11 +299,13 @@ export class TelegramReportImageService {
     sideLabel: string,
     sideValue: string,
   ): string {
+    const bigCaption = title.includes('Oylik') ? 'O‘rtacha bajarilish' : 'Reja bajarilishi';
     return `
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="28" fill="url(#hero${title.includes('Oylik') ? 'm' : 'd'})" filter="url(#soft${title.includes('Oylik') ? 'm' : 'd'})"/>
-    <text x="${x + 32}" y="${y + 40}" fill="#bfdbfe" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">${this.esc(title)}</text>
-    <text x="${x + 32}" y="${y + 64}" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(sub)}</text>
-    <text x="${x + 32}" y="${y + 122}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="52" font-weight="800">${this.esc(big)}</text>
+    <text x="${x + 32}" y="${y + 36}" fill="#bfdbfe" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600">${this.esc(title)}</text>
+    <text x="${x + 32}" y="${y + 58}" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(sub)}</text>
+    <text x="${x + 32}" y="${y + 86}" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(bigCaption)}</text>
+    <text x="${x + 32}" y="${y + 138}" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="48" font-weight="800">${this.esc(big)}</text>
     <rect x="${x + w - 200}" y="${y + 36}" width="168" height="78" rx="18" fill="rgba(255,255,255,0.18)"/>
     <text x="${x + w - 116}" y="${y + 66}" text-anchor="middle" fill="#dbeafe" font-family="Segoe UI, Arial, sans-serif" font-size="12">${this.esc(sideLabel)}</text>
     <text x="${x + w - 116}" y="${y + 96}" text-anchor="middle" fill="${WHITE}" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700">${this.esc(sideValue)}</text>`;
@@ -330,8 +332,10 @@ export class TelegramReportImageService {
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${tint}" filter="url(#softd)"/>
     <circle cx="${x + 26}" cy="${y + 28}" r="9" fill="${accent}"/>
     <text x="${x + 44}" y="${y + 34}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="700">${this.esc(name)}</text>
-    <text x="${x + 22}" y="${y + 84}" fill="${accent}" font-family="Segoe UI, Arial, sans-serif" font-size="32" font-weight="800">${this.fmt(percent)}%</text>
-    <text x="${x + w - 18}" y="${y + 84}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="13">${this.esc(planLabel)}</text>`;
+    <text x="${x + 22}" y="${y + 72}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">Bajarilish</text>
+    <text x="${x + 22}" y="${y + 100}" fill="${accent}" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="800">${this.fmt(percent)}%</text>
+    <text x="${x + w - 18}" y="${y + 72}" text-anchor="end" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="12">To‘g‘ri javob / reja</text>
+    <text x="${x + w - 18}" y="${y + 100}" text-anchor="end" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="700">${this.esc(planLabel)}</text>`;
   }
 
   private branchCardWithSpark(
@@ -377,8 +381,8 @@ export class TelegramReportImageService {
     <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="22" fill="${tint}" filter="url(#softm)"/>
     <circle cx="${x + 26}" cy="${y + 26}" r="8" fill="${accent}"/>
     <text x="${x + 42}" y="${y + 32}" fill="${INK}" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="700">${this.esc(name)}</text>
-    <text x="${x + w - 18}" y="${y + 34}" text-anchor="end" fill="${accent}" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="800">${this.fmt(percent)}%</text>
-    <text x="${x + 18}" y="${y + 58}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="11">Kunlik foizlar (1–${n})</text>
+    <text x="${x + w - 18}" y="${y + 32}" text-anchor="end" fill="${accent}" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="800">${this.fmt(percent)}%</text>
+    <text x="${x + 18}" y="${y + 52}" fill="${MUTED}" font-family="Segoe UI, Arial, sans-serif" font-size="11">O‘rtacha bajarilish · kunlar 1–${n}</text>
     ${bars}`;
   }
 

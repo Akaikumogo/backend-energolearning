@@ -1141,16 +1141,17 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     const dailyCaption =
       `⚡ <b>Elektro Learn</b> — kunlik hisobot\n` +
       `${d}.${m}.${y} · ${sentAt}\n` +
-      `Bugun: <b>${completionPercent.toFixed(1)}%</b>` +
+      `Reja bajarilishi: <b>${completionPercent.toFixed(1)}%</b>\n` +
+      `To‘g‘ri javob / reja: <b>${completedTotal}/${totalPlan}</b>` +
       (missingCount > 0
-        ? ` · <b>${missingCount}</b> filial hisobot bermadi`
+        ? `\nHisobot bermagan filial: <b>${missingCount}</b>`
         : '');
 
     const [yy, mm] = monthly.month.split('-');
     const monthlyCaption =
       `🗓 <b>Elektro Learn</b> — oylik hisobot\n` +
       `${mm}.${yy} · ${monthly.trend.length} kun\n` +
-      `Oylik oʻrtacha: <b>${monthlyAvg.toFixed(1)}%</b>`;
+      `O‘rtacha bajarilish: <b>${monthlyAvg.toFixed(1)}%</b>`;
 
     return { dailyPng, monthlyPng, dailyCaption, monthlyCaption };
   }
