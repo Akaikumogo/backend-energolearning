@@ -1,8 +1,15 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { ExamAssignmentStatus } from '../common/enums/exam-assignment-status.enum';
+import { AiChatMessage } from '../database/entities/ai-chat-message.entity';
+import { AiChatSession } from '../database/entities/ai-chat-session.entity';
 import { AiOutOfScopeQuestion } from '../database/entities/ai-out-of-scope-question.entity';
 import { ExamAssignment } from '../database/entities/exam-assignment.entity';
 import { Exam } from '../database/entities/exam.entity';
@@ -12,7 +19,9 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
+import { BranchAnalyticsService } from '../branch-analytics/branch-analytics.service';
 import { OrganizationsService } from '../organizations/organizations.service';
+import { relevantDocumentContext } from './ai-knowledge';
 import {
   GROQ_BASE_URL,
   GROQ_MODEL,
@@ -35,7 +44,7 @@ export class AiChatService {
   private readonly logger = new Logger(AiChatService.name);
 
   private readonly ctxCache = new Map<string, { at: number; ctx: string }>();
-  private readonly ctxTtlMs = 30_000;
+  private readonly ctxTtlMs = 60_000;
 
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
@@ -54,7 +63,12 @@ export class AiChatService {
     private readonly examRepo: Repository<Exam>,
     @InjectRepository(AiOutOfScopeQuestion)
     private readonly outOfScopeRepo: Repository<AiOutOfScopeQuestion>,
+    @InjectRepository(AiChatSession)
+    private readonly sessionRepo: Repository<AiChatSession>,
+    @InjectRepository(AiChatMessage)
+    private readonly messageRepo: Repository<AiChatMessage>,
     private readonly organizationsService: OrganizationsService,
+    private readonly analytics: BranchAnalyticsService,
   ) {}
 
   normalizeScope(role: Role | undefined, requestedScope?: string): AiChatScope {
@@ -162,12 +176,53 @@ export class AiChatService {
     };
   }
 
+  async listSessions(userId: string) {
+    const rows = await this.sessionRepo.find({
+      where: { userId, scope: 'admin' },
+      order: { updatedAt: 'DESC' },
+      take: 80,
+    });
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        title: row.title?.trim() || 'Yangi chat',
+        updatedAt: row.updatedAt,
+        createdAt: row.createdAt,
+      })),
+    };
+  }
+
+  async listMessages(userId: string, sessionId: string) {
+    await this.requireAdminSession(userId, sessionId);
+    const rows = await this.messageRepo.find({
+      where: { sessionId },
+      order: { createdAt: 'ASC' },
+      take: 200,
+    });
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        role: row.role,
+        content: row.content,
+        createdAt: row.createdAt,
+      })),
+    };
+  }
+
+  async deleteSession(userId: string, sessionId: string) {
+    const session = await this.requireAdminSession(userId, sessionId);
+    await this.sessionRepo.remove(session);
+    return { ok: true };
+  }
+
   async streamReply(args: {
     userId: string;
     role: Role;
     organizationIds: string[] | undefined;
     scope: AiChatScope;
     message: string;
+    sessionId?: string;
+    onSession?: (session: { id: string; title: string }) => void;
     onChunk: (chunk: string) => void;
   }) {
     if (!hasGroqConfig()) {
@@ -191,28 +246,52 @@ export class AiChatService {
       args.role,
       args.organizationIds,
     );
-    const verdict = await this.classifyQuestion(args.message, access.scopeLabel);
-    if (verdict === 'OUT') {
-      await this.recordOutOfScope(args.userId, args.role, access, args.message);
-      const note =
-        'Bu savol ElektroLearn doirasida emas. Platforma, filial va xavfsizlik yozuvlaridan tashqari mavzuga javob berilmaydi. Savol markaziy apparat jurnaliga yozildi.';
-      args.onChunk(note);
-      return;
-    }
-
-    const ctx = await this.getAdminContext(access);
-    await this.streamFromGroq({
-      system: [
-        "Sen ElektroLearn tahlilchisisan. O'zbek tilida, qisqa va aniq yoz.",
-        "Faqat KONTEKST dagi raqam va faktlardan foydalan. Yo'q narsani o'ylab topma.",
-        'Boshqa tashkilot, dastur kodi, server tuzilishi, token yoki tibbiy xulosa haqida gapirma.',
-        'Raqamlarni o‘zgartirma. Javobni 2–6 qisqa bandga bo‘l.',
-        `Doirang: ${access.scopeLabel}.`,
-      ].join(' '),
-      user: `${ctx}\nSAVOL: ${args.message}`,
-      onChunk: args.onChunk,
-        maxTokens: 1200,
+    const session = await this.openAdminSession(args.userId, args.sessionId);
+    const created = !args.sessionId;
+    args.onSession?.({
+      id: session.id,
+      title: session.title?.trim() || 'Yangi chat',
     });
+    try {
+      const history = await this.recentTurns(session.id);
+      const verdict = await this.classifyQuestion(args.message, access.scopeLabel);
+      if (verdict === 'OUT') {
+        await this.recordOutOfScope(args.userId, args.role, access, args.message);
+        const note =
+          'Bu savol ElektroLearn doirasida emas. Platforma, statistika, hisobot va berilgan hujjatlardan tashqari mavzuga javob berilmaydi. Savol markaziy apparat jurnaliga yozildi.';
+        args.onChunk(note);
+        await this.rememberTurn(session, args.message, note);
+        return;
+      }
+
+      const ctx = await this.getAdminContext(access);
+      const docs = relevantDocumentContext(args.message);
+      let answer = '';
+      await this.streamFromGroq({
+        system: [
+          "Sen ElektroLearn tahlilchisisan. O'zbek tilida, qisqa va aniq yoz.",
+          "Faqat KONTEKST va HUJJAT bo'laklaridagi raqam va faktlardan foydalan. Yo'q narsani o'ylab topma.",
+          "Statistika, oylik hisobot, 608-son, 609-son va tashakkurnoma shu doirada.",
+          'Boshqa tashkilot, dastur kodi, server tuzilishi, token yoki tibbiy xulosa haqida gapirma.',
+          'Raqamlarni o‘zgartirma. Javobni 2–6 qisqa bandga bo‘l.',
+          `Doirang: ${access.scopeLabel}.`,
+        ].join(' '),
+        history,
+        user: `${ctx}\n${docs}\nSAVOL: ${args.message}`,
+        onChunk: (chunk) => {
+          answer += chunk;
+          args.onChunk(chunk);
+        },
+        maxTokens: 1200,
+      });
+      await this.rememberTurn(session, args.message, answer);
+    } catch (error) {
+      if (created) {
+        const kept = await this.messageRepo.count({ where: { sessionId: session.id } });
+        if (kept === 0) await this.sessionRepo.delete(session.id);
+      }
+      throw error;
+    }
   }
 
   private async classifyQuestion(message: string, scopeLabel: string) {
@@ -223,10 +302,17 @@ export class AiChatService {
     ) {
       return 'OUT' as const;
     }
+    if (
+      /\b608\b|\b609\b|tashakkurnoma|xudayarov|nazirov|vazirlar mahkamasi|texnik ekspluat|bilim sinov|stajirovka|instruktaj|statistika|hisobot|reyting|kunlik reja/i.test(
+        message,
+      )
+    ) {
+      return 'IN' as const;
+    }
     const text = await this.completeGroq({
       system: [
         "Sen ElektroLearn savol filtrisan. Faqat bitta so'z yoz: IN yoki OUT.",
-        "IN — savol shu platforma ichida: kunlik reja, xodim, imtihon, xato savol, reyting, xavfsizlik yozuvi, moderator ishi. Va faqat berilgan tashkilotlar haqida.",
+        "IN — savol shu platforma ichida: kunlik reja, statistika, hisobot, reyting, xodim, imtihon, xato savol, xavfsizlik yozuvi, moderator ishi, 608-son, 609-son, tashakkurnoma, bilim sinovi, stajirovka, instruktaj. Va faqat berilgan tashkilotlar haqida.",
         "OUT — kod, dasturlash, SQL, server, umumiy bilim, yangilik, shaxsiy maslahat, yoki ro'yxatda yo'q tashkilot.",
         `Tashkilotlar: ${scopeLabel}`,
       ].join(' '),
@@ -291,6 +377,7 @@ export class AiChatService {
 
   private async streamFromGroq(args: {
     system: string;
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
     user: string;
     onChunk: (chunk: string) => void;
     maxTokens: number;
@@ -314,6 +401,10 @@ export class AiChatService {
           reasoning_effort: 'low',
           messages: [
             { role: 'system', content: args.system },
+            ...(args.history ?? []).map((turn) => ({
+              role: turn.role,
+              content: turn.content,
+            })),
             { role: 'user', content: args.user },
           ],
         }),
@@ -618,6 +709,8 @@ export class AiChatService {
           .join('\n')
       : '- yo\'q';
 
+    const stats = await this.reportLines(ids);
+
     const ctx = [
       `KONTEKST: doira=${access.scopeLabel}. Auditoriya=${access.audience}. Oxirgi 7 kun.`,
       'Tashkilotlar:',
@@ -629,11 +722,121 @@ export class AiChatService {
       riskLine,
       'Ko\'proq xato qilayotgan xodimlar:',
       peopleLine,
+      stats,
     ]
       .filter((line) => line !== '')
       .join('\n');
     this.ctxCache.set(key, { at: now, ctx });
     return ctx;
+  }
+
+  private async reportLines(orgIds: string[]) {
+    try {
+      const ranking = await this.analytics.getBranchRanking(undefined, orgIds);
+      const rankLines = ranking.branches.slice(0, 15).map(
+        (row) =>
+          `- ${row.rank}. ${row.orgName}: ${row.percent}% (reja ${row.plan}, bajarilgan ${row.completed}, xodim ${row.totalEmployees})`,
+      );
+      const comparison = await this.analytics.getBranchComparison(undefined, orgIds);
+      const monthLines = comparison.branches.slice(0, 15).map(
+        (row) =>
+          `- ${row.rank}. ${row.orgName}: oylik ${row.averageMonthlyPercent}%, bajarilgan kun ${row.completedDays}, xodim ${row.totalEmployees}`,
+      );
+      const reports: Array<{
+        org_name: string;
+        month: string;
+        employee_count: number;
+        integrity_status: string;
+      }> = await this.orgRepo.query(
+        `
+        SELECT DISTINCT ON (organization_id)
+          org_name, month, employee_count, integrity_status
+        FROM report_submissions
+        WHERE organization_id = ANY($1::uuid[])
+        ORDER BY organization_id, created_at DESC
+        `,
+        [orgIds],
+      );
+      const reportLines = reports.slice(0, 15).map((row) => {
+        const state =
+          row.integrity_status === 'ok'
+            ? 'tasdiqlangan'
+            : row.integrity_status === 'tampered'
+              ? 'o‘zgartirilgan'
+              : 'imzosiz';
+        return `- ${row.org_name}, ${row.month}: ${row.employee_count} xodim, ${state}`;
+      });
+      return [
+        `Bugungi reja reytingi (${ranking.planDate}):`,
+        rankLines.join('\n') || '- yo\'q',
+        `Oylik hisobot taqqoslash (${comparison.month}):`,
+        monthLines.join('\n') || '- yo\'q',
+        'Yuklangan hisobotlar:',
+        reportLines.join('\n') || '- yo\'q',
+      ].join('\n');
+    } catch (error) {
+      this.logger.warn(
+        `AI statistika konteksti tushmadi: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return 'Statistika hozir yuklanmadi.';
+    }
+  }
+
+  private async requireAdminSession(userId: string, sessionId: string) {
+    const session = await this.sessionRepo.findOne({
+      where: { id: sessionId, userId, scope: 'admin' },
+    });
+    if (!session) throw new NotFoundException('Chat topilmadi');
+    return session;
+  }
+
+  private async openAdminSession(userId: string, sessionId?: string) {
+    if (sessionId) return this.requireAdminSession(userId, sessionId);
+    return this.sessionRepo.save(
+      this.sessionRepo.create({
+        userId,
+        scope: 'admin',
+        title: 'Yangi chat',
+      }),
+    );
+  }
+
+  private async recentTurns(sessionId: string) {
+    const rows = await this.messageRepo.find({
+      where: { sessionId },
+      order: { createdAt: 'DESC' },
+      take: 12,
+    });
+    return rows.reverse().map((row) => ({
+      role: row.role,
+      content: row.content.slice(0, 1500),
+    }));
+  }
+
+  private async rememberTurn(
+    session: AiChatSession,
+    question: string,
+    answer: string,
+  ) {
+    await this.messageRepo.save([
+      this.messageRepo.create({
+        sessionId: session.id,
+        role: 'user',
+        content: question.slice(0, 4000),
+      }),
+      this.messageRepo.create({
+        sessionId: session.id,
+        role: 'assistant',
+        content: answer.slice(0, 8000),
+      }),
+    ]);
+    const current = session.title?.trim();
+    if (!current || current === 'Yangi chat') {
+      session.title = question.replace(/\s+/g, ' ').trim().slice(0, 72);
+    }
+    await this.sessionRepo.save(session);
   }
 
   private formatFetchError(error: unknown) {

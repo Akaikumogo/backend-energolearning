@@ -93,6 +93,7 @@ import { TelegramNewsPosts1759400000000 } from './migrations/0052-telegram-news-
 import { ProctorExam1759500000000 } from './migrations/0053-proctor-exam';
 import { KeepAttemptXpWhenQuestionDeleted1759600000000 } from './migrations/0054-keep-attempt-xp-when-question-deleted';
 import { AiOutOfScopeQuestions1759700000000 } from './migrations/0055-ai-out-of-scope-questions';
+import { AiChatManySessions1759800000000 } from './migrations/0056-ai-chat-many-sessions';
 import { AiOutOfScopeQuestion } from './entities/ai-out-of-scope-question.entity';
 import {
   ProctorAnswer,
@@ -269,6 +270,7 @@ export const AppDataSource = new DataSource({
     ProctorExam1759500000000,
     KeepAttemptXpWhenQuestionDeleted1759600000000,
     AiOutOfScopeQuestions1759700000000,
+    AiChatManySessions1759800000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,

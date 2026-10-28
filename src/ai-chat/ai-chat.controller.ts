@@ -1,4 +1,12 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -38,5 +46,26 @@ export class AiChatController {
       req.user.role,
       req.user.organizationIds,
     );
+  }
+
+  @Get('sessions')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
+  @ApiOperation({ summary: 'Foydalanuvchining alohida chatlari' })
+  sessions(@Req() req: Authed) {
+    return this.aiChatService.listSessions(req.user.id);
+  }
+
+  @Get('sessions/:id/messages')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
+  @ApiOperation({ summary: 'Bitta chatdagi xabarlar' })
+  messages(@Req() req: Authed, @Param('id', ParseUUIDPipe) id: string) {
+    return this.aiChatService.listMessages(req.user.id, id);
+  }
+
+  @Delete('sessions/:id')
+  @Roles(Role.SUPERADMIN, Role.MODERATOR, Role.APPROVER)
+  @ApiOperation({ summary: 'Chatni o‘chirish' })
+  remove(@Req() req: Authed, @Param('id', ParseUUIDPipe) id: string) {
+    return this.aiChatService.deleteSession(req.user.id, id);
   }
 }

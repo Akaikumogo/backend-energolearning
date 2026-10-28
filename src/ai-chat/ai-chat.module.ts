@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { BranchAnalyticsModule } from '../branch-analytics/branch-analytics.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { AiOutOfScopeQuestion } from '../database/entities/ai-out-of-scope-question.entity';
 import { AiChatMessage } from '../database/entities/ai-chat-message.entity';
@@ -25,6 +26,7 @@ import { AiChatController } from './ai-chat.controller';
   imports: [
     AuthModule,
     OrganizationsModule,
+    BranchAnalyticsModule,
     TypeOrmModule.forFeature([
       User,
       Organization,

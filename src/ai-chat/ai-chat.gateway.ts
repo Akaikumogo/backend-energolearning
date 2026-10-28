@@ -81,7 +81,7 @@ export class AiChatGateway
   @SubscribeMessage('chat_message')
   async handleChatMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { message?: string },
+    @MessageBody() body: { message?: string; sessionId?: string },
   ) {
     const userId = String(client.data.userId ?? '');
     const role = client.data.role as Role | undefined;
@@ -114,6 +114,10 @@ export class AiChatGateway
         organizationIds,
         scope,
         message,
+        sessionId: body?.sessionId,
+        onSession: (session) => {
+          client.emit('session_ready', session);
+        },
         onChunk: (chunk) => {
           const safe = this.scrubIds(chunk);
           fullResponse += safe;

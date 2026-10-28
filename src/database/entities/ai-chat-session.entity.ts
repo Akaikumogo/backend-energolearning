@@ -13,7 +13,7 @@ import { User } from './user.entity';
 import { AiChatMessage } from './ai-chat-message.entity';
 
 @Entity({ name: 'ai_chat_sessions' })
-@Index('ix_ai_chat_sessions_user_scope', ['userId', 'scope'], { unique: true })
+@Index('ix_ai_chat_sessions_user_updated', ['userId', 'updatedAt'])
 export class AiChatSession {
   @PrimaryGeneratedColumn('uuid')
   id: string;
