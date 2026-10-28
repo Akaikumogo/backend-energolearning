@@ -37,6 +37,8 @@ function parseQuizMode(raw?: string): MobileTheoryQuizMode {
 }
 
 @ApiTags('Content (Mobile)')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard)
 @Controller()
 export class MobileContentController {
   constructor(private readonly contentService: ContentService) {}
@@ -97,8 +99,6 @@ export class MobileContentController {
   }
 
   @Get('theories/:theoryId/questions')
-  @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Modul savollari (mobile)',
     description:

@@ -1,8 +1,11 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrganizationsService } from './organizations.service';
 
 @ApiTags('Public')
+@ApiBearerAuth('bearer')
+@UseGuards(JwtAuthGuard)
 @Controller('public')
 export class PublicOrganizationsController {
   constructor(private readonly orgService: OrganizationsService) {}
