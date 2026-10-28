@@ -85,6 +85,7 @@ export class AiChatGateway
   ) {
     const userId = String(client.data.userId ?? '');
     const role = client.data.role as Role | undefined;
+    const organizationIds = (client.data.organizationIds as string[] | undefined) ?? [];
     const scope = (client.data.scope as AiChatScope | undefined) ?? 'mobile';
     const message = body?.message?.trim() ?? '';
 
@@ -109,6 +110,8 @@ export class AiChatGateway
     try {
       await this.aiChatService.streamReply({
         userId,
+        role,
+        organizationIds,
         scope,
         message,
         onChunk: (chunk) => {
@@ -141,7 +144,7 @@ export class AiChatGateway
 
   private formatUserError(error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
-    if (msg.includes('OpenRouter HTTP 401') || msg.includes('User not found')) {
+    if (msg.includes('Groq HTTP 401') || msg.includes('invalid_api_key')) {
       return 'AI vaqtincha javob bera olmadi. Birozdan keyin qayta urinib ko‘ring.';
     }
     return 'AI yordamchi hozir javob bera olmadi. Birozdan keyin qayta urinib ko`ring.';

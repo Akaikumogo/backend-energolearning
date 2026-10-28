@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
+import { AiOutOfScopeQuestion } from '../database/entities/ai-out-of-scope-question.entity';
 import { AiChatMessage } from '../database/entities/ai-chat-message.entity';
 import { AiChatSession } from '../database/entities/ai-chat-session.entity';
 import { ExamAssignment } from '../database/entities/exam-assignment.entity';
@@ -39,6 +40,7 @@ import { AiChatController } from './ai-chat.controller';
       Exam,
       AiChatSession,
       AiChatMessage,
+      AiOutOfScopeQuestion,
     ]),
   ],
   providers: [AiChatService, AiChatGateway],

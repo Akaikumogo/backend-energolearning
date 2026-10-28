@@ -1,18 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import {
-  AI_PROVIDER,
-  hasOllamaConfig,
-  hasOpenRouterConfig,
-  OLLAMA_BASE_URL,
-  OLLAMA_MODEL,
-  OLLAMA_TIMEOUT_MS,
-  OPENROUTER_API_KEY,
-  OPENROUTER_MODEL,
-} from './ai-chat.config';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { ExamAssignmentStatus } from '../common/enums/exam-assignment-status.enum';
+import { AiOutOfScopeQuestion } from '../database/entities/ai-out-of-scope-question.entity';
 import { ExamAssignment } from '../database/entities/exam-assignment.entity';
 import { Exam } from '../database/entities/exam.entity';
 import { Level } from '../database/entities/level.entity';
@@ -21,8 +12,23 @@ import { UserQuestionAttempt } from '../database/entities/user-question-attempt.
 import { User } from '../database/entities/user.entity';
 import { Organization } from '../database/entities/organization.entity';
 import { UserOrganization } from '../database/entities/user-organization.entity';
+import { OrganizationsService } from '../organizations/organizations.service';
+import {
+  GROQ_BASE_URL,
+  GROQ_MODEL,
+  groqApiKey,
+  hasGroqConfig,
+} from './ai-chat.config';
 
 export type AiChatScope = 'mobile' | 'admin';
+export type AiAudience = 'superadmin' | 'central' | 'branch';
+
+export type AiAccess = {
+  audience: AiAudience;
+  scopeLabel: string;
+  orgIds: string[];
+  canReviewOutOfScope: boolean;
+};
 
 @Injectable()
 export class AiChatService {
@@ -46,6 +52,9 @@ export class AiChatService {
     private readonly examAssignmentRepo: Repository<ExamAssignment>,
     @InjectRepository(Exam)
     private readonly examRepo: Repository<Exam>,
+    @InjectRepository(AiOutOfScopeQuestion)
+    private readonly outOfScopeRepo: Repository<AiOutOfScopeQuestion>,
+    private readonly organizationsService: OrganizationsService,
   ) {}
 
   normalizeScope(role: Role | undefined, requestedScope?: string): AiChatScope {
@@ -60,187 +69,249 @@ export class AiChatService {
     return requestedScope === 'admin' ? 'admin' : 'mobile';
   }
 
-  getProviderStatus() {
+  async describeAccess(
+    userId: string,
+    role: Role,
+    organizationIds: string[] | undefined,
+  ): Promise<AiAccess> {
+    if (role === Role.SUPERADMIN) {
+      const orgs = await this.orgRepo.find({
+        where: { archivedAt: IsNull() },
+        order: { name: 'ASC' },
+      });
+      return {
+        audience: 'superadmin',
+        scopeLabel: 'Barcha tashkilotlar',
+        orgIds: orgs.map((org) => org.id),
+        canReviewOutOfScope: true,
+      };
+    }
+
+    const ids = organizationIds ?? [];
+    const linked = ids.length
+      ? await this.orgRepo.find({ where: { id: In(ids) } })
+      : [];
+    const central = linked.some((org) => org.isDefault);
+    if (central) {
+      const own = linked.filter((org) => org.isDefault);
+      return {
+        audience: 'central',
+        scopeLabel: own.map((org) => org.name).join(', ') || 'Markaziy apparat',
+        orgIds: own.map((org) => org.id),
+        canReviewOutOfScope: true,
+      };
+    }
+
+    const expanded = ids.length
+      ? await this.organizationsService.expandOrgScope(ids)
+      : [];
+    const orgs = expanded.length
+      ? await this.orgRepo.find({
+          where: { id: In(expanded), archivedAt: IsNull() },
+          order: { name: 'ASC' },
+        })
+      : [];
     return {
-      provider: AI_PROVIDER,
-      openRouterConfigured: hasOpenRouterConfig(),
-      ollamaConfigured: hasOllamaConfig(),
-      openRouterModel: OPENROUTER_MODEL,
-      ollamaModel: OLLAMA_MODEL,
-      ollamaBaseUrl: OLLAMA_BASE_URL,
-      ready: true,
+      audience: 'branch',
+      scopeLabel: orgs.map((org) => org.name).join(', ') || 'Filial',
+      orgIds: orgs.map((org) => org.id),
+      canReviewOutOfScope: false,
     };
   }
 
-  /**
-   * Simple messenger mode:
-   * - no DB context
-   * - no chat history sent to model
-   * - only user's message is forwarded to Ollama
-   */
+  async getProviderStatus(
+    userId: string,
+    role: Role,
+    organizationIds: string[] | undefined,
+  ) {
+    const access = await this.describeAccess(userId, role, organizationIds);
+    return {
+      provider: 'groq',
+      model: GROQ_MODEL,
+      ready: hasGroqConfig(),
+      audience: access.audience,
+      scopeLabel: access.scopeLabel,
+      canReviewOutOfScope: access.canReviewOutOfScope,
+    };
+  }
+
+  async listOutOfScope(
+    userId: string,
+    role: Role,
+    organizationIds: string[] | undefined,
+  ) {
+    const access = await this.describeAccess(userId, role, organizationIds);
+    if (!access.canReviewOutOfScope) {
+      throw new ForbiddenException('Bu jurnal faqat markaziy apparat va superadmin uchun');
+    }
+    const rows = await this.outOfScopeRepo.find({
+      order: { createdAt: 'DESC' },
+      take: 200,
+    });
+    return {
+      total: rows.length,
+      data: rows.map((row) => ({
+        id: row.id,
+        userName: row.userName,
+        userRole: row.userRole,
+        audience: row.audience,
+        scopeLabel: row.scopeLabel,
+        question: row.question,
+        createdAt: row.createdAt,
+      })),
+    };
+  }
+
   async streamReply(args: {
     userId: string;
+    role: Role;
+    organizationIds: string[] | undefined;
     scope: AiChatScope;
     message: string;
     onChunk: (chunk: string) => void;
   }) {
-    const ctx =
-      args.scope === 'admin'
-        ? await this.getAdminContextLine(args.userId)
-        : await this.getMobileContextLine(args.userId);
-    const systemPrompt =
-      args.scope === 'admin'
-        ? "Sen ElektroLearn admin panelidagi o'zbekcha AI yordamchisan. Moderator/superadmin filial statistikasi, xodimlar aktivligi, kunlik plan natijasi va xato savollar bo'yicha qisqa, aniq javob ber. Hech qachon UUID/token ko'rsatma. Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber."
-        : "Sen o'zbekcha gapiradigan o'quv yordamchisan. Foydalanuvchi progressi, xatolar, daraja va imtihon holati bo'yicha yordam ber. Hech qachon ID/UUID ko'rsatma. Kontekst yetmasa 1 ta aniqlashtiruvchi savol ber.";
-    const userPrompt = `${ctx}\nSAVOL: ${args.message}`;
+    if (!hasGroqConfig()) {
+      throw new Error('Groq kaliti yo‘q');
+    }
 
-    await this.streamWithFallback({
-      system: systemPrompt,
-      user: userPrompt,
-      onChunk: args.onChunk,
-    });
-  }
-
-  private async streamWithFallback(args: {
-    system: string;
-    user: string;
-    onChunk: (chunk: string) => void;
-  }) {
-    const errors: string[] = [];
-
-    if (AI_PROVIDER === 'ollama') {
-      await this.streamFromOllama(args);
+    if (args.scope === 'mobile') {
+      const ctx = await this.getMobileContextLine(args.userId);
+      await this.streamFromGroq({
+        system:
+          "Sen o'zbekcha gapiradigan ElektroLearn o'quv yordamchisan. Faqat berilgan kontekst bo'yicha javob ber. Kod, server va boshqa mavzularga kirma. ID ko'rsatma.",
+        user: `${ctx}\nSAVOL: ${args.message}`,
+        onChunk: args.onChunk,
+        maxTokens: 500,
+      });
       return;
     }
 
-    if (AI_PROVIDER === 'openrouter' || AI_PROVIDER === 'auto') {
-      try {
-        await this.streamFromOpenRouter(args);
-        return;
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        errors.push(`OpenRouter: ${msg}`);
-        if (AI_PROVIDER === 'openrouter') throw error;
-      }
+    const access = await this.describeAccess(
+      args.userId,
+      args.role,
+      args.organizationIds,
+    );
+    const verdict = await this.classifyQuestion(args.message, access.scopeLabel);
+    if (verdict === 'OUT') {
+      await this.recordOutOfScope(args.userId, args.role, access, args.message);
+      const note =
+        'Bu savol ElektroLearn doirasida emas. Platforma, filial va xavfsizlik yozuvlaridan tashqari mavzuga javob berilmaydi. Savol markaziy apparat jurnaliga yozildi.';
+      args.onChunk(note);
+      return;
     }
 
-    try {
-      await this.streamFromOllama(args);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      errors.push(`Ollama: ${msg}`);
-      throw new Error(errors.join(' | '));
-    }
+    const ctx = await this.getAdminContext(access);
+    await this.streamFromGroq({
+      system: [
+        "Sen ElektroLearn tahlilchisisan. O'zbek tilida, qisqa va aniq yoz.",
+        "Faqat KONTEKST dagi raqam va faktlardan foydalan. Yo'q narsani o'ylab topma.",
+        'Boshqa tashkilot, dastur kodi, server tuzilishi, token yoki tibbiy xulosa haqida gapirma.',
+        'Raqamlarni o‘zgartirma. Javobni 2–6 qisqa bandga bo‘l.',
+        `Doirang: ${access.scopeLabel}.`,
+      ].join(' '),
+      user: `${ctx}\nSAVOL: ${args.message}`,
+      onChunk: args.onChunk,
+        maxTokens: 1200,
+    });
   }
 
-  private async streamFromOllama(args: {
+  private async classifyQuestion(message: string, scopeLabel: string) {
+    if (
+      /```|nestjs|typescript|javascript|react\b|sql\b|github|dastur kod|manba kod|qanday yozilgan|algoritm/i.test(
+        message,
+      )
+    ) {
+      return 'OUT' as const;
+    }
+    const text = await this.completeGroq({
+      system: [
+        "Sen ElektroLearn savol filtrisan. Faqat bitta so'z yoz: IN yoki OUT.",
+        "IN — savol shu platforma ichida: kunlik reja, xodim, imtihon, xato savol, reyting, xavfsizlik yozuvi, moderator ishi. Va faqat berilgan tashkilotlar haqida.",
+        "OUT — kod, dasturlash, SQL, server, umumiy bilim, yangilik, shaxsiy maslahat, yoki ro'yxatda yo'q tashkilot.",
+        `Tashkilotlar: ${scopeLabel}`,
+      ].join(' '),
+      user: message.slice(0, 2000),
+      maxTokens: 24,
+    });
+    return /\bOUT\b/i.test(text) ? ('OUT' as const) : ('IN' as const);
+  }
+
+  private async recordOutOfScope(
+    userId: string,
+    role: Role,
+    access: AiAccess,
+    question: string,
+  ) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    const name = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+    await this.outOfScopeRepo.save(
+      this.outOfScopeRepo.create({
+        userId,
+        userName: name || user?.email || 'Noma’lum',
+        userRole: role,
+        audience: access.audience,
+        scopeLabel: access.scopeLabel,
+        question: question.slice(0, 4000),
+      }),
+    );
+  }
+
+  private async completeGroq(args: {
     system: string;
     user: string;
-    onChunk: (chunk: string) => void;
+    maxTokens: number;
   }) {
-    const model = OLLAMA_MODEL;
-    const baseUrl = OLLAMA_BASE_URL;
-    const requestUrl = `${baseUrl.replace(/\/$/, '')}/api/chat`;
-
-    const controller = new AbortController();
-    const timeoutMs = OLLAMA_TIMEOUT_MS;
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-    let response: Response;
-    try {
-      response = await fetch(requestUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          stream: true,
-          messages: [
-            {
-              role: 'system',
-              content: args.system,
-            },
-            { role: 'user', content: args.user },
-          ],
-        }),
-      });
-    } catch (error) {
-      const details = this.formatFetchError(error);
-      this.logger.error(
-        `Ollama request failed. url=${requestUrl} model=${model} details=${details}`,
-      );
-      throw new Error(`Ollama ulanish xatosi: ${details}`);
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!response.ok || !response.body) {
+    const response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${groqApiKey()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        temperature: 0,
+        max_tokens: args.maxTokens,
+        reasoning_effort: 'low',
+        stream: false,
+        messages: [
+          { role: 'system', content: args.system },
+          { role: 'user', content: args.user },
+        ],
+      }),
+    });
+    if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new Error(`Ollama HTTP ${response.status}: ${text}`);
+      throw new Error(`Groq HTTP ${response.status}: ${text.slice(0, 180)}`);
     }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const parsed = JSON.parse(trimmed) as {
-          message?: { content?: string };
-        };
-        const chunk = parsed.message?.content ?? '';
-        if (chunk) args.onChunk(chunk);
-      }
-    }
-
-    if (buffer.trim()) {
-      const parsed = JSON.parse(buffer.trim()) as {
-        message?: { content?: string };
-      };
-      const chunk = parsed.message?.content ?? '';
-      if (chunk) args.onChunk(chunk);
-    }
+    const body = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return body.choices?.[0]?.message?.content ?? '';
   }
 
-  private async streamFromOpenRouter(args: {
+  private async streamFromGroq(args: {
     system: string;
     user: string;
     onChunk: (chunk: string) => void;
+    maxTokens: number;
   }) {
-    const baseUrl = 'https://openrouter.ai/api';
-    const apiKey = OPENROUTER_API_KEY;
-    const model = OPENROUTER_MODEL;
-    const timeoutMs = 120000;
-    const maxTokens = 512;
-    const requestUrl = `${baseUrl}/v1/chat/completions`;
-
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
+    const timeout = setTimeout(() => controller.abort(), 120_000);
     let response: Response;
     try {
-      response = await fetch(requestUrl, {
+      response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: `Bearer ${groqApiKey()}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': 'https://elektrolearn.uzbekistonmet.uz',
-          'X-Title': 'ElektroLearn',
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model,
+          model: GROQ_MODEL,
           stream: true,
           temperature: 0.2,
-          max_tokens: Number.isFinite(maxTokens) ? maxTokens : 256,
+          max_tokens: args.maxTokens,
+          reasoning_effort: 'low',
           messages: [
             { role: 'system', content: args.system },
             { role: 'user', content: args.user },
@@ -248,32 +319,25 @@ export class AiChatService {
         }),
       });
     } catch (error) {
-      const details = this.formatFetchError(error);
-      this.logger.error(
-        `OpenRouter request failed. url=${requestUrl} model=${model} details=${details}`,
-      );
-      throw new Error(`OpenRouter ulanish xatosi: ${details}`);
+      throw new Error(`Groq ulanish xatosi: ${this.formatFetchError(error)}`);
     } finally {
       clearTimeout(timeout);
     }
 
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => '');
-      throw new Error(`OpenRouter HTTP ${response.status}: ${text}`);
+      throw new Error(`Groq HTTP ${response.status}: ${text.slice(0, 180)}`);
     }
 
-    // OpenAI-style SSE stream: lines start with `data: {json}` and end with `data: [DONE]`.
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
-
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed.startsWith('data:')) continue;
@@ -286,7 +350,7 @@ export class AiChatService {
           const chunk = parsed.choices?.[0]?.delta?.content ?? '';
           if (chunk) args.onChunk(chunk);
         } catch {
-          // ignore parse errors on partial lines
+          // yarim qator
         }
       }
     }
@@ -399,71 +463,175 @@ export class AiChatService {
     return ctx;
   }
 
-  private async getAdminContextLine(userId: string) {
-    const key = `admin:${userId}`;
+  private async getAdminContext(access: AiAccess) {
+    const key = `admin:${access.audience}:${[...access.orgIds].sort().join(',')}`;
     const now = Date.now();
     const cached = this.ctxCache.get(key);
     if (cached && now - cached.at < this.ctxTtlMs) return cached.ctx;
 
-    const user = await this.userRepo.findOne({
-      where: { id: userId },
-      relations: ['organizations', 'organizations.organization'],
-    });
-    const org = user?.organizations?.[0]?.organization ?? null;
-    const orgId = org?.id;
-
-    if (!orgId) {
-      const ctx = 'CTX: scope=admin org=- role=moderator ma_lumot_yoq';
-      this.ctxCache.set(key, { at: now, ctx });
-      return ctx;
+    if (!access.orgIds.length) {
+      const empty = `KONTEKST: doira=${access.scopeLabel}. Bu doirada tashkilot biriktirilmagan.`;
+      this.ctxCache.set(key, { at: now, ctx: empty });
+      return empty;
     }
 
     const since = new Date();
     since.setDate(since.getDate() - 7);
+    const ids = access.orgIds;
+    const orgs = await this.orgRepo.find({
+      where: { id: In(ids) },
+      order: { name: 'ASC' },
+    });
 
-    const totalEmployeesRow = await this.userOrgRepo
-      .createQueryBuilder('uo')
-      .innerJoin('uo.user', 'u')
-      .innerJoin('uo.organization', 'org')
-      .where('org.id = :orgId', { orgId })
-      .andWhere('u.role = :role', { role: Role.USER })
-      .select('COUNT(*)::int', 'count')
-      .getRawOne<{ count: number }>();
-    const totalEmployees = totalEmployeesRow?.count ?? 0;
-
-    const quizTakers = await this.attemptRepo
-      .createQueryBuilder('a')
-      .select('COUNT(DISTINCT a.user_id)::int', 'count')
-      .where('a.organization_id = :orgId', { orgId })
-      .andWhere('a.answered_at >= :since', { since })
-      .getRawOne<{ count: number }>();
-
-    const wrongRows: Array<{ prompt: string; wrong: number }> =
+    const employees = await this.userOrgRepo.query(
+      `
+      SELECT uo."organizationId" AS org_id, COUNT(*)::int AS employees
+      FROM user_organizations uo
+      INNER JOIN users u ON u.id = uo."userId"
+      WHERE uo."organizationId" = ANY($1::uuid[])
+        AND u.role = 'USER'
+      GROUP BY uo."organizationId"
+      `,
+      [ids],
+    );
+    const activity = await this.attemptRepo.query(
+      `
+      SELECT a.organization_id AS org_id,
+        COUNT(DISTINCT a.user_id)::int AS people,
+        COUNT(*) FILTER (WHERE a.is_correct AND a.counts_for_xp)::int AS plan_correct,
+        COUNT(*) FILTER (WHERE a.is_correct = false)::int AS wrong
+      FROM user_question_attempts a
+      WHERE a.organization_id = ANY($1::uuid[])
+        AND a.answered_at >= $2
+      GROUP BY a.organization_id
+      `,
+      [ids, since],
+    );
+    const wrongs: Array<{ prompt: string; wrong: number }> =
       await this.attemptRepo.query(
         `
         SELECT q.prompt AS prompt, COUNT(*)::int AS wrong
         FROM user_question_attempts a
         JOIN questions q ON q.id = a.question_id
-        WHERE a.organization_id = $1
+        WHERE a.organization_id = ANY($1::uuid[])
           AND a.is_correct = false
           AND a.answered_at >= $2
         GROUP BY q.id, q.prompt
         ORDER BY wrong DESC
-        LIMIT 5
+        LIMIT 8
         `,
-        [orgId, since],
+        [ids, since],
       );
+    const risks: Array<{ title: string; total: number; overdue: number }> =
+      await this.orgRepo.query(
+        `
+        SELECT t.title_uz AS title,
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (
+            WHERE r.next_exam_date IS NOT NULL AND r.next_exam_date < CURRENT_DATE
+          )::int AS overdue
+        FROM employee_safety_records r
+        JOIN safety_record_types t ON t.id = r.record_type_id
+        WHERE r.organization_id = ANY($1::uuid[])
+          AND r.deleted_at IS NULL
+          AND r.archived_at IS NULL
+          AND r.is_latest = true
+        GROUP BY t.title_uz
+        ORDER BY total DESC
+        LIMIT 12
+        `,
+        [ids],
+      );
+    const struggling: Array<{
+      first: string;
+      last: string;
+      org: string;
+      wrong: number;
+    }> = await this.attemptRepo.query(
+      `
+      SELECT u.first_name AS first, u.last_name AS last, o.name AS org, COUNT(*)::int AS wrong
+      FROM user_question_attempts a
+      JOIN users u ON u.id = a.user_id
+      JOIN organizations o ON o.id = a.organization_id
+      WHERE a.organization_id = ANY($1::uuid[])
+        AND a.is_correct = false
+        AND a.answered_at >= $2
+      GROUP BY u.id, u.first_name, u.last_name, o.name
+      ORDER BY wrong DESC
+      LIMIT 8
+      `,
+      [ids, since],
+    );
 
-    const wrongPart = wrongRows.length
-      ? ` top_wrong=[${wrongRows
-          .map((r) => {
-            const p = (r.prompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 60);
-            return `"${p} (${r.wrong}x)"`;
+    const employeesByOrg = new Map(
+      employees.map((row: { org_id: string; employees: number }) => [
+        row.org_id,
+        row.employees,
+      ]),
+    );
+    const activityByOrg = new Map<
+      string,
+      { people: number; plan_correct: number; wrong: number }
+    >(
+      activity.map(
+        (row: {
+          org_id: string;
+          people: number;
+          plan_correct: number;
+          wrong: number;
+        }) => [row.org_id, row],
+      ),
+    );
+    const shown = orgs.slice(0, 30);
+    const orgLines = shown
+      .map((org) => {
+        const act = activityByOrg.get(org.id);
+        return `- ${org.name}: xodim ${employeesByOrg.get(org.id) ?? 0}, 7 kunda javob bergan ${act?.people ?? 0}, reja bo'yicha to'g'ri ${act?.plan_correct ?? 0}, xato ${act?.wrong ?? 0}`;
+      })
+      .join('\n');
+    const hidden =
+      orgs.length > shown.length
+        ? `\nYana ${orgs.length - shown.length} ta tashkilot bor, ular bu ro'yxatga sig'madi.`
+        : '';
+    const wrongLine = wrongs.length
+      ? wrongs
+          .map((row) => {
+            const prompt = (row.prompt ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+            return `- ${prompt} (${row.wrong} marta)`;
           })
-          .join(', ')}]`
-      : '';
+          .join('\n')
+      : '- yo\'q';
+    const riskLine = risks.length
+      ? risks
+          .map(
+            (row) =>
+              `- ${row.title}: faol yozuv ${row.total}, muddati o'tgan keyingi imtihon ${row.overdue}`,
+          )
+          .join('\n')
+      : '- yo\'q';
+    const peopleLine = struggling.length
+      ? struggling
+          .map((row) => {
+            const name = `${row.first ?? ''} ${row.last ?? ''}`.trim() || 'Xodim';
+            return `- ${name}, ${row.org}: ${row.wrong} ta xato`;
+          })
+          .join('\n')
+      : '- yo\'q';
 
-    const ctx = `CTX: scope=admin org="${org?.name ?? '-'}" employees=${totalEmployees} quiz_takers_7d=${quizTakers?.count ?? 0}${wrongPart}`;
+    const ctx = [
+      `KONTEKST: doira=${access.scopeLabel}. Auditoriya=${access.audience}. Oxirgi 7 kun.`,
+      'Tashkilotlar:',
+      orgLines || '- yo\'q',
+      hidden,
+      'Eng ko\'p xato qilingan savollar:',
+      wrongLine,
+      'Xavfsizlik yozuvlari:',
+      riskLine,
+      'Ko\'proq xato qilayotgan xodimlar:',
+      peopleLine,
+    ]
+      .filter((line) => line !== '')
+      .join('\n');
     this.ctxCache.set(key, { at: now, ctx });
     return ctx;
   }
