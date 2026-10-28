@@ -45,6 +45,9 @@ export class AiChatService {
 
   private readonly ctxCache = new Map<string, { at: number; ctx: string }>();
   private readonly ctxTtlMs = 60_000;
+  private readonly statsCache = new Map<string, { at: number; text: string }>();
+  private readonly statsFlight = new Map<string, Promise<string>>();
+  private readonly statsTtlMs = 5 * 60_000;
 
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
@@ -223,6 +226,7 @@ export class AiChatService {
     message: string;
     sessionId?: string;
     onSession?: (session: { id: string; title: string }) => void;
+    onStatus?: (text: string) => void;
     onChunk: (chunk: string) => void;
   }) {
     if (!hasGroqConfig()) {
@@ -264,8 +268,17 @@ export class AiChatService {
         return;
       }
 
-      const ctx = await this.getAdminContext(access);
-      const docs = relevantDocumentContext(args.message);
+      const wantsFigures = this.needsFigures(args.message);
+      if (wantsFigures) args.onStatus?.('Raqamlar yig‘ilmoqda.');
+      const [ctx, stats] = await Promise.all([
+        this.getAdminContext(access),
+        wantsFigures
+          ? this.reportLines(access.orgIds, args.message)
+          : Promise.resolve(''),
+      ]);
+      const docs = this.needsDocuments(args.message)
+        ? relevantDocumentContext(args.message)
+        : '';
       let answer = '';
       await this.streamFromGroq({
         system: [
@@ -277,13 +290,14 @@ export class AiChatService {
           `Doirang: ${access.scopeLabel}.`,
         ].join(' '),
         history,
-        user: `${ctx}\n${docs}\nSAVOL: ${args.message}`,
+        user: [ctx, stats, docs, `SAVOL: ${args.message}`].filter(Boolean).join('\n'),
         onChunk: (chunk) => {
           answer += chunk;
           args.onChunk(chunk);
         },
         maxTokens: 1200,
       });
+      if (!answer.trim()) throw new Error('Groq bo‘sh javob');
       await this.rememberTurn(session, args.message, answer);
     } catch (error) {
       if (created) {
@@ -382,8 +396,25 @@ export class AiChatService {
     onChunk: (chunk: string) => void;
     maxTokens: number;
   }) {
+    try {
+      await this.readGroqStream(args);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (!msg.includes('Groq HTTP 429')) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 8000));
+      await this.readGroqStream(args);
+    }
+  }
+
+  private async readGroqStream(args: {
+    system: string;
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+    user: string;
+    onChunk: (chunk: string) => void;
+    maxTokens: number;
+  }) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
+    const timeout = setTimeout(() => controller.abort(), 45_000);
     let response: Response;
     try {
       response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
@@ -409,41 +440,41 @@ export class AiChatService {
           ],
         }),
       });
+      if (!response.ok || !response.body) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Groq HTTP ${response.status}: ${text.slice(0, 180)}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith('data:')) continue;
+          const data = trimmed.slice('data:'.length).trim();
+          if (!data || data === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(data) as {
+              choices?: Array<{ delta?: { content?: string } }>;
+            };
+            const chunk = parsed.choices?.[0]?.delta?.content ?? '';
+            if (chunk) args.onChunk(chunk);
+          } catch {
+            // yarim qator
+          }
+        }
+      }
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Groq HTTP')) throw error;
       throw new Error(`Groq ulanish xatosi: ${this.formatFetchError(error)}`);
     } finally {
       clearTimeout(timeout);
-    }
-
-    if (!response.ok || !response.body) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`Groq HTTP ${response.status}: ${text.slice(0, 180)}`);
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const data = trimmed.slice('data:'.length).trim();
-        if (!data || data === '[DONE]') continue;
-        try {
-          const parsed = JSON.parse(data) as {
-            choices?: Array<{ delta?: { content?: string } }>;
-          };
-          const chunk = parsed.choices?.[0]?.delta?.content ?? '';
-          if (chunk) args.onChunk(chunk);
-        } catch {
-          // yarim qator
-        }
-      }
     }
   }
 
@@ -673,7 +704,7 @@ export class AiChatService {
         }) => [row.org_id, row],
       ),
     );
-    const shown = orgs.slice(0, 30);
+    const shown = orgs.slice(0, 12);
     const orgLines = shown
       .map((org) => {
         const act = activityByOrg.get(org.id);
@@ -709,8 +740,6 @@ export class AiChatService {
           .join('\n')
       : '- yo\'q';
 
-    const stats = await this.reportLines(ids);
-
     const ctx = [
       `KONTEKST: doira=${access.scopeLabel}. Auditoriya=${access.audience}. Oxirgi 7 kun.`,
       'Tashkilotlar:',
@@ -722,7 +751,6 @@ export class AiChatService {
       riskLine,
       'Ko\'proq xato qilayotgan xodimlar:',
       peopleLine,
-      stats,
     ]
       .filter((line) => line !== '')
       .join('\n');
@@ -730,24 +758,38 @@ export class AiChatService {
     return ctx;
   }
 
-  private async reportLines(orgIds: string[]) {
+  private needsFigures(message: string) {
+    return /reyting|hisobot|statistika|foiz|reja|bugun|oylik|xato|xavfsizlik|xodim/i.test(
+      message,
+    );
+  }
+
+  private needsDocuments(message: string) {
+    return /608|609|qaror|qoida|tashakkur|xudayarov|nazirov|ekspluat|bilim sinov|stajirovka|instruktaj/i.test(
+      message,
+    );
+  }
+
+  private reportLines(orgIds: string[], message: string) {
+    const kind = /oylik|hisobot/i.test(message) ? 'month' : 'day';
+    const key = `${kind}:${[...orgIds].sort().join(',')}`;
+    const hit = this.statsCache.get(key);
+    if (hit && Date.now() - hit.at < this.statsTtlMs) return Promise.resolve(hit.text);
+    const existing = this.statsFlight.get(key);
+    if (existing) return existing;
+    const flight = this.buildReportLines(orgIds, kind === 'month')
+      .then((text) => {
+        this.statsCache.set(key, { at: Date.now(), text });
+        return text;
+      })
+      .finally(() => this.statsFlight.delete(key));
+    this.statsFlight.set(key, flight);
+    return flight;
+  }
+
+  private async buildReportLines(orgIds: string[], includeMonth: boolean) {
     try {
-      const ranking = await this.analytics.getBranchRanking(undefined, orgIds);
-      const rankLines = ranking.branches.slice(0, 15).map(
-        (row) =>
-          `- ${row.rank}. ${row.orgName}: ${row.percent}% (reja ${row.plan}, bajarilgan ${row.completed}, xodim ${row.totalEmployees})`,
-      );
-      const comparison = await this.analytics.getBranchComparison(undefined, orgIds);
-      const monthLines = comparison.branches.slice(0, 15).map(
-        (row) =>
-          `- ${row.rank}. ${row.orgName}: oylik ${row.averageMonthlyPercent}%, bajarilgan kun ${row.completedDays}, xodim ${row.totalEmployees}`,
-      );
-      const reports: Array<{
-        org_name: string;
-        month: string;
-        employee_count: number;
-        integrity_status: string;
-      }> = await this.orgRepo.query(
+      const reportsPromise = this.orgRepo.query(
         `
         SELECT DISTINCT ON (organization_id)
           org_name, month, employee_count, integrity_status
@@ -757,7 +799,30 @@ export class AiChatService {
         `,
         [orgIds],
       );
-      const reportLines = reports.slice(0, 15).map((row) => {
+      const [ranking, comparison, reports] = await Promise.all([
+        this.analytics.getBranchRanking(undefined, orgIds),
+        includeMonth
+          ? this.analytics.getBranchComparison(undefined, orgIds)
+          : Promise.resolve(null),
+        reportsPromise,
+      ]);
+      const rankLines = ranking.branches.slice(0, 8).map(
+        (row) =>
+          `- ${row.rank}. ${row.orgName}: ${row.percent}% (reja ${row.plan}, bajarilgan ${row.completed}, xodim ${row.totalEmployees})`,
+      );
+      const monthLines = comparison
+        ? comparison.branches.slice(0, 8).map(
+            (row) =>
+              `- ${row.rank}. ${row.orgName}: oylik ${row.averageMonthlyPercent}%, bajarilgan kun ${row.completedDays}, xodim ${row.totalEmployees}`,
+          )
+        : [];
+      const typedReports = reports as Array<{
+        org_name: string;
+        month: string;
+        employee_count: number;
+        integrity_status: string;
+      }>;
+      const reportLines = typedReports.slice(0, 8).map((row) => {
         const state =
           row.integrity_status === 'ok'
             ? 'tasdiqlangan'
@@ -769,11 +834,14 @@ export class AiChatService {
       return [
         `Bugungi reja reytingi (${ranking.planDate}):`,
         rankLines.join('\n') || '- yo\'q',
-        `Oylik hisobot taqqoslash (${comparison.month}):`,
-        monthLines.join('\n') || '- yo\'q',
+        comparison
+          ? `Oylik hisobot taqqoslash (${comparison.month}):\n${monthLines.join('\n') || '- yo\'q'}`
+          : '',
         'Yuklangan hisobotlar:',
         reportLines.join('\n') || '- yo\'q',
-      ].join('\n');
+      ]
+        .filter(Boolean)
+        .join('\n');
     } catch (error) {
       this.logger.warn(
         `AI statistika konteksti tushmadi: ${
@@ -807,11 +875,11 @@ export class AiChatService {
     const rows = await this.messageRepo.find({
       where: { sessionId },
       order: { createdAt: 'DESC' },
-      take: 12,
+      take: 6,
     });
     return rows.reverse().map((row) => ({
       role: row.role,
-      content: row.content.slice(0, 1500),
+      content: row.content.slice(0, 500),
     }));
   }
 

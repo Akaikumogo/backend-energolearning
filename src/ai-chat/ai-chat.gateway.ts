@@ -118,6 +118,9 @@ export class AiChatGateway
         onSession: (session) => {
           client.emit('session_ready', session);
         },
+        onStatus: (text) => {
+          client.emit('assistant_status', { text });
+        },
         onChunk: (chunk) => {
           const safe = this.scrubIds(chunk);
           fullResponse += safe;
@@ -148,6 +151,9 @@ export class AiChatGateway
 
   private formatUserError(error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes('Groq HTTP 429')) {
+      return 'Javob limiti to‘ldi. Bir daqiqadan keyin yana yuboring.';
+    }
     if (msg.includes('Groq HTTP 401') || msg.includes('invalid_api_key')) {
       return 'AI vaqtincha javob bera olmadi. Birozdan keyin qayta urinib ko‘ring.';
     }

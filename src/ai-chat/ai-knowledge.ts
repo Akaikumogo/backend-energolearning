@@ -85,7 +85,7 @@ export function relevantDocumentContext(question: string) {
     })
     .filter((row) => row.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
+    .slice(0, 3);
 
   const picked = ranked.length
     ? ranked
@@ -99,6 +99,6 @@ export function relevantDocumentContext(question: string) {
     .join('\n\n');
   return [
     'HUJJATLAR: 608-son (xodimlar bilan ishlash), 609-son (texnik ekspluatatsiya), tashakkurnoma (Xudayarov M.B.). Matn kirillcha bo‘lishi mumkin. Javobni lotincha o‘zbekchada ber.',
-    body.slice(0, 7000),
+    body.slice(0, 2200),
   ].join('\n');
 }
