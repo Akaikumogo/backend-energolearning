@@ -29,7 +29,8 @@ export class UserQuestionAttempt {
   @Column({ type: 'uuid', name: 'organization_id' })
   organizationId: string;
 
-  @ManyToOne(() => Question, { onDelete: 'CASCADE' })
+  /** Savol o‘chsa ham javob qoladi, chunki ball shu qatordan sanaladi. */
+  @ManyToOne(() => Question, { createForeignKeyConstraints: false })
   @JoinColumn({ name: 'question_id' })
   question: Question;
 

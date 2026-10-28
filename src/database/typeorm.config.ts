@@ -91,6 +91,7 @@ import { TelegramNews1759200000000 } from './migrations/0050-telegram-news';
 import { PlanCalendarFromDbStart1759300000000 } from './migrations/0051-plan-calendar-from-db-start';
 import { TelegramNewsPosts1759400000000 } from './migrations/0052-telegram-news-posts';
 import { ProctorExam1759500000000 } from './migrations/0053-proctor-exam';
+import { KeepAttemptXpWhenQuestionDeleted1759600000000 } from './migrations/0054-keep-attempt-xp-when-question-deleted';
 import {
   ProctorAnswer,
   ProctorAttempt,
@@ -263,6 +264,7 @@ export const AppDataSource = new DataSource({
     PlanCalendarFromDbStart1759300000000,
     TelegramNewsPosts1759400000000,
     ProctorExam1759500000000,
+    KeepAttemptXpWhenQuestionDeleted1759600000000,
   ],
   migrationsTableName: '_migrations',
   synchronize: false,
